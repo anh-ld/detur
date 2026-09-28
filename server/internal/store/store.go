@@ -172,6 +172,15 @@ func (s *Store) GetLinkByKey(appID, key string) (Link, error) {
 	))
 }
 
+// GetLinkByKeyGlobal resolves a short key across all apps (v1 single-domain
+// serving: the same key may exist under two apps — the first match wins).
+func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
+	return scanLink(s.db.QueryRow(
+		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes
+		 FROM links WHERE key = ? ORDER BY created_at, rowid`, key,
+	))
+}
+
 // GetLink returns the link by id.
 func (s *Store) GetLink(id string) (Link, error) {
 	return scanLink(s.db.QueryRow(

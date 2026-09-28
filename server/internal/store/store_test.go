@@ -220,6 +220,31 @@ func TestRecordEventAndSettings(t *testing.T) {
 	}
 }
 
+// TestGetLinkByKeyGlobal resolves a short key across all apps (v1
+// single-domain serving): the same key may exist under two apps; the first
+// match wins (U4).
+func TestGetLinkByKeyGlobal(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	app2, err := s.CreateApp("second app", "key-2")
+	if err != nil {
+		t.Fatalf("CreateApp: %v", err)
+	}
+	if _, err := s.CreateLink(Link{AppID: app2.ID, Key: "abc", URL: "https://second.example/"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	got, err := s.GetLinkByKeyGlobal("abc")
+	if err != nil {
+		t.Fatalf("GetLinkByKeyGlobal: %v", err)
+	}
+	if got.AppID != app.ID || got.ID != link.ID {
+		t.Errorf("GetLinkByKeyGlobal = %+v; want the first-created app's link %s", got, link.ID)
+	}
+	if _, err := s.GetLinkByKeyGlobal("nope"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetLinkByKeyGlobal(nope) = %v; want ErrNotFound", err)
+	}
+}
+
 func TestLinkKeyConflict(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
