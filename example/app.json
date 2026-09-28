@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "detur-example",
+    "slug": "detur-example",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "detur-example",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.detur"
+    },
+    "android": {
+      "package": "com.example.detur"
+    },
+    "plugins": ["expo-router"]
+  }
+}

@@ -1,0 +1,130 @@
+diff --git a/node_modules/@swmansion/react-native-detour/lib/module/analytics/api/events.js b/node_modules/@swmansion/react-native-detour/lib/module/analytics/api/events.js
+index 6837e53..347e77d 100644
+--- a/node_modules/@swmansion/react-native-detour/lib/module/analytics/api/events.js
++++ b/node_modules/@swmansion/react-native-detour/lib/module/analytics/api/events.js
+@@ -2,7 +2,7 @@
+ 
+ import { Platform } from "react-native";
+ import { SDK_HEADER_VALUE } from "../../version.js";
+-const EVENT_API_URL = "https://godetour.dev/api/analytics/event";
++const EVENT_API_URL = "http://localhost:8080/api/analytics/event";
+ export const sendEvent = async ({
+   apiKey,
+   appID,
+diff --git a/node_modules/@swmansion/react-native-detour/lib/module/analytics/api/retention.js b/node_modules/@swmansion/react-native-detour/lib/module/analytics/api/retention.js
+index e141d9a..c55440a 100644
+--- a/node_modules/@swmansion/react-native-detour/lib/module/analytics/api/retention.js
++++ b/node_modules/@swmansion/react-native-detour/lib/module/analytics/api/retention.js
+@@ -2,7 +2,7 @@
+ 
+ import { Platform } from "react-native";
+ import { SDK_HEADER_VALUE } from "../../version.js";
+-const RETENTION_API_URL = "https://godetour.dev/api/analytics/retention";
++const RETENTION_API_URL = "http://localhost:8080/api/analytics/retention";
+ export const sendRetentionEvent = async ({
+   apiKey,
+   appID,
+diff --git a/node_modules/@swmansion/react-native-detour/lib/module/links/api/getDeferredLink.js b/node_modules/@swmansion/react-native-detour/lib/module/links/api/getDeferredLink.js
+index da4301f..39c614a 100644
+--- a/node_modules/@swmansion/react-native-detour/lib/module/links/api/getDeferredLink.js
++++ b/node_modules/@swmansion/react-native-detour/lib/module/links/api/getDeferredLink.js
+@@ -3,7 +3,7 @@
+ import * as Application from "expo-application";
+ import { SDK_HEADER_VALUE } from "../../version.js";
+ import { getDeterministicFingerprint, getProbabilisticFingerprint } from "../utils/fingerprint.js";
+-const API_URL = "https://godetour.dev/api/link/match-link";
++const API_URL = "http://localhost:8080/api/link/match-link";
+ const sendFingerprint = async ({
+   API_KEY,
+   appID,
+diff --git a/node_modules/@swmansion/react-native-detour/lib/module/links/api/resolveShortLink.js b/node_modules/@swmansion/react-native-detour/lib/module/links/api/resolveShortLink.js
+index 2fcd8b5..d4b817c 100644
+--- a/node_modules/@swmansion/react-native-detour/lib/module/links/api/resolveShortLink.js
++++ b/node_modules/@swmansion/react-native-detour/lib/module/links/api/resolveShortLink.js
+@@ -1,7 +1,7 @@
+ "use strict";
+ 
+ import { SDK_HEADER_VALUE } from "../../version.js";
+-const API_URL = "https://godetour.dev/api/link/resolve-short";
++const API_URL = "http://localhost:8080/api/link/resolve-short";
+ export const resolveShortLink = async ({
+   apiKey: API_KEY,
+   appID,
+diff --git a/node_modules/@swmansion/react-native-detour/lib/module/links/api/sendUniversalLinkClick.js b/node_modules/@swmansion/react-native-detour/lib/module/links/api/sendUniversalLinkClick.js
+index f1ca2e1..c0a7ee5 100644
+--- a/node_modules/@swmansion/react-native-detour/lib/module/links/api/sendUniversalLinkClick.js
++++ b/node_modules/@swmansion/react-native-detour/lib/module/links/api/sendUniversalLinkClick.js
+@@ -4,7 +4,7 @@ import { Platform } from "react-native";
+ import Constants from "expo-constants";
+ import { SDK_HEADER_VALUE } from "../../version.js";
+ import { getSyncDeviceInfo } from "../utils/deviceInfo.js";
+-const API_URL = "https://godetour.dev/api/link/universal-link-click";
++const API_URL = "http://localhost:8080/api/link/universal-link-click";
+ const resolvePlatform = () => Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : "unknown";
+ const extractParams = url => {
+   try {
+diff --git a/node_modules/@swmansion/react-native-detour/src/analytics/api/events.ts b/node_modules/@swmansion/react-native-detour/src/analytics/api/events.ts
+index 854df78..de75adf 100644
+--- a/node_modules/@swmansion/react-native-detour/src/analytics/api/events.ts
++++ b/node_modules/@swmansion/react-native-detour/src/analytics/api/events.ts
+@@ -3,7 +3,7 @@ import { Platform } from "react-native";
+ import { SDK_HEADER_VALUE } from "../../version";
+ import type { DetourEvent } from "../types";
+ 
+-const EVENT_API_URL = "https://godetour.dev/api/analytics/event";
++const EVENT_API_URL = "http://localhost:8080/api/analytics/event";
+ 
+ export const sendEvent = async ({
+   apiKey,
+diff --git a/node_modules/@swmansion/react-native-detour/src/analytics/api/retention.ts b/node_modules/@swmansion/react-native-detour/src/analytics/api/retention.ts
+index 927b81c..1a53ea4 100644
+--- a/node_modules/@swmansion/react-native-detour/src/analytics/api/retention.ts
++++ b/node_modules/@swmansion/react-native-detour/src/analytics/api/retention.ts
+@@ -2,7 +2,7 @@ import { Platform } from "react-native";
+ 
+ import { SDK_HEADER_VALUE } from "../../version";
+ 
+-const RETENTION_API_URL = "https://godetour.dev/api/analytics/retention";
++const RETENTION_API_URL = "http://localhost:8080/api/analytics/retention";
+ 
+ export const sendRetentionEvent = async ({
+   apiKey,
+diff --git a/node_modules/@swmansion/react-native-detour/src/links/api/getDeferredLink.ts b/node_modules/@swmansion/react-native-detour/src/links/api/getDeferredLink.ts
+index 88a832f..b21ab47 100644
+--- a/node_modules/@swmansion/react-native-detour/src/links/api/getDeferredLink.ts
++++ b/node_modules/@swmansion/react-native-detour/src/links/api/getDeferredLink.ts
+@@ -9,7 +9,7 @@ import {
+   getProbabilisticFingerprint,
+ } from "../utils/fingerprint";
+ 
+-const API_URL = "https://godetour.dev/api/link/match-link";
++const API_URL = "http://localhost:8080/api/link/match-link";
+ 
+ const sendFingerprint = async ({
+   API_KEY,
+diff --git a/node_modules/@swmansion/react-native-detour/src/links/api/resolveShortLink.ts b/node_modules/@swmansion/react-native-detour/src/links/api/resolveShortLink.ts
+index 27c6c56..abd7167 100644
+--- a/node_modules/@swmansion/react-native-detour/src/links/api/resolveShortLink.ts
++++ b/node_modules/@swmansion/react-native-detour/src/links/api/resolveShortLink.ts
+@@ -1,7 +1,7 @@
+ import { SDK_HEADER_VALUE } from "../../version";
+ import type { RequiredConfig } from "../types";
+ 
+-const API_URL = "https://godetour.dev/api/link/resolve-short";
++const API_URL = "http://localhost:8080/api/link/resolve-short";
+ 
+ export type ResolveShortLinkResponse = {
+   link: string;
+diff --git a/node_modules/@swmansion/react-native-detour/src/links/api/sendUniversalLinkClick.ts b/node_modules/@swmansion/react-native-detour/src/links/api/sendUniversalLinkClick.ts
+index a4a227a..e2a773b 100644
+--- a/node_modules/@swmansion/react-native-detour/src/links/api/sendUniversalLinkClick.ts
++++ b/node_modules/@swmansion/react-native-detour/src/links/api/sendUniversalLinkClick.ts
+@@ -6,7 +6,7 @@ import { SDK_HEADER_VALUE } from "../../version";
+ import type { RequiredConfig } from "../types";
+ import { getSyncDeviceInfo } from "../utils/deviceInfo";
+ 
+-const API_URL = "https://godetour.dev/api/link/universal-link-click";
++const API_URL = "http://localhost:8080/api/link/universal-link-click";
+ 
+ type UniversalLinkClickResponseBody = {
+   allowed?: boolean;
