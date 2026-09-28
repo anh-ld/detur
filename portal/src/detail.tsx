@@ -20,8 +20,8 @@ const emptyDraft = (): LinkDraft => ({
   ios: '',
   android: '',
   fallbackUrl: '',
-  threshold: '850',
-  windowMinutes: '15',
+  threshold: '',
+  windowMinutes: '',
 });
 
 const draftFrom = (l: Link): LinkDraft => ({
@@ -30,8 +30,8 @@ const draftFrom = (l: Link): LinkDraft => ({
   ios: l.ios,
   android: l.android,
   fallbackUrl: l.fallbackUrl,
-  threshold: String(l.threshold),
-  windowMinutes: String(l.windowMinutes),
+  threshold: l.threshold ? String(l.threshold) : '',
+  windowMinutes: l.windowMinutes ? String(l.windowMinutes) : '',
 });
 
 export function DetailPage({ id }: { id: string }) {
@@ -142,8 +142,8 @@ export function DetailPage({ id }: { id: string }) {
                 <td class="hint">{l.ios || '—'}</td>
                 <td class="hint">{l.android || '—'}</td>
                 <td class="hint">{l.fallbackUrl || '—'}</td>
-                <td>{l.threshold}</td>
-                <td>{l.windowMinutes}</td>
+                <td>{l.threshold || 'global'}</td>
+                <td>{l.windowMinutes || 'global'}</td>
                 <td class="actions">
                   <LinkDialog
                     key={'edit' + l.id}
@@ -186,13 +186,13 @@ function LinkDialog({
 
   const save = async () => {
     setErr('');
-    const threshold = Number(draft.threshold);
-    const windowMinutes = Number(draft.windowMinutes);
+    const threshold = draft.threshold === '' ? 0 : Number(draft.threshold);
+    const windowMinutes = draft.windowMinutes === '' ? 0 : Number(draft.windowMinutes);
     if (!draft.key.trim() || !draft.url.trim()) {
       setErr('key and url are required');
       return;
     }
-    if (!Number.isFinite(threshold) || !Number.isFinite(windowMinutes)) {
+    if ((draft.threshold !== '' && !Number.isFinite(threshold)) || (draft.windowMinutes !== '' && !Number.isFinite(windowMinutes))) {
       setErr('threshold and window must be numbers');
       return;
     }
@@ -273,6 +273,7 @@ function LinkDialog({
                 type="number"
                 value={draft.threshold}
                 onInput={(e) => setDraft({ ...draft, threshold: e.currentTarget.value })}
+                placeholder="Inherit global (850)"
               />
             </div>
             <div>
@@ -282,6 +283,7 @@ function LinkDialog({
                 type="number"
                 value={draft.windowMinutes}
                 onInput={(e) => setDraft({ ...draft, windowMinutes: e.currentTarget.value })}
+                placeholder="Inherit global (15)"
               />
             </div>
           </div>

@@ -152,17 +152,16 @@ func toLinkJSON(l store.Link) linkJSON {
 		Android: l.Android, FallbackURL: l.FallbackURL, Threshold: l.Threshold, WindowMinutes: l.WindowMinutes}
 }
 
-// linkBody is the portal link payload (create and update share it). Zero
-// numeric values fall back to the store default (create) or the stored value
-// (update).
+// linkBody is the portal link payload (create and update share it). Omitted
+// update fields stay unchanged; zero numeric values restore global matching.
 type linkBody struct {
-	Key           string `json:"key"`
-	URL           string `json:"url"`
-	IOS           string `json:"ios"`
-	Android       string `json:"android"`
-	FallbackURL   string `json:"fallbackUrl"`
-	Threshold     int    `json:"threshold"`
-	WindowMinutes int    `json:"windowMinutes"`
+	Key           string  `json:"key"`
+	URL           string  `json:"url"`
+	IOS           *string `json:"ios"`
+	Android       *string `json:"android"`
+	FallbackURL   *string `json:"fallbackUrl"`
+	Threshold     *int    `json:"threshold"`
+	WindowMinutes *int    `json:"windowMinutes"`
 }
 
 func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {
@@ -274,16 +273,27 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key must be 1-64 chars of [A-Za-z0-9_-]", http.StatusBadRequest)
 		return
 	}
-	if err := validateMatch(body.Threshold, body.WindowMinutes); err != nil {
+	threshold, window := 0, 0
+	if body.Threshold != nil {
+		threshold = *body.Threshold
+	}
+	if body.WindowMinutes != nil {
+		window = *body.WindowMinutes
+	}
+	if err := validateMatch(threshold, window); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	l, err := p.st.CreateLink(store.Link{
 		AppID: appID, Key: body.Key, URL: body.URL,
-		IOS: body.IOS, Android: body.Android, FallbackURL: body.FallbackURL,
-		Threshold: body.Threshold, WindowMinutes: body.WindowMinutes,
+		IOS: stringValue(body.IOS), Android: stringValue(body.Android), FallbackURL: stringValue(body.FallbackURL),
+		Threshold: threshold, WindowMinutes: window,
 	})
 	if err != nil {
+		if errors.Is(err, store.ErrKeyConflict) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		// The links.app_id FK rejects unknown apps; an absent app reads as
 		// not-found so the portal can tell the difference (no pre-check:
 		// the FK is the single source of truth).
@@ -313,14 +323,20 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 	if body.URL = strings.TrimSpace(body.URL); body.URL != "" {
 		l.URL = body.URL
 	}
-	l.IOS = body.IOS // empty clears the stored value (nullable columns)
-	l.Android = body.Android
-	l.FallbackURL = body.FallbackURL
-	if body.Threshold != 0 { // absent/zero keeps the stored value
-		l.Threshold = body.Threshold
+	if body.IOS != nil {
+		l.IOS = *body.IOS
 	}
-	if body.WindowMinutes != 0 {
-		l.WindowMinutes = body.WindowMinutes
+	if body.Android != nil {
+		l.Android = *body.Android
+	}
+	if body.FallbackURL != nil {
+		l.FallbackURL = *body.FallbackURL
+	}
+	if body.Threshold != nil {
+		l.Threshold = *body.Threshold
+	}
+	if body.WindowMinutes != nil {
+		l.WindowMinutes = *body.WindowMinutes
 	}
 	if err := validateMatch(l.Threshold, l.WindowMinutes); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -372,14 +388,17 @@ func (p *portalServer) updateSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if body.Threshold != 0 {
-		if err := p.st.SetSetting(settingThreshold, strconv.Itoa(body.Threshold)); err != nil {
-			p.internal(w, err)
-			return
+	if body.Threshold != 0 || body.WindowMinutes != 0 {
+		var threshold, window *string
+		if body.Threshold != 0 {
+			v := strconv.Itoa(body.Threshold)
+			threshold = &v
 		}
-	}
-	if body.WindowMinutes != 0 {
-		if err := p.st.SetSetting(settingWindow, strconv.Itoa(body.WindowMinutes)); err != nil {
+		if body.WindowMinutes != 0 {
+			v := strconv.Itoa(body.WindowMinutes)
+			window = &v
+		}
+		if err := p.st.SetSettings(threshold, window); err != nil {
 			p.internal(w, err)
 			return
 		}
@@ -435,7 +454,18 @@ func (p *portalServer) storeErr(w http.ResponseWriter, err error) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	if errors.Is(err, store.ErrKeyConflict) {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	p.internal(w, err)
+}
+
+func stringValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (p *portalServer) internal(w http.ResponseWriter, err error) {

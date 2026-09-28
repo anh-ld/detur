@@ -206,8 +206,9 @@ func TestAppsWithoutDetailsOmitted(t *testing.T) {
 	if err := json.Unmarshal(b, &aasa); err != nil {
 		t.Fatalf("AASA invalid JSON: %v\n%s", err, b)
 	}
-	if len(aasa.AppLinks.Apps) != 0 || len(aasa.AppLinks.Details) != 0 {
-		t.Errorf("AASA = %+v; want empty apps and details", aasa.AppLinks)
+	if aasa.AppLinks.Apps == nil || aasa.AppLinks.Details == nil ||
+		len(aasa.AppLinks.Apps) != 0 || len(aasa.AppLinks.Details) != 0 {
+		t.Errorf("AASA = %+v; want empty arrays for apps and details", aasa.AppLinks)
 	}
 
 	resp, b = getWithHost(t, ts, "/.well-known/assetlinks.json", primaryDomain)

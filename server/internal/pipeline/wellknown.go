@@ -71,7 +71,7 @@ func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "internal error", http.StatusInternalServerError)
 		return
 	}
-	payload := aasaPayload{AppLinks: aasaAppLinks{Apps: []string{}}}
+	payload := aasaPayload{AppLinks: aasaAppLinks{Apps: []string{}, Details: []aasaDetails{}}}
 	for _, a := range apps {
 		if a.IOSAppID == "" {
 			continue

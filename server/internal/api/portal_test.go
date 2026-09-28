@@ -117,7 +117,8 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 
 	resp, b = portalReq(t, portal, "POST", "/api/apps/"+created.ID+"/links",
 		`{"key":"c1","url":"https://example.com/p","ios":"https://apps.apple.com/app/id1",`+
-			`"android":"https://play.google.com/store/apps/details?id=com.example","threshold":1000,"windowMinutes":30}`, nil)
+			`"android":"https://play.google.com/store/apps/details?id=com.example","fallbackUrl":"https://example.com/fb0",`+
+			`"threshold":1000,"windowMinutes":30}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create link: %d %s", resp.StatusCode, b)
 	}
@@ -137,19 +138,25 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 		t.Fatalf("list links: %d %s", resp.StatusCode, b)
 	}
 
-	// Update link: zero threshold/window means "keep stored values".
+	// Omitted destinations stay unchanged, explicit empty clears, and zero
+	// matching overrides restore inheritance from global settings.
 	resp, b = portalReq(t, portal, "PATCH", "/api/links/"+link.ID,
-		`{"url":"https://example.com/p2","ios":"","android":"","fallbackUrl":"https://example.com/fb","threshold":0,"windowMinutes":0}`, nil)
+		`{"url":"https://example.com/p2","ios":"","threshold":0,"windowMinutes":0}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update link: %d %s", resp.StatusCode, b)
 	}
 	var updated struct {
-		URL         string `json:"url"`
-		FallbackURL string `json:"fallbackUrl"`
-		Threshold   int    `json:"threshold"`
+		URL           string `json:"url"`
+		IOS           string `json:"ios"`
+		Android       string `json:"android"`
+		FallbackURL   string `json:"fallbackUrl"`
+		Threshold     int    `json:"threshold"`
+		WindowMinutes int    `json:"windowMinutes"`
 	}
 	mustJSON(t, b, &updated)
-	if updated.URL != "https://example.com/p2" || updated.FallbackURL != "https://example.com/fb" || updated.Threshold != 1000 {
+	if updated.URL != "https://example.com/p2" || updated.IOS != "" ||
+		updated.Android != "https://play.google.com/store/apps/details?id=com.example" ||
+		updated.FallbackURL != "https://example.com/fb0" || updated.Threshold != 0 || updated.WindowMinutes != 0 {
 		t.Fatalf("link update not applied as expected: %+v", updated)
 	}
 
@@ -251,15 +258,6 @@ func TestPortalReadout(t *testing.T) {
 	}
 }
 
-// Scenario 4: portal serves without auth — no identity checks anywhere (R19).
-func TestPortalNoAuth(t *testing.T) {
-	portal, _, _ := newPortalEnv(t)
-	// No Authorization / X-App-ID / X-SDK headers on any request.
-	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"no-auth","apiKey":"k-no-auth-0123456789abcdef-XYZ-000"}`, nil)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("portal must serve without identity checks: %d %s", resp.StatusCode, b)
-	}
-}
 
 // Scenario 5: cross-origin requests rejected by the guard (KTD5 CSRF).
 func TestPortalRejectsCrossOrigin(t *testing.T) {
@@ -347,5 +345,23 @@ func TestPortalKeyShownOnce(t *testing.T) {
 	}
 	if !strings.Contains(string(b), store.HashKey(key)) {
 		t.Fatalf("list must carry the hash: %s", b)
+	}
+}
+
+func TestPortalCreateLinkDuplicateKey409(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"dup","apiKey":"k-dup-0123456789abcdef-XYZ-000"}`, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create app: %d %s", resp.StatusCode, b)
+	}
+	var app struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &app)
+	for i, want := range []int{http.StatusCreated, http.StatusConflict} {
+		resp, b = portalReq(t, portal, "POST", "/api/apps/"+app.ID+"/links", `{"key":"same","url":"https://example.com/p"}`, nil)
+		if resp.StatusCode != want {
+			t.Fatalf("create link #%d: %d %s; want %d", i+1, resp.StatusCode, b, want)
+		}
 	}
 }

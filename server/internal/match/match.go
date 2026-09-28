@@ -79,14 +79,22 @@ func Match(st *store.Store, appID string, req Request, windowMinutes, threshold 
 
 	// R6: probabilistic — window scan per app (the match-link fingerprint
 	// carries no link identity, verified from SDK source).
-	since := time.Now().Add(-time.Duration(windowMinutes) * time.Minute)
-	clicks, err := st.ClicksSince(appID, since)
+	// R14: per-link thresholds/windows override the global defaults for
+	// clicks on that link; links without one use the global setting.
+	thresholdByLink, err := st.LinkThresholds(appID)
 	if err != nil {
 		return Result{}, err
 	}
-	// R14: per-link thresholds override the global default for clicks on
-	// that link; links without one use the global setting.
-	thresholdByLink, err := st.LinkThresholds(appID)
+	windowByLink, err := st.LinkWindows(appID)
+	if err != nil {
+		return Result{}, err
+	}
+	lookback := windowMinutes
+	for _, w := range windowByLink {
+		lookback = max(lookback, w)
+	}
+	now := time.Now()
+	clicks, err := st.ClicksSince(appID, now.Add(-time.Duration(min(lookback, MaxWindow))*time.Minute))
 	if err != nil {
 		return Result{}, err
 	}
@@ -96,11 +104,18 @@ func Match(st *store.Store, appID string, req Request, windowMinutes, threshold 
 	}
 	best, bestClick := -1, store.Click{}
 	for _, c := range clicks { // newest first; strict > keeps the newer click on ties
-		if s := Score(c, fp, req.IP); s > best {
+		linkWindow := windowByLink[c.LinkID]
+		if linkWindow == 0 {
+			linkWindow = windowMinutes
+		}
+		if c.CreatedAt.Before(now.Add(-time.Duration(linkWindow) * time.Minute)) {
+			continue
+		}
+		if s := Score(c, fp, req.IP); s >= thresholdFor(c, thresholdByLink, threshold) && s > best {
 			best, bestClick = s, c
 		}
 	}
-	if best >= thresholdFor(bestClick, thresholdByLink, threshold) {
+	if best >= 0 {
 		return Result{Matched: true, Click: bestClick, Destination: bestClick.Destination}, nil
 	}
 	return Result{}, nil

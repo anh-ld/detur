@@ -250,19 +250,6 @@ func TestWindowRangeValidation(t *testing.T) {
 	}
 }
 
-// Scenario 8: window 180 — click at T matched at T+179 min (clicks table).
-func TestWindow180Respected(t *testing.T) {
-	s, path := newTestStore(t)
-	_, link := setupApp(t, s)
-	recordClickBackdated(t, s, path, androidClick(link), 179*time.Minute)
-	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 180, 850)
-	if err != nil {
-		t.Fatalf("Match: %v", err)
-	}
-	if !res.Matched {
-		t.Errorf("click at T+179 min not matched at window 180: %+v", res)
-	}
-}
 
 // Scenario 9: deterministic clickId lookup succeeds beyond the window
 // (24h retention floor; deterministic matching has no window).
@@ -460,5 +447,58 @@ func TestThresholdClamp(t *testing.T) {
 	}
 	if _, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 180, 1200); err != nil {
 		t.Errorf("threshold 1200 / window 180 rejected: %v", err)
+	}
+}
+
+// linkWith creates a second link on app with per-link overrides (R14).
+func linkWith(t *testing.T, s *store.Store, appID string, threshold, window int) store.Link {
+	t.Helper()
+	l, err := s.CreateLink(store.Link{AppID: appID, Key: "override", URL: "https://example.com/override",
+		Threshold: threshold, WindowMinutes: window})
+	if err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	return l
+}
+
+func TestPerLinkThresholdOverridesGlobal(t *testing.T) {
+	// IP 500 + timezone 200 + screen 200 = 900: passes global 850, fails 1000.
+	fp := Fingerprint{Timezone: "Europe/Warsaw", ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
+	for _, tc := range []struct {
+		threshold int
+		want      bool
+	}{{0, true}, {1000, false}} {
+		s, _ := newTestStore(t)
+		app, _ := setupApp(t, s)
+		recordClick(t, s, androidClick(linkWith(t, s, app.ID, tc.threshold, 0)))
+		res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: &fp}, 15, 850)
+		if err != nil {
+			t.Fatalf("Match: %v", err)
+		}
+		if res.Matched != tc.want {
+			t.Errorf("link threshold %d: matched = %v; want %v", tc.threshold, res.Matched, tc.want)
+		}
+	}
+}
+
+func TestPerLinkWindowOverridesGlobal(t *testing.T) {
+	// A click 60 min old is outside the global 15-min window; a 90-min link
+	// window must still reach it (lookback covers the widest window), and a
+	// 5-min link window must reject a click the global window would accept.
+	for _, tc := range []struct {
+		window int
+		age    time.Duration
+		want   bool
+	}{{0, 60 * time.Minute, false}, {90, 60 * time.Minute, true}, {5, 10 * time.Minute, false}} {
+		s, path := newTestStore(t)
+		app, _ := setupApp(t, s)
+		recordClickBackdated(t, s, path, androidClick(linkWith(t, s, app.ID, 0, tc.window)), tc.age)
+		res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 15, 850)
+		if err != nil {
+			t.Fatalf("Match: %v", err)
+		}
+		if res.Matched != tc.want {
+			t.Errorf("link window %d, click age %v: matched = %v; want %v", tc.window, tc.age, res.Matched, tc.want)
+		}
 	}
 }

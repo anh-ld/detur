@@ -3,7 +3,7 @@
 # dist -> slim alpine runtime as non-root user (uid 1000).
 #
 # Healthcheck lives in docker-compose.yml (busybox wget inside the container),
-# not here — see docs/guide.md -> Ops for why.
+# not here — see CAVEATS.md.
 
 # --- Stage 1: Go server ----------------------------------------------------
 FROM golang:alpine AS build

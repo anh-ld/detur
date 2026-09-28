@@ -56,7 +56,7 @@ func TestLoadInvalidValues(t *testing.T) {
 	for _, tc := range []struct {
 		key, val, wantErr string
 	}{
-		{"RETENTION_HOURS", "0", "out of range"},
+		{"RETENTION_HOURS", "23", "out of range"},
 		{"RETENTION_HOURS", "not-a-number", "must be an integer"},
 	} {
 		clearEnv(t)

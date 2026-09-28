@@ -36,7 +36,7 @@ func Load() (*Config, error) {
 		TrustProxy:     os.Getenv("TRUST_PROXY") == "1",
 	}
 	var err error
-	if cfg.RetentionHours, err = envIntRange("RETENTION_HOURS", cfg.RetentionHours, 1, 8760); err != nil {
+	if cfg.RetentionHours, err = envIntRange("RETENTION_HOURS", cfg.RetentionHours, 24, 8760); err != nil {
 		return nil, err
 	}
 	return cfg, nil

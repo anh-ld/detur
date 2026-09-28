@@ -35,6 +35,8 @@ const (
 
 // ErrNotFound is returned when a requested row does not exist.
 var ErrNotFound = errors.New("not found")
+var ErrKeyConflict = errors.New("short key already exists")
+var ErrAmbiguousKey = errors.New("short key is ambiguous")
 
 // Store wraps a SQLite database.
 type Store struct {
@@ -43,24 +45,26 @@ type Store struct {
 
 // Open opens (creating if needed) the SQLite database at path.
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	db, err := sql.Open("sqlite", path+sep+"_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	db.SetMaxOpenConns(1) // single writer; WAL readers still share the one conn
-	for _, pragma := range []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA foreign_keys=ON",
-		"PRAGMA busy_timeout=5000",
-	} {
-		if _, err := db.Exec(pragma); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("%s: %w", pragma, err)
-		}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("PRAGMA journal_mode=WAL: %w", err)
 	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+	if err := migrateInstallUniqueness(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate installs: %w", err)
 	}
 	return &Store{db: db}, nil
 }
@@ -211,7 +215,18 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 	if l.ID == "" {
 		l.ID = Nanoid(16)
 	}
-	_, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Link{}, fmt.Errorf("create link: %w", err)
+	}
+	defer tx.Rollback()
+	var exists int
+	if err := tx.QueryRow(`SELECT 1 FROM links WHERE key = ? LIMIT 1`, l.Key).Scan(&exists); err == nil {
+		return Link{}, ErrKeyConflict
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return Link{}, fmt.Errorf("create link: %w", err)
+	}
+	_, err = tx.Exec(
 		`INSERT INTO links (id, app_id, key, url, ios, android, fallback_url, threshold, window_minutes)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		l.ID, l.AppID, l.Key, l.URL, nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
@@ -222,6 +237,9 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
 			return Link{}, ErrNotFound
 		}
+		return Link{}, fmt.Errorf("create link: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return Link{}, fmt.Errorf("create link: %w", err)
 	}
 	return l, nil
@@ -235,13 +253,31 @@ func (s *Store) GetLinkByKey(appID, key string) (Link, error) {
 	))
 }
 
-// GetLinkByKeyGlobal resolves a short key across all apps (v1 single-domain
-// serving: the same key may exist under two apps — the first match wins).
+// GetLinkByKeyGlobal resolves a short key across all apps. Historic duplicates
+// fail closed rather than silently sending traffic to the wrong app.
 func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
-	return scanLink(s.db.QueryRow(
+	rows, err := s.db.Query(
 		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes
-		 FROM links WHERE key = ? ORDER BY created_at, rowid`, key,
-	))
+		 FROM links WHERE key = ? LIMIT 2`, key,
+	)
+	if err != nil {
+		return Link{}, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return Link{}, err
+		}
+		return Link{}, ErrNotFound
+	}
+	var l Link
+	if err := rows.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.IOS, &l.Android, &l.FallbackURL, &l.Threshold, &l.WindowMinutes); err != nil {
+		return Link{}, err
+	}
+	if rows.Next() {
+		return Link{}, ErrAmbiguousKey
+	}
+	return l, rows.Err()
 }
 
 // GetLink returns the link by id.
@@ -434,6 +470,25 @@ func (s *Store) LinkThresholds(appID string) (map[string]int, error) {
 	return byLink, rows.Err()
 }
 
+// LinkWindows returns per-link match windows; zero means use the global value.
+func (s *Store) LinkWindows(appID string) (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT id, window_minutes FROM links WHERE app_id = ?`, appID)
+	if err != nil {
+		return nil, fmt.Errorf("link windows: %w", err)
+	}
+	defer rows.Close()
+	byLink := map[string]int{}
+	for rows.Next() {
+		var id string
+		var minutes int
+		if err := rows.Scan(&id, &minutes); err != nil {
+			return nil, err
+		}
+		byLink[id] = minutes
+	}
+	return byLink, rows.Err()
+}
+
 // PurgeExpired deletes clicks past their expiry and events older than the
 // retention floor, returning the total rows removed. Retention governs both
 // tables (System-Wide Impact: events get the same treatment).
@@ -497,10 +552,9 @@ type Install struct {
 	CreatedAt   time.Time
 }
 
-// RecordInstall upserts an install attribution idempotently on
-// (device_hash, click_id) — duplicate match-link calls never double-count
-// (U3, R7). Empty click_id marks organic/unknown installs; the unique
-// constraint then dedupes retried organic installs per device too.
+// RecordInstall upserts an install attribution idempotently per app, device,
+// and click. Empty click_id marks organic/unknown installs and is deduped per
+// app and device too.
 func (s *Store) RecordInstall(i Install) (Install, error) {
 	if i.ID == "" {
 		i.ID = Nanoid(16)
@@ -510,7 +564,7 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	_, err := s.db.Exec(
 		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(device_hash, click_id) DO NOTHING`,
+			 ON CONFLICT(app_id, device_hash, click_id) DO NOTHING`,
 		i.ID, i.AppID, i.DeviceHash, i.ClickID, i.Attribution, rfc3339(now),
 	)
 	if err != nil {
@@ -523,14 +577,102 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	)
 	err = s.db.QueryRow(
 		`SELECT id, app_id, device_hash, click_id, attribution, created_at
-		 FROM installs WHERE device_hash = ? AND click_id = ?`,
-		i.DeviceHash, i.ClickID,
+		 FROM installs WHERE app_id = ? AND device_hash = ? AND click_id = ?`,
+		i.AppID, i.DeviceHash, i.ClickID,
 	).Scan(&got.ID, &got.AppID, &got.DeviceHash, &got.ClickID, &got.Attribution, &createdAt)
 	if err != nil {
 		return Install{}, fmt.Errorf("record install readback: %w", err)
 	}
 	got.CreatedAt = parseTime(createdAt)
 	return got, nil
+}
+
+// SetSettings persists both matching defaults in one transaction.
+func (s *Store) SetSettings(threshold, windowMinutes *string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for key, value := range map[string]*string{"threshold": threshold, "window_minutes": windowMinutes} {
+		if value == nil {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, *value); err != nil {
+			return fmt.Errorf("set settings: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func migrateInstallUniqueness(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA index_list(installs)`)
+	if err != nil {
+		return err
+	}
+	legacy := false
+	var uniqueIndexes []string
+	for rows.Next() {
+		var seq, unique, partial int
+		var name, origin string
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			rows.Close()
+			return err
+		}
+		if unique == 1 {
+			uniqueIndexes = append(uniqueIndexes, name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, name := range uniqueIndexes {
+		var cols []string
+		info, err := db.Query(`PRAGMA index_info("` + strings.ReplaceAll(name, `"`, `""`) + `")`)
+		if err != nil {
+			return err
+		}
+		for info.Next() {
+			var seq, cid int
+			var col string
+			if err := info.Scan(&seq, &cid, &col); err != nil {
+				info.Close()
+				return err
+			}
+			cols = append(cols, col)
+		}
+		if err := info.Err(); err != nil {
+			info.Close()
+			return err
+		}
+		info.Close()
+		if strings.Join(cols, ",") == "device_hash,click_id" {
+			legacy = true
+		}
+	}
+	if legacy {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		for _, q := range []string{
+			`CREATE TABLE installs_new (id TEXT PRIMARY KEY, app_id TEXT NOT NULL, device_hash TEXT NOT NULL, click_id TEXT, attribution TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), UNIQUE (app_id, device_hash, click_id))`,
+			`INSERT INTO installs_new SELECT id, app_id, device_hash, click_id, attribution, created_at FROM installs`,
+			`DROP TABLE installs`, `ALTER TABLE installs_new RENAME TO installs`,
+		} {
+			if _, err := tx.Exec(q); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_installs_app_attribution ON installs (app_id, attribution)`)
+	return err
 }
 
 // CountInstalls returns organic and non-organic install counts for an app
