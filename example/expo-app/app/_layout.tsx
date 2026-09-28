@@ -1,6 +1,5 @@
 import { DetourProvider } from "@swmansion/react-native-detour";
 import { Stack } from "expo-router";
-import { StatusBar } from "expo-status-bar";
 
 // App identity: create the app in the detur portal, set .env from .env.example.
 const config = {
@@ -14,7 +13,6 @@ const config = {
 export default function RootLayout() {
   return (
     <DetourProvider config={config}>
-      <StatusBar style="auto" />
       <Stack />
     </DetourProvider>
   );
