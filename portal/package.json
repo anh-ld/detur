@@ -1,0 +1,18 @@
+{
+  "name": "detur-portal",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "kinu": "^0.2.0",
+    "preact": "^10.29.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "vite": "^8.3.1"
+  }
+}

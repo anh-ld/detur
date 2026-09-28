@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"detur.dev/server/internal/api"
 	"detur.dev/server/internal/config"
@@ -11,8 +12,9 @@ import (
 )
 
 // main wires config → store → HTTP listeners. SDK endpoints (U3), the
-// browser pipeline (U4) and well-known hosting (U5) are registered here; the
-// portal API attaches in U6.
+// browser pipeline (U4) and well-known hosting (U5) run on the public
+// listener; the portal (U6, API + static UI) runs on its own loopback
+// listener, origin/host-guarded (KTD5).
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -35,6 +37,19 @@ func main() {
 	// configured domains; unknown hosts get 404.
 	pipeline.RegisterWellKnown(mux, st, config.DomainSet(cfg))
 
-	log.Printf("detur %s (portal %s, domain %s, db %s)", cfg.HTTPAddr, cfg.PortalAddr, cfg.Domain, cfg.DBPath)
+	// Portal (U6): separate listener (loopback default, KTD5). The static
+	// dir defaults to portal/dist; a missing dir logs a warning but the
+	// portal API still works.
+	portalDir := os.Getenv("DETUR_PORTAL_DIR")
+	if portalDir == "" {
+		portalDir = "portal/dist"
+	}
+	go func() {
+		portal := api.RegisterPortal(st, portalDir, cfg.PortalAddr)
+		log.Printf("portal on %s (static %s)", cfg.PortalAddr, portalDir)
+		log.Fatal(http.ListenAndServe(cfg.PortalAddr, portal))
+	}()
+
+	log.Printf("detur %s (domain %s, db %s)", cfg.HTTPAddr, cfg.Domain, cfg.DBPath)
 	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, mux))
 }

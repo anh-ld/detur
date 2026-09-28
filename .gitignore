@@ -1,0 +1,12 @@
+# Go
+server/detur
+server/*.test
+detur.db
+detur.db-*
+
+# Node / portal build output
+node_modules/
+portal/dist/
+
+# OS / editor
+.DS_Store
