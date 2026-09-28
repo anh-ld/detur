@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 )
 
@@ -27,6 +28,8 @@ const portalAddr = "127.0.0.1:8081"
 // static dir containing an index.html) and a second SDK listener sharing the
 // same store.
 func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) {
+	httpx.TrustProxy = true // api tests simulate the trusted-proxy deployment via X-Forwarded-For
+	t.Cleanup(func() { httpx.TrustProxy = false })
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "detur-portal.db")
 	st, err := store.Open(path)
@@ -40,7 +43,7 @@ func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) 
 		[]byte("<!doctype html><title>detur portal</title>"), 0o644); err != nil {
 		t.Fatalf("write index.html: %v", err)
 	}
-	portal = httptest.NewServer(RegisterPortal(st, staticDir, portalAddr))
+	portal = httptest.NewServer(RegisterPortal(st, staticDir, []string{portalAddr}))
 	t.Cleanup(portal.Close)
 
 	sdkMux := http.NewServeMux()
@@ -87,7 +90,7 @@ func mustJSON(t *testing.T, b []byte, v any) {
 // Scenario 1: full app + link CRUD round trip through the portal API.
 func TestPortalAppLinkCRUD(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
-	key := "portal-crud-key-123"
+	key := "portal-crud-key-1234567890abcdef"
 
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"crud app","apiKey":"`+key+`"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
@@ -252,7 +255,7 @@ func TestPortalReadout(t *testing.T) {
 func TestPortalNoAuth(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	// No Authorization / X-App-ID / X-SDK headers on any request.
-	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"no-auth","apiKey":"k-no-auth"}`, nil)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"no-auth","apiKey":"k-no-auth-0123456789abcdef-XYZ-000"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("portal must serve without identity checks: %d %s", resp.StatusCode, b)
 	}
@@ -261,13 +264,13 @@ func TestPortalNoAuth(t *testing.T) {
 // Scenario 5: cross-origin requests rejected by the guard (KTD5 CSRF).
 func TestPortalRejectsCrossOrigin(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
-	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x","apiKey":"k"}`,
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x","apiKey":"k-0123456789abcdef-XYZ-000"}`,
 		map[string]string{"Origin": "http://evil.example"})
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("cross-origin POST must be 403, got %d %s", resp.StatusCode, b)
 	}
 	// Same-origin (loopback) Origin passes.
-	resp, b = portalReq(t, portal, "POST", "/api/apps", `{"name":"ok","apiKey":"k"}`,
+	resp, b = portalReq(t, portal, "POST", "/api/apps", `{"name":"ok","apiKey":"k-0123456789abcdef-XYZ-000"}`,
 		map[string]string{"Origin": "http://localhost:8081"})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("loopback-origin POST must pass, got %d %s", resp.StatusCode, b)
@@ -313,10 +316,10 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), portalAddr))
+	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), []string{portalAddr}))
 	t.Cleanup(ts.Close)
 
-	resp, b := portalReq(t, ts, "POST", "/api/apps", `{"name":"still-works","apiKey":"k"}`, nil)
+	resp, b := portalReq(t, ts, "POST", "/api/apps", `{"name":"still-works","apiKey":"k-0123456789abcdef-XYZ-000"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("API must keep working without the static dir: %d %s", resp.StatusCode, b)
 	}

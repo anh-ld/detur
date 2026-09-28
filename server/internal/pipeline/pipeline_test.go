@@ -7,10 +7,12 @@ package pipeline
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 	_ "modernc.org/sqlite" // SQLite driver: tests drop tables to inject backend errors
 
 	"detur.dev/server/internal/api"
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 )
 
@@ -192,8 +195,58 @@ func TestAndroidClickRedirectsPlayWithClickIDReferrer(t *testing.T) {
 	if len(clicks) != 1 {
 		t.Fatalf("clicks = %d; want 1 recorded", len(clicks))
 	}
-	if ref != clicks[0].ID {
-		t.Fatalf("referrer = %q; want recorded clickId %q", ref, clicks[0].ID)
+	// The SDK extracts the deterministic clickId from the Play referrer via
+	// /(?:^|&)click_id=([^&]+)/ after decodeURIComponent — assert the
+	// parseable form, and that it resolves the recorded click.
+	decoded, err := url.QueryUnescape(ref)
+	if err != nil {
+		t.Fatalf("referrer %q not URL-parseable: %v", ref, err)
+	}
+	if m := regexp.MustCompile(`(?:^|&)click_id=([^&]+)`).FindStringSubmatch(decoded); m == nil || m[1] != clicks[0].ID {
+		t.Fatalf("referrer %q does not carry click_id=%s (SDK-parseable)", ref, clicks[0].ID)
+	}
+	if got, err := s.ClickByClickID(app.ID, clicks[0].ID); err != nil || got.ID != clicks[0].ID {
+		t.Fatalf("ClickByClickID(%s) = %+v, %v; want the recorded click", clicks[0].ID, got, err)
+	}
+}
+
+// Scenario 2b: the deterministic chain end-to-end — browser click (Android UA)
+// -> referrer click_id -> match-link {clickId} -> 200 {link} + non-organic
+// install (AE4/R5; the SDK's own referrer regex replicated here).
+func TestAndroidDeterministicChainEndToEnd(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, link := setupPipeline(t, s)
+	resp, _ := doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA})
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	decoded, _ := url.QueryUnescape(loc.Query().Get("referrer"))
+	m := regexp.MustCompile(`(?:^|&)click_id=([^&]+)`).FindStringSubmatch(decoded)
+	if m == nil {
+		t.Fatalf("referrer has no SDK-parseable click_id")
+	}
+	// match-link with the extracted clickId (SDK headers + payload shape)
+	body := fmt.Sprintf(`{"clickId":%q}`, m[1])
+	req, _ := http.NewRequest("POST", ts.URL+"/api/link/match-link", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	req.Header.Set("X-App-ID", app.ID)
+	req.Header.Set("X-SDK", "react-native/2.3.1")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("match-link: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("match-link status = %d body=%s; want 200", res.StatusCode, b)
+	}
+	var out struct {
+		Link string `json:"link"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil || out.Link != link.URL {
+		t.Fatalf("match-link link = %q (%v); want %q", out.Link, err, link.URL)
+	}
+	organic, nonOrganic, err := s.CountInstalls(app.ID)
+	if err != nil || organic != 0 || nonOrganic != 1 {
+		t.Fatalf("installs = organic %d non-organic %d (%v); want 0/1", organic, nonOrganic, err)
 	}
 }
 
@@ -213,6 +266,8 @@ func TestDesktopClickRedirectsFallback(t *testing.T) {
 // Scenario 4: the click-time fingerprint is persisted verbatim (R8) — IP,
 // UA-derived device, locale, user-agent — readable via store.GetClick.
 func TestClickFingerprintPersisted(t *testing.T) {
+	httpx.TrustProxy = true // the XFF header stands in for the trusted-proxy deployment
+	t.Cleanup(func() { httpx.TrustProxy = false })
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
 	doGET(t, ts, "/"+link.Key, map[string]string{

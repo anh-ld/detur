@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go driver (KTD1): no cgo, static builds
@@ -66,6 +67,12 @@ func Open(path string) (*Store, error) {
 
 // Close closes the underlying database.
 func (s *Store) Close() error { return s.db.Close() }
+
+// Ping verifies the database answers a trivial query (healthcheck probe).
+func (s *Store) Ping() error {
+	var one int
+	return s.db.QueryRow(`SELECT 1`).Scan(&one)
+}
 
 // Matching defaults (R6, R14): applied when no settings are stored; the
 // portal edits threshold/window through the settings table.
@@ -197,21 +204,12 @@ type Link struct {
 	WindowMinutes int // per-link match window (R14 settings)
 }
 
-const (
-	defaultThreshold = DefaultThreshold
-	defaultWindowMin = DefaultWindowMinutes
-)
-
-// CreateLink inserts a link, applying per-link defaults.
+// CreateLink inserts a link. Threshold/window 0 = "unset": the matching
+// engine and click expiry then use the global settings (R14 per-link
+// overrides only when explicitly set).
 func (s *Store) CreateLink(l Link) (Link, error) {
 	if l.ID == "" {
 		l.ID = Nanoid(16)
-	}
-	if l.Threshold == 0 {
-		l.Threshold = defaultThreshold
-	}
-	if l.WindowMinutes == 0 {
-		l.WindowMinutes = defaultWindowMin
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO links (id, app_id, key, url, ios, android, fallback_url, threshold, window_minutes)
@@ -220,6 +218,10 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 		l.Threshold, l.WindowMinutes,
 	)
 	if err != nil {
+		// An unknown app_id hits the FK; the portal treats it as 404.
+		if strings.Contains(err.Error(), "FOREIGN KEY") {
+			return Link{}, ErrNotFound
+		}
 		return Link{}, fmt.Errorf("create link: %w", err)
 	}
 	return l, nil
@@ -350,6 +352,12 @@ func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, 
 	if c.ID == "" {
 		c.ID = Nanoid(16)
 	}
+	// The id handed to clients (rec.ID, Android Play referrer, universal-link
+	// clickId) is the deterministic match key: default the click_id column to
+	// it so ClickByClickID can resolve what the SDK sends back.
+	if c.ClickID == "" {
+		c.ClickID = c.ID
+	}
 	c.CreatedAt = now
 	c.ExpiresAt = now.Add(window)
 	_, err := s.db.Exec(
@@ -375,11 +383,12 @@ func (s *Store) GetClick(id string) (Click, error) {
 }
 
 // ClickByClickID finds a click by deterministic clickId (no window filter —
-// deterministic matching has no window; retention floor governs expiry).
+// deterministic matching has no window; the retention floor governs expiry,
+// so expired-but-unpurged rows no longer resolve).
 func (s *Store) ClickByClickID(appID, clickID string) (Click, error) {
 	return scanClick(s.db.QueryRow(
 		`SELECT id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at
-		 FROM clicks WHERE app_id = ? AND click_id = ?`, appID, clickID,
+		 FROM clicks WHERE app_id = ? AND click_id = ? AND expires_at >= ?`, appID, clickID, rfc3339(time.Now()),
 	))
 }
 
@@ -403,6 +412,26 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 		clicks = append(clicks, c)
 	}
 	return clicks, rows.Err()
+}
+
+// LinkThresholds returns per-link matching thresholds (R14) as a map from
+// link id to threshold; links without an explicit threshold are absent.
+func (s *Store) LinkThresholds(appID string) (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT id, threshold FROM links WHERE app_id = ?`, appID)
+	if err != nil {
+		return nil, fmt.Errorf("link thresholds: %w", err)
+	}
+	defer rows.Close()
+	byLink := map[string]int{}
+	for rows.Next() {
+		var id string
+		var t int
+		if err := rows.Scan(&id, &t); err != nil {
+			return nil, err
+		}
+		byLink[id] = t
+	}
+	return byLink, rows.Err()
 }
 
 // PurgeExpired deletes clicks past their expiry and events older than the

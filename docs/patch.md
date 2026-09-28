@@ -55,6 +55,12 @@ repoint to deployed domain:
    npx patch-package
    ```
 
+## Devices & emulators
+
+- Android emulator: `localhost` on the host is reachable at `http://10.0.2.2:8080` — set the base URL accordingly, and allow cleartext HTTP in debug builds (android:usesCleartextTraffic in debug manifests).
+- Physical device: `localhost` means the device itself — use your machine's LAN IP or the deployed domain.
+- Production: always `https://<DETUR_DOMAIN>` — the SDK sends the API key over the wire.
+
 ## Verify
 
 - APPLIED files repointed — expect zero matches in code:

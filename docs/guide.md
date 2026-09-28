@@ -69,6 +69,8 @@ Env only — no config file. All vars, one line each (full comments in
 | `DETUR_DB_PATH` | `/data/detur.db` | SQLite file (volume) |
 | `DETUR_RETENTION_HOURS` | `24` | click + event retention floor, 1–8760 |
 | `DETUR_EXTRA_DOMAINS` | empty | extra comma-separated domains |
+| `DETUR_PORTAL_HOSTS` | empty | extra Host values the portal guard accepts (zero-trust tunnels) |
+| `DETUR_TRUST_PROXY` | `0` | `1` = honor X-Forwarded-For (set only behind a trusted TLS proxy) |
 
 Non-container deploys: set `DETUR_PORTAL_ADDR=127.0.0.1:8081` (strict loopback
 bind).

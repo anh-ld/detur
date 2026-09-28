@@ -29,11 +29,11 @@ domain. Everything else: `docs/guide.md`.
 
 Five SDK endpoints (godetour.dev-compatible shapes, R1–R4):
 
-- `POST /v1/match-link` — first-launch fingerprint → destination, or 404
-- `POST /v1/resolve-short` — short URL → destination
-- `POST /v1/universal-link-click` — existing-user click report
-- `POST /v1/events` — analytics events
-- `POST /v1/retention` — analytics retention
+- `POST /api/link/match-link` — first-launch fingerprint → destination, or 404
+- `POST /api/link/resolve-short` — short URL → destination
+- `POST /api/link/universal-link-click` — existing-user click report
+- `POST /api/analytics/events` — analytics events
+- `POST /api/analytics/retention` — analytics retention
 
 Browser pipeline (R9–R11): `GET /{key}` short links record click + fingerprint
 then 302 to App Store / Play Store (Android keeps the Play click-ID) or the
