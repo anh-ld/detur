@@ -72,11 +72,16 @@ func HashKey(key string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// App is a registered application holding links and API keys.
+// App is a registered application holding links and API keys. The three
+// trailing fields carry the well-known hosting details (R11): iOS appID
+// (TEAMID.BUNDLEID), Android package + SHA-256 cert fingerprint.
 type App struct {
-	ID         string
-	Name       string
-	APIKeyHash string
+	ID                     string
+	Name                   string
+	APIKeyHash             string
+	IOSAppID               string
+	AndroidPackage         string
+	AndroidCertFingerprint string
 }
 
 // CreateApp inserts an app and returns it. apiKey is returned to the caller
@@ -92,9 +97,44 @@ func (s *Store) CreateApp(name, apiKey string) (App, error) {
 	return App{ID: id, Name: name, APIKeyHash: hash}, nil
 }
 
+// GetApp returns the app by id, including the well-known hosting details.
+func (s *Store) GetApp(id string) (App, error) {
+	var a App
+	err := s.db.QueryRow(
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, '')
+		 FROM apps WHERE id = ?`, id,
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint)
+	if errors.Is(err, sql.ErrNoRows) {
+		return App{}, ErrNotFound
+	}
+	if err != nil {
+		return App{}, err
+	}
+	return a, nil
+}
+
+// UpdateAppDetails sets the app's well-known hosting details (R11). Empty
+// strings clear the corresponding field (nullable columns). ErrNotFound when
+// the app is unknown.
+func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint string) error {
+	res, err := s.db.Exec(
+		`UPDATE apps SET ios_app_id = ?, android_package = ?, android_cert_fingerprint = ? WHERE id = ?`,
+		nullStr(iosAppID), nullStr(androidPackage), nullStr(certFingerprint), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update app details: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListApps returns all apps.
 func (s *Store) ListApps() ([]App, error) {
-	rows, err := s.db.Query(`SELECT id, name, api_key_hash FROM apps ORDER BY created_at`)
+	rows, err := s.db.Query(
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, '')
+		 FROM apps ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list apps: %w", err)
 	}
@@ -102,7 +142,7 @@ func (s *Store) ListApps() ([]App, error) {
 	var apps []App
 	for rows.Next() {
 		var a App
-		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint); err != nil {
 			return nil, err
 		}
 		apps = append(apps, a)

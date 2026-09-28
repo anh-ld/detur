@@ -10,9 +10,9 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// main wires config → store → HTTP listeners. SDK endpoints (U3) and the
-// browser pipeline (U4) are registered here; well-known hosting and the
-// portal API attach in later units (U5–U6).
+// main wires config → store → HTTP listeners. SDK endpoints (U3), the
+// browser pipeline (U4) and well-known hosting (U5) are registered here; the
+// portal API attaches in U6.
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -31,6 +31,9 @@ func main() {
 	})
 	api.RegisterSDK(mux, st)
 	pipeline.Register(mux, st) // GET /{key}: short links, click recording, store redirects (U4)
+	// Well-known hosting (U5, R11/R12): AASA + assetlinks under the
+	// configured domains; unknown hosts get 404.
+	pipeline.RegisterWellKnown(mux, st, config.DomainSet(cfg))
 
 	log.Printf("detur %s (portal %s, domain %s, db %s)", cfg.HTTPAddr, cfg.PortalAddr, cfg.Domain, cfg.DBPath)
 	log.Fatal(http.ListenAndServe(cfg.HTTPAddr, mux))

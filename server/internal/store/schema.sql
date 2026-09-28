@@ -1,10 +1,13 @@
 -- detur schema. Timestamps are RFC3339 UTC text.
 
 CREATE TABLE IF NOT EXISTS apps (
-    id           TEXT PRIMARY KEY,
-    name         TEXT NOT NULL,
-    api_key_hash TEXT NOT NULL,
-    created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    id                      TEXT PRIMARY KEY,
+    name                    TEXT NOT NULL,
+    api_key_hash            TEXT NOT NULL,
+    ios_app_id              TEXT,
+    android_package         TEXT,
+    android_cert_fingerprint TEXT,
+    created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS links (
