@@ -130,6 +130,18 @@ func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint s
 	return nil
 }
 
+// DeleteApp removes an app; its links cascade (schema ON DELETE CASCADE).
+func (s *Store) DeleteApp(id string) error {
+	res, err := s.db.Exec(`DELETE FROM apps WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete app: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListApps returns all apps.
 func (s *Store) ListApps() ([]App, error) {
 	rows, err := s.db.Query(
