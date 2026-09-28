@@ -50,7 +50,7 @@ func main() {
 	pipeline.RegisterWellKnown(mux, st, config.DomainSet(cfg))
 
 	// Portal (U6): separate listener (loopback default, KTD5). Extra Host
-	// values from DETUR_PORTAL_HOSTS let a zero-trust tunnel in front pass
+	// values from PORTAL_HOSTS let a zero-trust tunnel in front pass
 	// the guard; a missing static dir logs a warning but the portal API
 	// still works.
 	portalHosts := append(cfg.PortalHosts, cfg.PortalAddr)

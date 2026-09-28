@@ -25,18 +25,18 @@ type Config struct {
 // Load reads configuration from the environment with sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Domain:         envOr("DETUR_DOMAIN", "localhost"),
-		HTTPAddr:       envOr("DETUR_ADDR", ":8080"),
-		PortalAddr:     envOr("DETUR_PORTAL_ADDR", "127.0.0.1:8081"),
-		PortalDir:      envOr("DETUR_PORTAL_DIR", "portal/dist"),
-		PortalHosts:    envList("DETUR_PORTAL_HOSTS"),
-		ExtraDomains:   envList("DETUR_EXTRA_DOMAINS"),
-		DBPath:         envOr("DETUR_DB_PATH", "detur.db"),
+		Domain:         envOr("DOMAIN", "localhost"),
+		HTTPAddr:       envOr("ADDR", ":8080"),
+		PortalAddr:     envOr("PORTAL_ADDR", "127.0.0.1:8081"),
+		PortalDir:      envOr("PORTAL_DIR", "portal/dist"),
+		PortalHosts:    envList("PORTAL_HOSTS"),
+		ExtraDomains:   envList("EXTRA_DOMAINS"),
+		DBPath:         envOr("DB_PATH", "detur.db"),
 		RetentionHours: 24,
-		TrustProxy:     os.Getenv("DETUR_TRUST_PROXY") == "1",
+		TrustProxy:     os.Getenv("TRUST_PROXY") == "1",
 	}
 	var err error
-	if cfg.RetentionHours, err = envIntRange("DETUR_RETENTION_HOURS", cfg.RetentionHours, 1, 8760); err != nil {
+	if cfg.RetentionHours, err = envIntRange("RETENTION_HOURS", cfg.RetentionHours, 1, 8760); err != nil {
 		return nil, err
 	}
 	return cfg, nil

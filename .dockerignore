@@ -5,7 +5,7 @@
 .gitignore
 **/node_modules
 **/dist
-docs
+plans
 example
 patch
 README.md

@@ -37,7 +37,7 @@ type portalServer struct {
 // a missing dir 404 plain text — never a crash). The whole mux is wrapped in
 // the origin/host guard. allowedHosts holds the portal listener's own
 // configured address(es) plus any zero-trust tunnel hosts
-// (DETUR_PORTAL_HOSTS); loopback is always accepted. A Host or Origin
+// (PORTAL_HOSTS); loopback is always accepted. A Host or Origin
 // outside those is rejected with 403 (KTD5). No auth: access control is
 // delegated to a zero-trust boundary in front of this listener (R19).
 func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) http.Handler {

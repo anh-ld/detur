@@ -248,7 +248,7 @@ detur/
 ├── patch/                  # patch-package patch + apply docs
 ├── example/                # RN example app (patch consumer)
 ├── docker/                 # Dockerfile, compose, env template
-├── docs/                   # guide: deploy, config, patch, zero-trust
+├── plans/                  # dev artifacts: plan, dossier pointers
 └── README.md
 ```
 
@@ -286,7 +286,7 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 → U8. U7 parallelizable after U3;
 - **Requirements:** R16–R18.
 - **Dependencies:** none.
 - **Files:** server/go.mod, server/cmd/detur/main.go, server/internal/config/config.go, server/internal/config/config_test.go, server/internal/store/store.go, server/internal/store/schema.sql, server/internal/store/store_test.go
-- **Approach:** KTD1 driver; WAL mode; schema — apps, links, clicks, installs, events, settings. API keys stored hashed (SHA-256), full key shown once at creation, masked after. Clicks carry expires_at (max of configured window, 24h floor) + link key + destination; deterministic clickId lookup exempt from window filter (documented Detour contract: deterministic match has no window). Installs attribution ∈ organic | non-organic | unknown (R3 backend-error path); installs unique on (device hash, clickId) — duplicate match-link idempotent; unknown logged, not surfaced in readout (R15). clicks(created_at) index for windowed scan + tie-break. Purge: startup janitor + on-read sweep removes expired rows; retention setting configurable. Config env: DETUR_DOMAIN, PORT, DB_PATH. Entrypoint: config → store → serve.
+- **Approach:** KTD1 driver; WAL mode; schema — apps, links, clicks, installs, events, settings. API keys stored hashed (SHA-256), full key shown once at creation, masked after. Clicks carry expires_at (max of configured window, 24h floor) + link key + destination; deterministic clickId lookup exempt from window filter (documented Detour contract: deterministic match has no window). Installs attribution ∈ organic | non-organic | unknown (R3 backend-error path); installs unique on (device hash, clickId) — duplicate match-link idempotent; unknown logged, not surfaced in readout (R15). clicks(created_at) index for windowed scan + tie-break. Purge: startup janitor + on-read sweep removes expired rows; retention setting configurable. Config env: DOMAIN, PORT, DB_PATH. Entrypoint: config → store → serve.
 - **Test scenarios:**
   - Store CRUD: create app, link, click, install; read back.
   - Click insert + fingerprint persisted verbatim.
@@ -395,8 +395,8 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 → U8. U7 parallelizable after U3;
 - **Goal:** Patch-package patch (five constants), example app, apply docs.
 - **Requirements:** R13.
 - **Dependencies:** U3.
-- **Files:** patch/, example/ (RN app: useDetour wiring, +native-intent host), docs/patch.md
-- **Approach:** KTD6 — patch pinned to SDK v2.3.1; repoint five URL constants to https DETUR_DOMAIN; example app exercises match, resolve, universal-link-click, analytics.
+- **Files:** example/patch/, example/expo-app/ (RN app: useDetour wiring, +native-intent host), README.md section 3
+- **Approach:** KTD6 — patch pinned to SDK v2.3.1; repoint five URL constants to https DOMAIN; example app exercises match, resolve, universal-link-click, analytics.
 - **Test scenarios:**
   - Patch applies clean to fresh pinned SDK install.
   - Example app runs against local server, full deferred flow. Covers AE1.
@@ -409,7 +409,7 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 → U8. U7 parallelizable after U3;
 - **Goal:** Docker image, one-command deploy, README + guide (telegraphic).
 - **Requirements:** R16–R18.
 - **Dependencies:** U1–U7.
-- **Files:** docker/Dockerfile (multi-stage, static, non-root), docker/docker-compose.yml, docker/.env.example, README.md, docs/guide.md (deploy, config, patch, zero-trust)
+- **Files:** docker/Dockerfile (multi-stage, static, non-root), docker/docker-compose.yml, docker/.env.example, README.md (unified user guide)
 - **Approach:** KTD1 no-cgo → scratch/alpine static image; env config (R17); no secrets in image; non-root container; healthcheck; volume for SQLite persistence (R16); compose publishes portal port on host loopback only (127.0.0.1:PORT:PORT, KTD5); TLS termination = deployment requirement (reverse proxy/Caddy or in-process certs) — .env.example defaults to https; README + guide telegraphic, structured (user directive).
 - **Test scenarios:**
   - Docker build succeeds (multi-arch).

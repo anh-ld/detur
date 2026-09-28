@@ -1,78 +1,108 @@
 # detur
 
-Self-hosted, drop-in replacement for godetour.dev — the cloud backend behind
-`@swmansion/react-native-detour`. A Go + SQLite server answers the SDK's five
-API calls, runs the deferred deep-link pipeline (short links → click recording
-→ store redirect → first-launch matching → install attribution), hosts the
-`.well-known` Universal/App-link files, and ships a thin kinu portal that
-manages apps, links and API keys and reads back click/install analytics. One
-binary, one container, SQLite file, nothing phones home (R18).
+- Self-hosted backend for `@swmansion/react-native-detour` — drop-in
+  replacement for hosted godetour.dev
+- Deferred deep links on your infra: short link → click → install → first
+  launch → matched destination
 
-## Quick start
+## Why detur?
+
+- NO hosted pricing tiers / click limits — own server, own data
+- Drop-in — same 5 SDK endpoints, same matching; app points at your domain
+- One binary: Go + SQLite + portal. No external services, nothing phones home
+
+## Quick start — 4 steps to a running app
+
+### 1 · Run the server
 
 ```sh
-cd docker
-docker compose up -d --build
+docker run -d --name detur \
+  -p 8080:8080 \
+  -p 127.0.0.1:8081:8081 \
+  -v detur-data:/data \
+  -e DOMAIN=localhost \
+  -e ADDR=:8080 \
+  -e DB_PATH=/data/detur.db \
+  -e RETENTION_HOURS=24 \
+  detur/detur:latest
 ```
 
-- SDK + pipeline: `http://localhost:8080` (health: `GET /health`)
-- Portal: `http://127.0.0.1:8081` (host loopback only — no auth, see guide)
-- Create an app in the portal → get `apiKey` + `appID` → point your RN app
-  there (patch story below)
-- SQLite file lives in the `detur-data` volume; survives restarts/rebuilds
-- Config: edit `docker/.env.example` before first up
+- Image not published yet → build once:
+  `git clone <this-repo> && cd detur && docker build -f docker/Dockerfile -t detur/detur:latest .`
+- Check: `GET /health` → `200 ok`
+- No Docker? `cd server && go run ./cmd/detur`
+- Prod: HTTPS in front of 8080 + `-e TRUST_PROXY=1`
 
-Production = terminate TLS in front of 8080 and set `DETUR_DOMAIN` to a real
-domain. Everything else: `docs/guide.md`.
+### 2 · Portal — create app, get key
 
-## What the server does
+Open `http://127.0.0.1:8081`:
 
-Five SDK endpoints (godetour.dev-compatible shapes, R1–R4):
+- CREATE app → API key shown ONCE → copy
+- ADD links (`/key` → URL) + iOS/Android/fallback
+- SET app details (iOS app ID, Android package + cert fingerprint) → well-known files
 
-- `POST /api/link/match-link` — first-launch fingerprint → destination, or 404
-- `POST /api/link/resolve-short` — short URL → destination
-- `POST /api/link/universal-link-click` — existing-user click report
-- `POST /api/analytics/events` — analytics events
-- `POST /api/analytics/retention` — analytics retention
+### 3 · Patch the lib
 
-Browser pipeline (R9–R11): `GET /{key}` short links record click + fingerprint
-then 302 to App Store / Play Store (Android keeps the Play click-ID) or the
-desktop fallback; `/.well-known/apple-app-site-association` + `assetlinks.json`
-served per app; custom domains via `DETUR_EXTRA_DOMAINS`.
+SDK hardcodes 5 endpoint URLs to godetour.dev — no `baseURL` config field.
+Version-dependent → hand this prompt to your AI agent, it patches whatever
+version you installed:
 
-Matching (R5–R8): deterministic clickId first, then probabilistic scoring
-(threshold 850, window 15 min, both configurable) — same contract as
-godetour.dev. No match → 404 → organic install. Fail-open on backend errors.
+```text
+PATCH PROMPT — paste to your AI agent:
+You are patching @swmansion/react-native-detour in this app to point at a
+self-hosted detur server. The SDK hardcodes its five API endpoint URLs to
+https://godetour.dev. Do this:
 
-Portal: apps + links CRUD, per-link threshold/window, API keys, click/install
-readout (organic / non-organic). Separate listener, no built-in auth — access
-control is a zero-trust boundary (R19, KTD5).
+1. Find the installed package: node_modules/@swmansion/react-native-detour.
+   The five endpoint constants live in src/links/api/* and
+   src/analytics/api/* (TypeScript source) AND lib/module/*.js (compiled) —
+   patch BOTH copies.
+2. Replace the base URL in all five constants with BASE_URL
+   (dev: http://localhost:8080, prod: https://<DOMAIN>). Keep the
+   /api/... paths unchanged.
+3. Verify: grep -r "godetour.dev" node_modules/@swmansion/react-native-detour
+   — code must show zero matches (package.json author line is metadata,
+   ignore it).
+4. Generate the patch: npx patch-package @swmansion/react-native-detour
+5. Make it survive fresh installs: add "postinstall": "patch-package" to
+   package.json.
+6. Report back: the exact files and constants you changed, and the patch
+   file path.
+```
 
-## Client patch
+- [example/patch/@swmansion+react-native-detour+2.3.1.patch](example/patch/@swmansion+react-native-detour+2.3.1.patch)
+  = the 2.3.1 worked reference ONLY — shows the shape, never a pin; your
+  version may differ
 
-The SDK hardcodes godetour.dev — no base-URL field. `patch/` carries a
-patch-package patch (pinned to SDK 2.3.1) repointing the five endpoint
-constants to your server; app code untouched. Apply steps, base-URL change,
-host matcher: `docs/patch.md`.
+### 4 · Apply the lib
 
-## Guide
+Wire the app (`+native-intent.tsx` — host matcher lists your domain):
 
-Deploy, config, TLS, portal exposure, ops, security: `docs/guide.md`.
+```tsx
+import { createDetourNativeIntentHandler } from "@swmansion/react-native-detour/expo-router";
 
-## Stack
+export const redirectSystemPath = createDetourNativeIntentHandler({
+  fallbackPath: "",
+  hosts: ["localhost"], // dev; add deployed domain, e.g. ["links.example.com"]
+  config: {
+    apiKey: process.env.EXPO_PUBLIC_DETOUR_API_KEY!,
+    appID: process.env.EXPO_PUBLIC_DETOUR_APP_ID!,
+  },
+});
+```
 
-- Go server, stdlib routing, pure-Go SQLite (modernc.org/sqlite) — static
-  binary, no cgo
-- Kinu portal (Preact + Vite), baked into the image, served by the binary
-- Docker: multi-stage build, non-root runtime (uid 1000), alpine
+- SET `EXPO_PUBLIC_DETOUR_API_KEY` + `EXPO_PUBLIC_DETOUR_APP_ID` (from step 2)
+- RUN app → first launch calls match-link → matched link shown
+- CHECK server logs → five calls arrive
+- Full example app: `example/expo-app/`
+- Devices: Android emulator → `http://10.0.2.2:8080`; physical device → LAN IP
+  or deployed domain; prod → `https://<DOMAIN>`
 
-## Status: v1
+## Credits
 
-Working: five SDK endpoints, deferred matching, click pipeline, well-known
-hosting, custom domains, portal, Docker deploy.
+- [dub.sh](https://dub.sh) (dubinc/dub) — server logic cloned from their
+  production deep-link funnel
+- Software Mansion — [@swmansion/react-native-detour](https://github.com/software-mansion-labs/react-native-detour), the SDK this server serves
+- [kinu](https://github.com/developit/kinu) (developit) — portal UI toolkit
 
-Deferred (not in v1): Platform API (management API), webhooks, billing /
-click-limit enforcement, multi-tenant + SSO, full analytics (30-day views,
-smart banners, custom redirect pages), native iOS / Android / Flutter patches
-(RN only). An upstream PR adding a base-URL config to the SDK would retire
-the patch.
+Caveats & limits: [CAVEATS.md](CAVEATS.md)

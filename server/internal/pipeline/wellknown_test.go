@@ -23,11 +23,11 @@ const (
 )
 
 // testDomains builds the domain set the way main.go does (R12/R17): the
-// primary DETUR_DOMAIN, DETUR_EXTRA_DOMAINS (comma-separated), plus
+// primary DOMAIN, EXTRA_DOMAINS (comma-separated), plus
 // "localhost" for dev.
 func testDomains(t *testing.T) []string {
 	t.Helper()
-	t.Setenv("DETUR_EXTRA_DOMAINS", extraDomain)
+	t.Setenv("EXTRA_DOMAINS", extraDomain)
 	return config.DomainSet(&config.Config{Domain: primaryDomain, ExtraDomains: []string{extraDomain}})
 }
 
@@ -239,7 +239,7 @@ func TestUnknownDomain404(t *testing.T) {
 	}
 }
 
-// Scenario 5 (AE5 leg): a DETUR_EXTRA_DOMAINS host serves the well-known
+// Scenario 5 (AE5 leg): a EXTRA_DOMAINS host serves the well-known
 // files like the primary domain does.
 func TestExtraDomainServesWellKnown(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))

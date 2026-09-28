@@ -10,7 +10,7 @@ import (
 )
 
 // TrustProxy gates the X-Forwarded-For path: only set when TLS terminates
-// at a trusted reverse proxy (DETUR_TRUST_PROXY). Off by default so a
+// at a trusted reverse proxy (TRUST_PROXY). Off by default so a
 // client-supplied header cannot spoof the IP match signal.
 var TrustProxy bool
 
