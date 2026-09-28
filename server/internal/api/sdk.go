@@ -63,6 +63,13 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 				next(w, r)
 				return
 			}
+			if r.URL.Path == "/api/link/match-link" {
+				// R3: a match-link backend error is a no-match, never a deny.
+				// The body is unread here, so no device hash for an unknown row.
+				s.log.Printf("match-link auth backend error, returning no-match: %v", err)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 			s.log.Printf("auth check backend error: %v", err)
 			httpx.WriteJSON(w, http.StatusInternalServerError, errorBody("internal error"))
 			return
@@ -197,7 +204,7 @@ func (s *sdkServer) universalLinkClick(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		URL string `json:"url"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}

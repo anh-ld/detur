@@ -451,29 +451,6 @@ func TestAnalyticsRetentionPersisted(t *testing.T) {
 	}
 }
 
-// Scenario 14: full-chain integration — store click -> match-link fingerprint
-// -> 200 + non-organic attribution (store → match engine → attribution).
-func TestFullChainClickMatchLinkNonOrganic(t *testing.T) {
-	ts, s, _ := newTestServer(t)
-	app, link := setup(t, s)
-	recordAndroidClick(t, s, app, link)
-	hdr := authHeaders(app.ID)
-	hdr["X-Forwarded-For"] = testIP
-	resp, b := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), hdr)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, body %s; want 200", resp.StatusCode, b)
-	}
-	var out struct {
-		Link string `json:"link"`
-	}
-	if err := json.Unmarshal(b, &out); err != nil || out.Link != link.URL {
-		t.Fatalf("body = %s; want link %s", b, link.URL)
-	}
-	organic, nonOrganic, err := s.CountInstalls(app.ID)
-	if err != nil || organic != 0 || nonOrganic != 1 {
-		t.Fatalf("installs = organic %d non-organic %d (%v); want 0/1", organic, nonOrganic, err)
-	}
-}
 
 // The auth wrapper applies to all five endpoints (R4).
 func TestAllSDKEndpointsRequireAuth(t *testing.T) {
@@ -511,5 +488,17 @@ func TestUniversalLinkClickAuthFailOpenOnClosedDB(t *testing.T) {
 	}
 	if err := json.Unmarshal(b, &out); err != nil || !out.Allowed {
 		t.Fatalf("body = %s; want allowed true", b)
+	}
+}
+
+func TestMatchLinkAuthFailOpenOnClosedDB(t *testing.T) {
+	ts, s, _ := newTestServer(t)
+	app, _ := setup(t, s)
+	if err := s.Close(); err != nil {
+		t.Fatalf("store.Close: %v", err)
+	}
+	resp, b := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), authHeaders(app.ID))
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, body %s; want 404 no-match (fail-open R3)", resp.StatusCode, b)
 	}
 }

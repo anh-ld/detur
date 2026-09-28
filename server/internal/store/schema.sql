@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS clicks (
 CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_clickid ON clicks (click_id);
+CREATE INDEX IF NOT EXISTS idx_clicks_app_created ON clicks (app_id, is_bot, created_at);
 
 CREATE TABLE IF NOT EXISTS installs (
     id          TEXT PRIMARY KEY,
@@ -53,8 +54,10 @@ CREATE TABLE IF NOT EXISTS installs (
     click_id    TEXT,
     attribution TEXT NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    UNIQUE (device_hash, click_id)
+    UNIQUE (app_id, device_hash, click_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_installs_app_attribution ON installs (app_id, attribution);
 
 CREATE TABLE IF NOT EXISTS events (
     id         TEXT PRIMARY KEY,

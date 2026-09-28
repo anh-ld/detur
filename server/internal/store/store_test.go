@@ -1,8 +1,8 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 )
@@ -211,6 +211,47 @@ func TestInstallAttributionIdempotent(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesLegacyInstallUniqueness(t *testing.T) {
+	path := t.TempDir() + "/legacy.db"
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	_, err = db.Exec(`CREATE TABLE installs (
+		id TEXT PRIMARY KEY, app_id TEXT NOT NULL, device_hash TEXT NOT NULL,
+		click_id TEXT, attribution TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		UNIQUE (device_hash, click_id)
+	)`)
+	if err == nil {
+		_, err = db.Exec(`INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES (?, ?, ?, ?, ?)`,
+			"legacy", "app-a", "same-device", "same-click", AttributionNonOrganic)
+	}
+	closeErr := db.Close()
+	if err != nil {
+		t.Fatalf("prepare legacy database: %v", err)
+	}
+	if closeErr != nil {
+		t.Fatalf("close legacy database: %v", closeErr)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open legacy database: %v", err)
+	}
+	defer s.Close()
+	got, err := s.RecordInstall(Install{
+		AppID: "app-b", DeviceHash: "same-device", ClickID: "same-click", Attribution: AttributionNonOrganic,
+	})
+	if err != nil || got.AppID != "app-b" || got.ID == "legacy" {
+		t.Fatalf("cross-app install after migration = %+v, %v; want a separate app-b row", got, err)
+	}
+	var preserved int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM installs WHERE id = ? AND app_id = ?`, "legacy", "app-a").Scan(&preserved); err != nil || preserved != 1 {
+		t.Fatalf("legacy row preserved = %d, %v; want 1", preserved, err)
+	}
+}
+
 func TestRecordEventAndSettings(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -228,9 +269,8 @@ func TestRecordEventAndSettings(t *testing.T) {
 	}
 }
 
-// TestGetLinkByKeyGlobal resolves a short key across all apps (v1
-// single-domain serving): the same key may exist under two apps; the first
-// match wins (U4).
+// TestGetLinkByKeyGlobal rejects cross-app duplicates rather than resolving
+// public traffic to an arbitrary app.
 func TestGetLinkByKeyGlobal(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -238,8 +278,8 @@ func TestGetLinkByKeyGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateApp: %v", err)
 	}
-	if _, err := s.CreateLink(Link{AppID: app2.ID, Key: "abc", URL: "https://second.example/"}); err != nil {
-		t.Fatalf("CreateLink: %v", err)
+	if _, err := s.CreateLink(Link{AppID: app2.ID, Key: "abc", URL: "https://second.example/"}); !errors.Is(err, ErrKeyConflict) {
+		t.Fatalf("CreateLink duplicate global key = %v; want ErrKeyConflict", err)
 	}
 	got, err := s.GetLinkByKeyGlobal("abc")
 	if err != nil {
@@ -257,7 +297,23 @@ func TestLinkKeyConflict(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
 	_, err := s.CreateLink(Link{AppID: app.ID, Key: "abc", URL: "https://x"})
-	if err == nil || !strings.Contains(err.Error(), "UNIQUE") {
-		t.Errorf("duplicate link key err = %v; want UNIQUE violation", err)
+	if !errors.Is(err, ErrKeyConflict) {
+		t.Errorf("duplicate link key err = %v; want ErrKeyConflict", err)
+	}
+}
+
+func TestGetLinkByKeyGlobalAmbiguousFailsClosed(t *testing.T) {
+	s := newTestStore(t)
+	setupApp(t, s)
+	app2, err := s.CreateApp("second app", "key-2")
+	if err != nil {
+		t.Fatalf("CreateApp: %v", err)
+	}
+	// CreateLink blocks cross-app duplicates now; simulate a historic one.
+	if _, err := s.db.Exec(`INSERT INTO links (id, app_id, key, url) VALUES ('dup', ?, 'abc', 'https://second.example/')`, app2.ID); err != nil {
+		t.Fatalf("insert duplicate: %v", err)
+	}
+	if _, err := s.GetLinkByKeyGlobal("abc"); !errors.Is(err, ErrAmbiguousKey) {
+		t.Errorf("GetLinkByKeyGlobal(dup) = %v; want ErrAmbiguousKey", err)
 	}
 }

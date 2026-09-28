@@ -17,7 +17,7 @@
 
 ```sh
 docker run -d --name detur \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   -p 127.0.0.1:8081:8081 \
   -v detur-data:/data \
   -e DOMAIN=localhost \
@@ -31,7 +31,9 @@ docker run -d --name detur \
   `git clone <this-repo> && cd detur && docker build -f docker/Dockerfile -t detur/detur:latest .`
 - Check: `GET /health` → `200 ok`
 - No Docker? `cd server && go run ./cmd/detur`
-- Prod: HTTPS in front of 8080 + `-e TRUST_PROXY=1`
+- Prod: publish 8080 on loopback behind a TLS reverse proxy. Set
+  `TRUST_PROXY=1` only when that proxy overwrites `X-Forwarded-For`; this
+  prevents direct callers from spoofing the IP match signal.
 
 ### 2 · Portal — create app, get key
 
@@ -95,8 +97,10 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 - RUN app → first launch calls match-link → matched link shown
 - CHECK server logs → five calls arrive
 - Full example app: `example/expo-app/`
-- Devices: Android emulator → `http://10.0.2.2:8080`; physical device → LAN IP
-  or deployed domain; prod → `https://<DOMAIN>`
+- Devices: Android emulator → `http://10.0.2.2:8080`; physical device →
+  deployed domain. For trusted-LAN development only, publish 8080 on the host
+  interface (`-p 8080:8080`) and use the host's LAN IP; production should use
+  `https://<DOMAIN>` through the TLS proxy.
 
 ## Credits
 
