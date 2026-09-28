@@ -19,15 +19,12 @@ first launch the app opens the link's destination.
 ### 1. Run the server
 
 ```sh
-git clone <this-repo> && cd detur
-docker build -t detur/detur:latest .
-cp .env.example .env   # set DOMAIN, DB_PATH, RETENTION_HOURS, TRUST_PROXY
 docker run -d --name detur --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -p 127.0.0.1:8081:8081 \
   -v detur-data:/data \
-  --env-file .env \
-  detur/detur:latest
+  -e DOMAIN=links.example.com \
+  ghcr.io/anh-ld/detur:latest
 ```
 
 | Env | Default |
@@ -37,7 +34,9 @@ docker run -d --name detur --restart unless-stopped \
 | `RETENTION_HOURS` | `24` |
 | `TRUST_PROXY` | `0` |
 
-- The image is not published yet, so build it from source as above.
+- Only `DOMAIN` needs setting. Override the others with `-e NAME=value` if needed.
+- Pin a version (`ghcr.io/anh-ld/detur:0.1.0`) instead of `latest` in production.
+- To build from source instead, run `docker build -t ghcr.io/anh-ld/detur:latest .`.
 - To check that it is up, `GET /health` should return `200 ok`.
 - Without Docker, run `cd server && go run ./cmd/detur`.
 - In production, publish 8080 on loopback behind a TLS reverse proxy. Set
