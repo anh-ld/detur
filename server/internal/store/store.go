@@ -358,9 +358,9 @@ type rowScanner interface {
 
 func scanClickRows(row rowScanner) (Click, error) {
 	var (
-		c            Click
+		c                                                         Click
 		ip, device, locale, timezone, screen, ua, pasted, clickID string
-		createdAt, expiresAt string
+		createdAt, expiresAt                                      string
 	)
 	err := row.Scan(&c.ID, &c.AppID, &c.LinkID, &ip, &device, &locale, &timezone,
 		&screen, &ua, &pasted, &c.Destination, &clickID, &c.IsBot, &createdAt, &expiresAt)
@@ -450,6 +450,13 @@ func (s *Store) RecordEvent(appID, event, metadata string) error {
 		return fmt.Errorf("record event: %w", err)
 	}
 	return nil
+}
+
+// CountEvents returns the analytics event count for an app (U3 persistence check).
+func (s *Store) CountEvents(appID string) (int64, error) {
+	var n int64
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE app_id = ?`, appID).Scan(&n)
+	return n, err
 }
 
 // GetSetting returns a stored setting value.
