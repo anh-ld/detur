@@ -1,8 +1,25 @@
 import { JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Dialog, Input, Label } from 'kinu';
+import {
+  Alert,
+  Badge,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  Button,
+  Card,
+  Dialog,
+  Empty,
+  Field,
+  Input,
+  Label,
+  Separator,
+  Spinner,
+  Table,
+} from 'kinu';
 import { api, App, Link, Readout } from './api';
-import { closeDialog } from './ui';
+import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
 
 interface LinkDraft {
   key: string;
@@ -57,16 +74,20 @@ export function DetailPage({ id }: { id: string }) {
   };
   useEffect(loadAll, [id]);
 
-  if (app === null && error === '') return <p class="hint">Loading…</p>;
+  if (app === null && error === '') return <Spinner />;
   if (app === null)
     return (
-      <p class="hint">
-        App not found — <a href="#/">back to apps</a>.
-      </p>
+      <Card style={{ marginTop: 32 }}>
+        <Empty>
+          <h3>App not found</h3>
+          <Button variant="outline" href="#/">
+            Back to apps
+          </Button>
+        </Empty>
+      </Card>
     );
 
   const del = async (l: Link) => {
-    if (!confirm(`Delete link "${l.key}"?`)) return;
     setError('');
     try {
       await api.deleteLink(l.id);
@@ -76,94 +97,119 @@ export function DetailPage({ id }: { id: string }) {
     }
   };
 
+  const stat = (label: string, n: number | undefined) => (
+    <Card padding="sm" style={{ display: 'grid', gap: 4 }}>
+      <p style={muted}>{label}</p>
+      <div style={{ fontSize: 28, fontWeight: 600 }}>{n ?? '–'}</div>
+    </Card>
+  );
+
   return (
     <div>
-      <div class="page-head">
-        <h1>
-          <a href="#/">Apps</a> / {app.name}
-        </h1>
-        <div class="row">
-          <Button size="sm" variant="outline" onClick={loadAll}>
-            Refresh
-          </Button>
-          <LinkDialog
-            key={'create' + app.id}
-            appId={app.id}
-            link={null}
-            onSaved={loadAll}
-            trigger={<Button>New link</Button>}
-          />
-        </div>
-      </div>
-      {error && <p class="error">{error}</p>}
+      <Breadcrumb style={{ ...muted, marginTop: 24, marginBottom: -16 }}>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="#/">Apps</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbItem>{app.name}</BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <PageHeader
+        title={app.name}
+        description={
+          <span style={mono}>key {app.apiKeyHash.slice(0, 12)}…</span>
+        }
+        actions={
+          <>
+            <Button variant="outline" onClick={loadAll}>
+              Refresh
+            </Button>
+            <LinkDialog
+              key={'create' + app.id}
+              appId={app.id}
+              link={null}
+              onSaved={loadAll}
+              trigger={<Button>New link</Button>}
+            />
+          </>
+        }
+      />
+      {error && <Alert variant="destructive">{error}</Alert>}
 
-      <div class="readout">
-        <div class="stat">
-          <div class="num">{readout ? readout.clicks : '–'}</div>
-          <div class="lbl">clicks</div>
-        </div>
-        <div class="stat">
-          <div class="num">{readout ? readout.nonOrganic : '–'}</div>
-          <div class="lbl">non-organic installs</div>
-        </div>
-        <div class="stat">
-          <div class="num">{readout ? readout.organic : '–'}</div>
-          <div class="lbl">organic installs</div>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+        {stat('Clicks', readout?.clicks)}
+        {stat('Non-organic installs', readout?.nonOrganic)}
+        {stat('Organic installs', readout?.organic)}
       </div>
 
+      <h2 style={{ margin: '40px 0 16px', fontSize: 20 }}>Links</h2>
       {links === null ? (
-        <p class="hint">Loading links…</p>
+        <Spinner />
       ) : links.length === 0 ? (
-        <p class="hint">No links yet — create one.</p>
+        <Card>
+          <Empty>
+            <h3>No links yet</h3>
+            Create a link to start tracking clicks and installs.
+          </Empty>
+        </Card>
       ) : (
-        <table>
+        <Table>
           <thead>
             <tr>
-              <th>Key</th>
-              <th>URL</th>
-              <th>iOS</th>
-              <th>Android</th>
-              <th>Fallback</th>
-              <th>Threshold</th>
-              <th>Window</th>
+              <th>Link</th>
+              <th>Platforms</th>
+              <th>Matching</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {links.map((l) => (
               <tr key={l.id}>
-                <td class="mono">{l.key}</td>
                 <td>
-                  <a href={l.url} target="_blank" rel="noreferrer">
-                    {l.url}
-                  </a>
+                  <div style={{ display: 'grid', gap: 2 }}>
+                    <strong style={mono}>{l.key}</strong>
+                    <a href={l.url} target="_blank" rel="noreferrer" style={{ ...muted, textDecoration: 'none' }}>
+                      {l.url}
+                    </a>
+                  </div>
                 </td>
-                <td class="hint">{l.ios || '—'}</td>
-                <td class="hint">{l.android || '—'}</td>
-                <td class="hint">{l.fallbackUrl || '—'}</td>
-                <td>{l.threshold || 'global'}</td>
-                <td>{l.windowMinutes || 'global'}</td>
-                <td class="actions">
-                  <LinkDialog
-                    key={'edit' + l.id}
-                    appId={app.id}
-                    link={l}
-                    onSaved={loadAll}
-                    trigger={
-                      <Button size="sm" variant="secondary">
-                        Edit
-                      </Button>
-                    }
-                  />
-                  <Button size="sm" variant="destructive" onClick={() => del(l)}>
-                    Delete
-                  </Button>
+                <td>
+                  <div style={row}>
+                    {l.ios && <Badge variant="secondary">iOS</Badge>}
+                    {l.android && <Badge variant="secondary">Android</Badge>}
+                    {l.fallbackUrl && <Badge variant="secondary">Web</Badge>}
+                    {!l.ios && !l.android && !l.fallbackUrl && <Badge variant="outline">URL only</Badge>}
+                  </div>
+                </td>
+                <td style={muted}>
+                  {l.threshold || l.windowMinutes
+                    ? `${l.threshold || 'global'} · ${l.windowMinutes ? l.windowMinutes + ' min' : 'global'}`
+                    : 'Global'}
+                </td>
+                <td>
+                  <div style={{ ...row, justifyContent: 'flex-end' }}>
+                    <LinkDialog
+                      key={'edit' + l.id}
+                      appId={app.id}
+                      link={l}
+                      onSaved={loadAll}
+                      trigger={
+                        <Button size="sm" variant="ghost">
+                          Edit
+                        </Button>
+                      }
+                    />
+                    <ConfirmDelete
+                      title={`Delete ${l.key}?`}
+                      body="The short link stops working."
+                      onConfirm={() => del(l)}
+                    />
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </div>
   );
@@ -222,77 +268,98 @@ function LinkDialog({
       <Dialog.Trigger>{trigger}</Dialog.Trigger>
       <Dialog.Content>
         <form
+          style={{ display: 'grid', gap: 16 }}
           onSubmit={(e) => {
             e.preventDefault();
             save();
           }}
         >
-          <h2>{link ? 'Edit link' : 'Create link'}</h2>
-          <Label htmlFor={`${id}-key`}>Key</Label>
-          <Input
-            id={`${id}-key`}
-            class="mono"
-            value={draft.key}
-            onInput={(e) => setDraft({ ...draft, key: e.currentTarget.value })}
-            placeholder="summer-sale"
-            disabled={!!link}
-          />
-          <Label htmlFor={`${id}-url`}>Destination URL</Label>
-          <Input
-            id={`${id}-url`}
-            value={draft.url}
-            onInput={(e) => setDraft({ ...draft, url: e.currentTarget.value })}
-            placeholder="https://example.com/product"
-          />
-          <Label htmlFor={`${id}-ios`}>iOS URL (store page, optional)</Label>
-          <Input
-            id={`${id}-ios`}
-            value={draft.ios}
-            onInput={(e) => setDraft({ ...draft, ios: e.currentTarget.value })}
-            placeholder="https://apps.apple.com/app/id123"
-          />
-          <Label htmlFor={`${id}-android`}>Android URL (store page, optional)</Label>
-          <Input
-            id={`${id}-android`}
-            value={draft.android}
-            onInput={(e) => setDraft({ ...draft, android: e.currentTarget.value })}
-            placeholder="https://play.google.com/store/apps/details?id=com.example"
-          />
-          <Label htmlFor={`${id}-fb`}>Fallback URL (desktop, optional)</Label>
-          <Input
-            id={`${id}-fb`}
-            value={draft.fallbackUrl}
-            onInput={(e) => setDraft({ ...draft, fallbackUrl: e.currentTarget.value })}
-            placeholder="https://example.com"
-          />
-          <div class="row">
-            <div>
-              <Label htmlFor={`${id}-th`}>Threshold (700–1200)</Label>
+          <h2 style={{ margin: 0 }}>{link ? 'Edit link' : 'Create link'}</h2>
+          <Field>
+            <Label htmlFor={`${id}-key`}>Key</Label>
+            <Input
+              id={`${id}-key`}
+              style={mono}
+              value={draft.key}
+              onInput={(e) => setDraft({ ...draft, key: e.currentTarget.value })}
+              placeholder="summer-sale"
+              disabled={!!link}
+            />
+            <Field.Description>The short link path. Can't be changed later.</Field.Description>
+          </Field>
+          <Field>
+            <Label htmlFor={`${id}-url`}>Destination URL</Label>
+            <Input
+              id={`${id}-url`}
+              value={draft.url}
+              onInput={(e) => setDraft({ ...draft, url: e.currentTarget.value })}
+              placeholder="https://example.com/product"
+            />
+            <Field.Description>Handed to the app after install.</Field.Description>
+          </Field>
+
+          <Separator />
+          <p style={muted}>Redirects (optional)</p>
+          <Field>
+            <Label htmlFor={`${id}-ios`}>iOS store page</Label>
+            <Input
+              id={`${id}-ios`}
+              value={draft.ios}
+              onInput={(e) => setDraft({ ...draft, ios: e.currentTarget.value })}
+              placeholder="https://apps.apple.com/app/id123"
+            />
+          </Field>
+          <Field>
+            <Label htmlFor={`${id}-android`}>Android store page</Label>
+            <Input
+              id={`${id}-android`}
+              value={draft.android}
+              onInput={(e) => setDraft({ ...draft, android: e.currentTarget.value })}
+              placeholder="https://play.google.com/store/apps/details?id=com.example"
+            />
+          </Field>
+          <Field>
+            <Label htmlFor={`${id}-fb`}>Desktop fallback</Label>
+            <Input
+              id={`${id}-fb`}
+              value={draft.fallbackUrl}
+              onInput={(e) => setDraft({ ...draft, fallbackUrl: e.currentTarget.value })}
+              placeholder="https://example.com"
+            />
+          </Field>
+
+          <Separator />
+          <p style={muted}>Matching (optional, empty = global setting)</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field>
+              <Label htmlFor={`${id}-th`}>Threshold</Label>
               <Input
                 id={`${id}-th`}
                 type="number"
                 value={draft.threshold}
                 onInput={(e) => setDraft({ ...draft, threshold: e.currentTarget.value })}
-                placeholder="Inherit global (850)"
+                placeholder="850"
               />
-            </div>
-            <div>
-              <Label htmlFor={`${id}-win`}>Window (min, 5–180)</Label>
+              <Field.Description>700–1200</Field.Description>
+            </Field>
+            <Field>
+              <Label htmlFor={`${id}-win`}>Window (minutes)</Label>
               <Input
                 id={`${id}-win`}
                 type="number"
                 value={draft.windowMinutes}
                 onInput={(e) => setDraft({ ...draft, windowMinutes: e.currentTarget.value })}
-                placeholder="Inherit global (15)"
+                placeholder="15"
               />
-            </div>
+              <Field.Description>5–180</Field.Description>
+            </Field>
           </div>
-          {err && <p class="error">{err}</p>}
-          <div class="row">
-            <Button type="submit">{link ? 'Save' : 'Create'}</Button>
+          {err && <Alert variant="destructive">{err}</Alert>}
+          <div style={{ ...row, justifyContent: 'flex-end' }}>
             <Dialog.Close>
               <Button variant="outline">Cancel</Button>
             </Dialog.Close>
+            <Button type="submit">{link ? 'Save' : 'Create'}</Button>
           </div>
         </form>
       </Dialog.Content>

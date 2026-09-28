@@ -1,0 +1,140 @@
+/* kinu tokens: one blue, cool blue-gray neutrals. */
+:root {
+  --k-primary: 217 91% 52%;
+  --k-primary-hover: 217 85% 45%;
+  --k-primary-foreground: 0 0% 100%;
+  --k-ring: 217 91% 55%;
+  --k-accent: 214 95% 95%;
+  --k-accent-foreground: 217 80% 40%;
+  --k-foreground: 222 30% 12%;
+  --k-card-foreground: 222 30% 12%;
+  --k-popover-foreground: 222 30% 12%;
+  --k-secondary-foreground: 222 25% 20%;
+  --k-muted-foreground: 220 10% 44%;
+  --k-border: 218 25% 89%;
+  --k-input: 218 20% 82%;
+  --k-muted: 216 35% 96%;
+  --k-secondary: 216 30% 94%;
+  --k-background: 216 40% 98%;
+  --k-card: 0 0% 100%;
+  --k-popover: 0 0% 100%;
+  --k-radius: 0.625rem;
+}
+
+body {
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: radial-gradient(70rem 30rem at 50% -14rem, hsl(var(--k-primary) / 0.13), transparent 70%)
+    hsl(var(--k-background));
+  min-height: 100dvh;
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+main h1 {
+  font-size: 2.5rem !important;
+  letter-spacing: -0.035em;
+}
+
+/* Brand mark */
+header > div > a:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.5rem;
+  border-radius: 4px;
+  background: hsl(var(--k-primary));
+}
+
+header [k="button"][variant="secondary"],
+[k="badge"][variant="secondary"] {
+  background: hsl(var(--k-accent));
+  color: hsl(var(--k-accent-foreground));
+}
+
+[k="button"]:not([variant]) {
+  box-shadow: 0 4px 12px -4px hsl(var(--k-primary) / 0.5);
+}
+
+/* Cards: flat; app cards are fully clickable */
+[k="card"] {
+  box-shadow: none;
+  border-radius: 0.875rem;
+  position: relative;
+}
+
+[k="card"]:has(h3 > a):hover {
+  border-color: hsl(var(--k-primary) / 0.45);
+}
+
+[k="card"] h3 > a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+[k="card"] [k="button"] {
+  position: relative;
+}
+
+/* Stat tiles: big numbers, first one in blue */
+[k="card"][padding="sm"] > div {
+  font-size: 2.75rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+[k="card"][padding="sm"]:first-child {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(135deg, hsl(212 95% 58%), hsl(226 80% 42%));
+}
+
+[k="card"][padding="sm"]:first-child > p {
+  color: hsl(0 0% 100% / 0.8) !important;
+}
+
+/* Empty states */
+[k="card"]:has(> [k="empty"]) {
+  border-style: dashed;
+  background: radial-gradient(hsl(var(--k-border)) 1px, transparent 1.3px) 0 0 / 18px 18px;
+}
+
+[k="empty"] {
+  padding: 4rem 1.5rem;
+}
+
+/* Table: row lines only, rounded frame */
+[k="table"] {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: 0.875rem;
+  overflow: hidden;
+  background: hsl(var(--k-card));
+}
+
+[k="table"] th,
+[k="table"] td {
+  border: 0;
+  border-bottom: 1px solid hsl(var(--k-border));
+  padding: 0.875rem 1.125rem;
+}
+
+[k="table"] tr:last-child td {
+  border-bottom: 0;
+}
+
+[k="table"] th {
+  color: hsl(var(--k-muted-foreground));
+  font-weight: 500;
+}
+
+[k="dialog-content"] {
+  border: 1px solid hsl(var(--k-border));
+  border-radius: 1rem;
+}

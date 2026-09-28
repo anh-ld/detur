@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button } from 'kinu';
+import { Button, Separator } from 'kinu';
+import { row } from './ui';
 import { AppsPage } from './apps';
 import { DetailPage } from './detail';
 import { SettingsPage } from './settings';
@@ -26,24 +27,31 @@ export function App() {
     return () => removeEventListener('hashchange', on);
   }, []);
 
+  const nav = (href: string, label: string, active: boolean) => (
+    <Button size="sm" variant={active ? 'secondary' : 'ghost'} href={href}>
+      {label}
+    </Button>
+  );
+
   return (
-    <div class="shell">
-      <header class="topbar">
-        <a class="brand" href="#/">detur</a>
-        <nav>
-          <Button size="sm" variant="ghost" href="#/">
-            Apps
-          </Button>
-          <Button size="sm" variant="ghost" href="#/settings">
-            Settings
-          </Button>
-        </nav>
+    <>
+      <header style={{ maxWidth: 1040, margin: '0 auto', padding: '12px 24px', ...row, justifyContent: 'space-between' }}>
+        <div style={{ ...row, gap: 24 }}>
+          <a href="#/" style={{ fontWeight: 700, fontSize: 18, color: 'inherit', textDecoration: 'none' }}>
+            detur
+          </a>
+          <nav style={row}>
+            {nav('#/', 'Apps', route.name !== 'settings')}
+            {nav('#/settings', 'Settings', route.name === 'settings')}
+          </nav>
+        </div>
       </header>
-      <main>
+      <Separator />
+      <main style={{ maxWidth: 1040, margin: '0 auto', padding: '0 24px 64px' }}>
         {route.name === 'apps' && <AppsPage />}
         {route.name === 'detail' && <DetailPage id={route.id} />}
         {route.name === 'settings' && <SettingsPage />}
       </main>
-    </div>
+    </>
   );
 }
