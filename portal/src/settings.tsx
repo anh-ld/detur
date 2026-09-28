@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Input, Label } from 'kinu';
+import { Alert, Button, Card, Field, Input, Label } from 'kinu';
+import { PageHeader, row } from './ui';
 import { api } from './api';
 
 export function SettingsPage() {
@@ -37,32 +38,37 @@ export function SettingsPage() {
 
   return (
     <div>
-      <div class="page-head">
-        <h1>Settings</h1>
-      </div>
-      <p class="hint">Default matching settings (R14); each link can override these.</p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
-        style={{ maxWidth: 320 }}
-      >
-        <Label htmlFor="set-th">Default threshold (700–1200)</Label>
-        <Input id="set-th" type="number" value={threshold} onInput={(e) => setThreshold(e.currentTarget.value)} />
-        <Label htmlFor="set-win">Default window (minutes, 5–180)</Label>
-        <Input
-          id="set-win"
-          type="number"
-          value={windowMinutes}
-          onInput={(e) => setWindowMinutes(e.currentTarget.value)}
-        />
-        {error && <p class="error">{error}</p>}
-        {saved && <p class="saved">Saved.</p>}
-        <div class="row">
-          <Button type="submit">Save</Button>
-        </div>
-      </form>
+      <PageHeader title="Settings" description="Default matching for every link. Each link can override these." />
+      <Card style={{ maxWidth: 480 }}>
+        <form
+          style={{ display: 'grid', gap: 16 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            save();
+          }}
+        >
+          <Field>
+            <Label htmlFor="set-th">Match threshold</Label>
+            <Input id="set-th" type="number" value={threshold} onInput={(e) => setThreshold(e.currentTarget.value)} />
+            <Field.Description>700–1200. Higher means stricter install matching.</Field.Description>
+          </Field>
+          <Field>
+            <Label htmlFor="set-win">Match window (minutes)</Label>
+            <Input
+              id="set-win"
+              type="number"
+              value={windowMinutes}
+              onInput={(e) => setWindowMinutes(e.currentTarget.value)}
+            />
+            <Field.Description>5–180. How long after a click an install can still match it.</Field.Description>
+          </Field>
+          {error && <Alert variant="destructive">{error}</Alert>}
+          {saved && <Alert variant="success">Saved.</Alert>}
+          <div style={{ ...row, justifyContent: 'flex-end' }}>
+            <Button type="submit">Save</Button>
+          </div>
+        </form>
+      </Card>
     </div>
   );
 }

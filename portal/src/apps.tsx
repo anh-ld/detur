@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Dialog, Input, Label } from 'kinu';
+import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Spinner } from 'kinu';
 import { api, App, CreatedApp } from './api';
-import { closeDialog } from './ui';
+import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
 
 function generateKey(): string {
   const b = crypto.getRandomValues(new Uint8Array(16));
@@ -50,7 +50,6 @@ export function AppsPage() {
   };
 
   const del = async (a: App) => {
-    if (!confirm(`Delete app "${a.name}"? Its links are deleted too.`)) return;
     setError('');
     try {
       await api.deleteApp(a.id);
@@ -60,89 +59,107 @@ export function AppsPage() {
     }
   };
 
+  const createDialog = (
+    <Dialog id="dlg-create-app">
+      <Dialog.Trigger>
+        <Button onClick={resetCreate}>Create app</Button>
+      </Dialog.Trigger>
+      <Dialog.Content>
+        {created ? (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <h2 style={{ margin: 0 }}>App created</h2>
+            <Alert variant="warning">
+              This is the only time the API key for <strong>{created.name}</strong> is shown. Copy it now.
+            </Alert>
+            <Input readOnly value={created.apiKey} style={mono} />
+            <div style={{ ...row, justifyContent: 'flex-end' }}>
+              <Dialog.Close>
+                <Button variant="outline">Done</Button>
+              </Dialog.Close>
+              <Button onClick={copyKey}>{copied ? 'Copied' : 'Copy key'}</Button>
+            </div>
+          </div>
+        ) : (
+          <form
+            style={{ display: 'grid', gap: 16 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitCreate();
+            }}
+          >
+            <div style={{ display: 'grid', gap: 4 }}>
+              <h2 style={{ margin: 0 }}>Create app</h2>
+              <p style={muted}>One app per mobile app. Its API key goes in the SDK config.</p>
+            </div>
+            <Field>
+              <Label htmlFor="new-name">Name</Label>
+              <Input id="new-name" value={name} onInput={(e) => setName(e.currentTarget.value)} placeholder="My app" />
+            </Field>
+            <Field>
+              <Label htmlFor="new-key">API key</Label>
+              <Input id="new-key" style={mono} value={key} onInput={(e) => setKey(e.currentTarget.value)} />
+              <Field.Description>Auto-generated. Replace it to use your own.</Field.Description>
+            </Field>
+            {error && <Alert variant="destructive">{error}</Alert>}
+            <div style={{ ...row, justifyContent: 'flex-end' }}>
+              <Dialog.Close>
+                <Button variant="outline">Cancel</Button>
+              </Dialog.Close>
+              <Button type="submit">Create</Button>
+            </div>
+          </form>
+        )}
+      </Dialog.Content>
+    </Dialog>
+  );
+
   return (
     <div>
-      <div class="page-head">
-        <h1>Apps</h1>
-        <Dialog id="dlg-create-app">
-          <Dialog.Trigger>
-            <Button onClick={resetCreate}>Create app</Button>
-          </Dialog.Trigger>
-          <Dialog.Content>
-            {created ? (
-              <div>
-                <h2>App created</h2>
-                <p>
-                  API key for <strong>{created.name}</strong> — shown once. Copy it now.
-                </p>
-                <div class="key mono">{created.apiKey}</div>
-                <div class="row">
-                  <Button onClick={copyKey}>{copied ? 'Copied' : 'Copy key'}</Button>
-                  <Dialog.Close>
-                    <Button variant="outline">Done</Button>
-                  </Dialog.Close>
+      <PageHeader title="Apps" description="Each app has its own API key, links and install stats." actions={createDialog} />
+      {error && <Alert variant="destructive">{error}</Alert>}
+      {apps === null ? (
+        <Spinner />
+      ) : apps.length === 0 ? (
+        <Card>
+          <Empty>
+            <h3>No apps yet</h3>
+            Create an app to get an API key for the SDK.
+          </Empty>
+        </Card>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+          {apps.map((a) => (
+            <Card key={a.id} style={{ display: 'grid', gap: 12 }}>
+              <div style={{ ...row, justifyContent: 'space-between' }}>
+                <h3 style={{ margin: 0 }}>
+                  <a href={`#/apps/${a.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                    {a.name}
+                  </a>
+                </h3>
+                <div style={row}>
+                  {a.iosAppId && <Badge variant="secondary">iOS</Badge>}
+                  {a.androidPackage && <Badge variant="secondary">Android</Badge>}
+                  {!a.iosAppId && !a.androidPackage && <Badge variant="outline">Not set up</Badge>}
                 </div>
               </div>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  submitCreate();
-                }}
-              >
-                <h2>Create app</h2>
-                <Label htmlFor="new-name">Name</Label>
-                <Input id="new-name" value={name} onInput={(e) => setName(e.currentTarget.value)} placeholder="My app" />
-                <Label htmlFor="new-key">API key (auto-generated — edit to use your own)</Label>
-                <Input id="new-key" class="mono" value={key} onInput={(e) => setKey(e.currentTarget.value)} />
-                <div class="row">
-                  <Button type="submit">Create</Button>
-                  <Dialog.Close>
-                    <Button variant="outline">Cancel</Button>
-                  </Dialog.Close>
-                </div>
-              </form>
-            )}
-          </Dialog.Content>
-        </Dialog>
-      </div>
-      {error && <p class="error">{error}</p>}
-      {apps === null ? (
-        <p class="hint">Loading…</p>
-      ) : apps.length === 0 ? (
-        <p class="hint">No apps yet — create one.</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>API key (hash)</th>
-              <th>Well-known details</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {apps.map((a) => (
-              <tr key={a.id}>
-                <td>
-                  <a href={`#/apps/${a.id}`}>{a.name}</a>
-                </td>
-                <td class="mono">{a.apiKeyHash.slice(0, 12)}…</td>
-                <td class="hint">{a.iosAppId || a.androidPackage || '—'}</td>
-                <td class="actions">
+              <div style={{ ...row, justifyContent: 'space-between' }}>
+                <span style={{ ...muted, ...mono }}>key {a.apiKeyHash.slice(0, 12)}…</span>
+                <div style={row}>
                   <EditDialog
                     key={a.id + '|' + a.iosAppId + '|' + a.androidPackage + '|' + a.androidCertFingerprint}
                     app={a}
                     onSaved={load}
                   />
-                  <Button size="sm" variant="destructive" onClick={() => del(a)}>
-                    Delete
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <ConfirmDelete
+                    title={`Delete ${a.name}?`}
+                    body="Its links are deleted too, and the SDK stops accepting this API key."
+                    onConfirm={() => del(a)}
+                  />
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -171,46 +188,58 @@ function EditDialog({ app, onSaved }: { app: App; onSaved: () => void }) {
   return (
     <Dialog id={id}>
       <Dialog.Trigger>
-        <Button size="sm" variant="secondary">
+        <Button size="sm" variant="ghost">
           Edit
         </Button>
       </Dialog.Trigger>
       <Dialog.Content>
         <form
+          style={{ display: 'grid', gap: 16 }}
           onSubmit={(e) => {
             e.preventDefault();
             save();
           }}
         >
-          <h2>Edit {app.name}</h2>
-          <Label htmlFor={`${id}-ios`}>iOS App ID (TEAMID.BUNDLEID)</Label>
-          <Input
-            id={`${id}-ios`}
-            value={draft.iosAppId}
-            onInput={(e) => setDraft({ ...draft, iosAppId: e.currentTarget.value })}
-            placeholder="ABCDE12345.com.example.app"
-          />
-          <Label htmlFor={`${id}-android`}>Android package</Label>
-          <Input
-            id={`${id}-android`}
-            value={draft.androidPackage}
-            onInput={(e) => setDraft({ ...draft, androidPackage: e.currentTarget.value })}
-            placeholder="com.example.app"
-          />
-          <Label htmlFor={`${id}-cert`}>Android cert SHA-256 fingerprint</Label>
-          <Input
-            id={`${id}-cert`}
-            class="mono"
-            value={draft.androidCertFingerprint}
-            onInput={(e) => setDraft({ ...draft, androidCertFingerprint: e.currentTarget.value })}
-            placeholder="AA:BB:CC:…"
-          />
-          {err && <p class="error">{err}</p>}
-          <div class="row">
-            <Button type="submit">Save</Button>
+          <div style={{ display: 'grid', gap: 4 }}>
+            <h2 style={{ margin: 0 }}>Edit {app.name}</h2>
+            <p style={muted}>Used to serve the iOS and Android well-known files.</p>
+          </div>
+          <Field>
+            <Label htmlFor={`${id}-ios`}>iOS App ID</Label>
+            <Input
+              id={`${id}-ios`}
+              value={draft.iosAppId}
+              onInput={(e) => setDraft({ ...draft, iosAppId: e.currentTarget.value })}
+              placeholder="ABCDE12345.com.example.app"
+            />
+            <Field.Description>TEAMID.BUNDLEID</Field.Description>
+          </Field>
+          <Field>
+            <Label htmlFor={`${id}-android`}>Android package</Label>
+            <Input
+              id={`${id}-android`}
+              value={draft.androidPackage}
+              onInput={(e) => setDraft({ ...draft, androidPackage: e.currentTarget.value })}
+              placeholder="com.example.app"
+            />
+          </Field>
+          <Field>
+            <Label htmlFor={`${id}-cert`}>Android cert fingerprint</Label>
+            <Input
+              id={`${id}-cert`}
+              style={mono}
+              value={draft.androidCertFingerprint}
+              onInput={(e) => setDraft({ ...draft, androidCertFingerprint: e.currentTarget.value })}
+              placeholder="AA:BB:CC:…"
+            />
+            <Field.Description>SHA-256 of the signing certificate.</Field.Description>
+          </Field>
+          {err && <Alert variant="destructive">{err}</Alert>}
+          <div style={{ ...row, justifyContent: 'flex-end' }}>
             <Dialog.Close>
               <Button variant="outline">Cancel</Button>
             </Dialog.Close>
+            <Button type="submit">Save</Button>
           </div>
         </form>
       </Dialog.Content>

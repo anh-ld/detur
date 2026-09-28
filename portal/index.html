@@ -1,9 +1,18 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-color-scheme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Detur Portal</title>
+    <!-- kinu styles components only; the page itself uses its tokens (same as kinu.sh). -->
+    <style>
+      body {
+        margin: 0;
+        background: hsl(var(--k-background));
+        color: hsl(var(--k-foreground));
+        font-family: system-ui, sans-serif;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
