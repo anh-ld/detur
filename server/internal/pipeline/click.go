@@ -7,33 +7,26 @@ package pipeline
 import (
 	"errors"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/ua"
 )
 
-// retentionFloorHours is the click retention floor (KTD4): a recorded click
-// never expires before 24h, so deterministic clickId lookups survive beyond
-// the probabilistic window.
-const retentionFloorHours = 24
-
-// botMarkers is the cheap Dub-style UA bot filter (cloned from record-click,
-// KD4): any UA containing one of these markers skips click recording.
-var botMarkers = []string{"bot", "spider", "crawler", "preview", "facebookexternalhit", "slackbot", "twitterbot", "whatsapp"}
-
 type pipelineServer struct {
-	st  *store.Store
-	log *log.Logger
+	st             *store.Store
+	log            *log.Logger
+	retentionHours int // click retention floor (KTD4), threaded from config
 }
 
 // Register attaches the browser pipeline to mux: GET /{key} short-link
 // serving. /health and /api/* are more specific patterns and keep winning
 // (KTD2 stdlib routing).
-func Register(mux *http.ServeMux, st *store.Store) {
-	p := &pipelineServer{st: st, log: log.Default()}
+func Register(mux *http.ServeMux, st *store.Store, retentionHours int) {
+	p := &pipelineServer{st: st, log: log.Default(), retentionHours: retentionHours}
 	mux.HandleFunc("GET /{key}", p.handleShort)
 }
 
@@ -54,19 +47,18 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	clickID := ""
-	ua := r.UserAgent()
-	if !isBotUA(ua) {
+	if agent := r.UserAgent(); !ua.IsBotUA(agent) {
 		rec, err := p.st.RecordClick(store.Click{
 			AppID: link.AppID, LinkID: link.ID, Destination: link.URL,
 			Fingerprint: fingerprint(r, q),
-		}, link.WindowMinutes, retentionFloorHours)
+		}, link.WindowMinutes, p.retentionHours)
 		if err != nil {
 			p.log.Printf("click record failed (redirect continues): %v", err)
 		} else {
 			clickID = rec.ID // Android Play install referrer (R10)
 		}
 	}
-	http.Redirect(w, r, redirectTarget(link, ua, clickID, q), http.StatusFound)
+	http.Redirect(w, r, redirectTarget(link, r.UserAgent(), clickID, q), http.StatusFound)
 }
 
 // fingerprint captures the click-time device signals (R8): IP, UA-derived
@@ -82,79 +74,11 @@ func fingerprint(r *http.Request, q url.Values) store.Fingerprint {
 		locale = strings.TrimSpace(al)
 	}
 	return store.Fingerprint{
-		IP:         remoteIP(r),
-		Device:     deviceFromUA(r.UserAgent()),
+		IP:         httpx.RemoteIP(r),
+		Device:     ua.DeviceLabel(r.UserAgent()),
 		Locale:     locale,
 		UserAgent:  r.UserAgent(),
 		Screen:     q.Get("screen"),
 		PastedLink: q.Get("pasted_link"),
 	}
-}
-
-// remoteIP returns the request connection IP, honoring X-Forwarded-For (first
-// entry) for the reverse-proxy deployment (TLS termination requirement).
-func remoteIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			xff = xff[:i]
-		}
-		return strings.TrimSpace(xff)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
-// isBotUA applies the cheap Dub bot filter (KD4): a UA containing any known
-// bot marker skips click recording but still gets the redirect.
-func isBotUA(ua string) bool {
-	ua = strings.ToLower(ua)
-	for _, m := range botMarkers {
-		if strings.Contains(ua, m) {
-			return true
-		}
-	}
-	return false
-}
-
-// deviceFromUA derives a device label using the same parsing the match
-// package uses (replicated here; its helpers are unexported): Android model
-// "Pixel 7", iOS "iPhone"/"iPad"/"iPod".
-func deviceFromUA(ua string) string {
-	switch {
-	case strings.Contains(ua, "Android"):
-		return androidModel(ua)
-	case strings.Contains(ua, "iPhone"):
-		return "iPhone"
-	case strings.Contains(ua, "iPad"):
-		return "iPad"
-	case strings.Contains(ua, "iPod"):
-		return "iPod"
-	}
-	return ""
-}
-
-// androidModel mirrors the match package's parser: the model token after the
-// Android version in "(Linux; Android 14; Pixel 7 Build/TQ3A.230805.001)".
-func androidModel(ua string) string {
-	i := strings.Index(ua, "Android ")
-	if i < 0 {
-		return ""
-	}
-	rest := strings.TrimSpace(ua[i+len("Android "):])
-	j := strings.Index(rest, ";")
-	if j < 0 {
-		return ""
-	}
-	rest = strings.TrimSpace(rest[j+1:])
-	if k := strings.Index(rest, ";"); k >= 0 { // legacy locale slot
-		rest = strings.TrimSpace(rest[k+1:])
-	}
-	rest = strings.TrimSuffix(strings.TrimSpace(rest), ")")
-	if b := strings.Index(rest, " Build"); b >= 0 {
-		rest = rest[:b]
-	}
-	return strings.TrimSpace(rest)
 }

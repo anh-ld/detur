@@ -53,7 +53,7 @@ func iosClick(link store.Link) store.Click {
 
 func androidFP() Fingerprint {
 	return Fingerprint{
-		Platform: "android", Model: "Pixel 7", SystemVersion: "14",
+		Model: "Pixel 7", SystemVersion: "14",
 		ScreenWidth: 393, ScreenHeight: 852, Scale: 3,
 		Locale: "en-US", Timezone: "Europe/Warsaw",
 		UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/TQ3A.230805.001)",
@@ -62,7 +62,7 @@ func androidFP() Fingerprint {
 
 func iosFP() Fingerprint {
 	return Fingerprint{
-		Platform: "ios", Model: "iPhone 15", SystemVersion: "17.2",
+		Model: "iPhone 15", SystemVersion: "17.2",
 		ScreenWidth: 393, ScreenHeight: 852, Scale: 3,
 		Locale: "en-US", Timezone: "Europe/Warsaw",
 		UserAgent:  "Mozilla/5.0 (iPhone; CPU iPhone OS 17.2 like Mac OS X)",

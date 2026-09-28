@@ -4,29 +4,34 @@
 package api
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/match"
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/ua"
+)
+
+// Settings keys (R14): the matching defaults live in the settings table,
+// edited through the portal.
+const (
+	settingWindow    = "window_minutes"
+	settingThreshold = "threshold"
 )
 
 // RegisterSDK attaches the five SDK endpoints to mux (KTD2: stdlib method
 // patterns). The auth wrapper validates Bearer key + X-App-ID + X-SDK
 // presence (R4); universal-link-click fails open when auth cannot be checked
-// so a backend failure never blocks the link (R3).
-func RegisterSDK(mux *http.ServeMux, st *store.Store) {
-	s := &sdkServer{st: st, log: log.Default()}
+// so a backend failure never blocks the link (R3). retentionHours is the
+// click retention floor threaded from config (KTD4).
+func RegisterSDK(mux *http.ServeMux, st *store.Store, retentionHours int) {
+	s := &sdkServer{st: st, log: log.Default(), retentionHours: retentionHours}
 	mux.HandleFunc("POST /api/link/match-link", s.requireAuth(s.matchLink, false))
 	mux.HandleFunc("POST /api/link/resolve-short", s.requireAuth(s.resolveShort, false))
 	mux.HandleFunc("POST /api/link/universal-link-click", s.requireAuth(s.universalLinkClick, true))
@@ -34,16 +39,10 @@ func RegisterSDK(mux *http.ServeMux, st *store.Store) {
 	mux.HandleFunc("POST /api/analytics/retention", s.requireAuth(s.analyticsRetention, false))
 }
 
-// Matching/click defaults (R6): fall back when no settings are stored.
-const (
-	defaultWindow       = 15
-	defaultThreshold    = 850
-	retentionFloorHours = 24
-)
-
 type sdkServer struct {
-	st  *store.Store
-	log *log.Logger
+	st             *store.Store
+	log            *log.Logger
+	retentionHours int
 }
 
 // requireAuth enforces the SDK header contract (R4): Authorization Bearer +
@@ -53,7 +52,7 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 	return func(w http.ResponseWriter, r *http.Request) {
 		key, ok := bearerKey(r.Header.Get("Authorization"))
 		if !ok || r.Header.Get("X-App-ID") == "" || r.Header.Get("X-SDK") == "" {
-			writeJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
+			httpx.WriteJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
 			return
 		}
 		valid, err := s.st.ValidateAPIKey(r.Header.Get("X-App-ID"), key)
@@ -64,11 +63,11 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 				return
 			}
 			s.log.Printf("auth check backend error: %v", err)
-			writeJSON(w, http.StatusInternalServerError, errorBody("internal error"))
+			httpx.WriteJSON(w, http.StatusInternalServerError, errorBody("internal error"))
 			return
 		}
 		if !valid {
-			writeJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
+			httpx.WriteJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
 			return
 		}
 		next(w, r)
@@ -81,7 +80,6 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 // device characteristic and would break device-hash stability.
 type matchLinkBody struct {
 	ClickID       string      `json:"clickId"`
-	Platform      string      `json:"platform"`
 	Model         string      `json:"model"`
 	Manufacturer  string      `json:"manufacturer"`
 	SystemVersion string      `json:"systemVersion"`
@@ -106,7 +104,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body matchLinkBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
+		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}
 
@@ -116,12 +114,12 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	req := match.Request{IP: remoteIP(r)}
+	req := match.Request{IP: httpx.RemoteIP(r)}
 	if body.ClickID != "" {
 		req.ClickID = body.ClickID
 	} else {
 		req.Fingerprint = &match.Fingerprint{
-			Platform: body.Platform, Model: body.Model, Manufacturer: body.Manufacturer,
+			Model: body.Model, Manufacturer: body.Manufacturer,
 			SystemVersion: body.SystemVersion, ScreenWidth: body.ScreenWidth, ScreenHeight: body.ScreenHeight,
 			Scale: body.Scale, Locale: localeString(body.Locale), Timezone: strOr(body.Timezone),
 			UserAgent: body.UserAgent, PastedLink: body.PastedLink,
@@ -147,7 +145,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"link": res.Destination})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"link": res.Destination})
 }
 
 // resolveShort serves POST /api/link/resolve-short: map a short URL to its
@@ -159,7 +157,7 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
+		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}
 	u, err := url.Parse(body.URL)
@@ -167,7 +165,7 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	key := strings.Trim(u.Path, "/")
+	key := linkKey(body.URL)
 	if key == "" {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -182,7 +180,7 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
 		"link":       link.URL,
 		"route":      u.Path,
 		"parameters": u.RawQuery,
@@ -192,36 +190,44 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 // universalLinkClick serves POST /api/link/universal-link-click. v1 answers
 // "no limit" (KD3): the deny shape is never sent; the allow shape is returned
 // even when click recording fails (R3). Bot clicks and URLs with no derivable
-// link key are not recorded.
+// link key are not recorded; the response always carries a clickId.
 func (s *sdkServer) universalLinkClick(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body struct {
 		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
+		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}
-	clickID := newID(16)
-	if key := linkKey(body.URL); key != "" && !isBotUA(r.UserAgent()) {
-		link, err := s.st.GetLinkByKey(appID, key)
-		if err != nil {
-			s.log.Printf("universal-link-click link lookup failed: %v", err)
-		} else {
-			rec, err := s.st.RecordClick(store.Click{
-				AppID: appID, LinkID: link.ID, Destination: link.URL,
-				Fingerprint: store.Fingerprint{IP: remoteIP(r), UserAgent: r.UserAgent()},
-			}, s.windowSetting(), retentionFloorHours)
-			if err != nil {
-				s.log.Printf("universal-link-click backend error (click not recorded): %v", err)
-			} else {
-				clickID = rec.ID
-			}
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	clickID := s.recordClickID(appID, body.URL, r)
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"allowed": true, "clicksInPeriod": 0, "effectiveLimit": -1, "clickId": clickID,
 	})
+}
+
+// recordClickID records a universal-link click (bot-filtered, R3 fail-open)
+// and returns the clickId to report. A fresh id is minted when nothing was
+// recorded so the SDK always sees one.
+func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string {
+	key := linkKey(rawURL)
+	if key == "" || ua.IsBotUA(r.UserAgent()) {
+		return store.Nanoid(16)
+	}
+	link, err := s.st.GetLinkByKey(appID, key)
+	if err != nil {
+		s.log.Printf("universal-link-click link lookup failed: %v", err)
+		return store.Nanoid(16)
+	}
+	rec, err := s.st.RecordClick(store.Click{
+		AppID: appID, LinkID: link.ID, Destination: link.URL,
+		Fingerprint: store.Fingerprint{IP: httpx.RemoteIP(r), UserAgent: r.UserAgent()},
+	}, s.windowSetting(), s.retentionHours)
+	if err != nil {
+		s.log.Printf("universal-link-click backend error (click not recorded): %v", err)
+		return store.Nanoid(16)
+	}
+	return rec.ID
 }
 
 func (s *sdkServer) analyticsEvent(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +245,7 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defa
 	appID := r.Header.Get("X-App-ID")
 	var body map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
+		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}
 	name := firstString(body, "event_name", "event")
@@ -248,49 +254,40 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defa
 	}
 	md, err := json.Marshal(body)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorBody("internal error"))
+		httpx.WriteJSON(w, http.StatusInternalServerError, errorBody("internal error"))
 		return
 	}
 	if err := s.st.RecordEvent(appID, name, string(md)); err != nil {
 		s.log.Printf("%s backend error: %v", r.URL.Path, err)
-		writeJSON(w, http.StatusInternalServerError, errorBody("internal error"))
+		httpx.WriteJSON(w, http.StatusInternalServerError, errorBody("internal error"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 // matchSettings reads the app defaults from the settings table (R14),
-// falling back to 15 minutes / 850.
+// falling back to the store defaults.
 func (s *sdkServer) matchSettings() (window, threshold int, err error) {
-	window, threshold = defaultWindow, defaultThreshold
-	if v, ok, e := s.st.GetSetting("window_minutes"); e != nil {
-		return 0, 0, e
-	} else if ok {
-		if n, perr := strconv.Atoi(v); perr == nil {
-			window = n
-		}
+	window, err = s.st.IntSetting(settingWindow, store.DefaultWindowMinutes)
+	if err != nil {
+		return 0, 0, err
 	}
-	if v, ok, e := s.st.GetSetting("threshold"); e != nil {
-		return 0, 0, e
-	} else if ok {
-		if n, perr := strconv.Atoi(v); perr == nil {
-			threshold = n
-		}
+	threshold, err = s.st.IntSetting(settingThreshold, store.DefaultThreshold)
+	if err != nil {
+		return 0, 0, err
 	}
 	return window, threshold, nil
 }
 
-// windowSetting returns the configured match window, defaulting on missing or
-// invalid settings.
+// windowSetting returns the configured match window, defaulting on missing
+// or invalid settings (R3: a bad setting must never block a click).
 func (s *sdkServer) windowSetting() int {
-	if v, ok, err := s.st.GetSetting("window_minutes"); err != nil {
-		s.log.Printf("window_minutes read failed, using %d: %v", defaultWindow, err)
-	} else if ok {
-		if n, perr := strconv.Atoi(v); perr == nil {
-			return n
-		}
+	v, err := s.st.IntSetting(settingWindow, store.DefaultWindowMinutes)
+	if err != nil {
+		s.log.Printf("window_minutes read failed, using %d: %v", store.DefaultWindowMinutes, err)
+		return store.DefaultWindowMinutes
 	}
-	return defaultWindow
+	return v
 }
 
 // backendError logs a match-link backend failure (R3) and best-effort records
@@ -309,12 +306,12 @@ func (s *sdkServer) backendError(appID, deviceHash string, err error) {
 // clickId instead.
 func deviceHash(b matchLinkBody) string {
 	if b.ClickID != "" {
-		return sha256Hex("clickId=" + b.ClickID)
+		return store.HashKey("clickId=" + b.ClickID)
 	}
-	canonical := fmt.Sprintf("platform=%s|model=%s|manufacturer=%s|systemVersion=%s|screenWidth=%d|screenHeight=%d|scale=%g|locale=%s|timezone=%s|userAgent=%s|pastedLink=%s",
-		b.Platform, b.Model, b.Manufacturer, b.SystemVersion, b.ScreenWidth, b.ScreenHeight, b.Scale,
+	canonical := fmt.Sprintf("model=%s|manufacturer=%s|systemVersion=%s|screenWidth=%d|screenHeight=%d|scale=%g|locale=%s|timezone=%s|userAgent=%s|pastedLink=%s",
+		b.Model, b.Manufacturer, b.SystemVersion, b.ScreenWidth, b.ScreenHeight, b.Scale,
 		localeString(b.Locale), strOr(b.Timezone), b.UserAgent, b.PastedLink)
-	return sha256Hex(canonical)
+	return store.HashKey(canonical)
 }
 
 // bearerKey extracts the token from "Bearer <token>".
@@ -323,29 +320,6 @@ func bearerKey(h string) (string, bool) {
 		return strings.TrimSpace(h[7:]), true
 	}
 	return "", false
-}
-
-// remoteIP returns the request connection IP, honoring X-Forwarded-For for
-// the documented reverse-proxy deployment (TLS termination).
-func remoteIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			xff = xff[:i]
-		}
-		return strings.TrimSpace(xff)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
-// isBotUA is the cheap Dub-style bot filter (cloned from record-click, KD4):
-// any UA containing a known bot marker skips click recording.
-func isBotUA(ua string) bool {
-	ua = strings.ToLower(ua)
-	return strings.Contains(ua, "bot") || strings.Contains(ua, "spider") || strings.Contains(ua, "crawler")
 }
 
 // linkKey extracts the short-link key from a URL path (single path segment in
@@ -381,30 +355,6 @@ func firstString(body map[string]json.RawMessage, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func sha256Hex(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
-}
-
-// newID returns a crypto-random base62 id (SDK-visible click ids).
-func newID(n int) string {
-	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
-	}
-	for i := range b {
-		b[i] = alphabet[int(b[i])%len(alphabet)]
-	}
-	return string(b)
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }
 
 func errorBody(msg string) map[string]any {

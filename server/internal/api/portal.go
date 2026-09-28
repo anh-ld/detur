@@ -18,16 +18,13 @@ import (
 	"strconv"
 	"strings"
 
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/match"
 	"detur.dev/server/internal/store"
 )
 
-// Portal matching defaults (R14) mirror the store's unexported defaults.
-const (
-	portalDefaultThreshold = 850
-	portalDefaultWindowMin = 15
-)
-
+// Portal matching defaults (R14) come from the store's exported defaults;
+// the settings table overrides them at runtime.
 type portalServer struct {
 	st  *store.Store
 	log *log.Logger
@@ -170,7 +167,7 @@ func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {
 	for _, a := range apps {
 		out = append(out, toAppJSON(a))
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +192,7 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 	}
 	// Show-once semantics (R14): the plaintext key rides this one response;
 	// every later read returns only the hash.
-	writeJSON(w, http.StatusCreated, map[string]string{
+	httpx.WriteJSON(w, http.StatusCreated, map[string]string{
 		"id": a.ID, "name": a.Name, "apiKey": body.APIKey, "apiKeyHash": a.APIKeyHash,
 	})
 }
@@ -220,7 +217,7 @@ func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 		p.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAppJSON(a))
+	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
 }
 
 func (p *portalServer) deleteApp(w http.ResponseWriter, r *http.Request) {
@@ -241,15 +238,11 @@ func (p *portalServer) listLinks(w http.ResponseWriter, r *http.Request) {
 	for _, l := range links {
 		out = append(out, toLinkJSON(l))
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
-	if _, err := p.st.GetApp(appID); err != nil {
-		p.storeErr(w, err)
-		return
-	}
 	var body linkBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -271,10 +264,17 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		Threshold: body.Threshold, WindowMinutes: body.WindowMinutes,
 	})
 	if err != nil {
+		// The links.app_id FK rejects unknown apps; an absent app reads as
+		// not-found so the portal can tell the difference (no pre-check:
+		// the FK is the single source of truth).
+		if strings.Contains(err.Error(), "FOREIGN KEY") {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
 		p.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toLinkJSON(l))
+	httpx.WriteJSON(w, http.StatusCreated, toLinkJSON(l))
 }
 
 func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
@@ -310,7 +310,7 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 		p.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toLinkJSON(l))
+	httpx.WriteJSON(w, http.StatusOK, toLinkJSON(l))
 }
 
 func (p *portalServer) deleteLink(w http.ResponseWriter, r *http.Request) {
@@ -322,26 +322,19 @@ func (p *portalServer) deleteLink(w http.ResponseWriter, r *http.Request) {
 }
 
 // getSettings reads the matching defaults (R14) from the settings table,
-// falling back to 850/15.
+// falling back to the store defaults.
 func (p *portalServer) getSettings(w http.ResponseWriter, r *http.Request) {
-	threshold, window := portalDefaultThreshold, portalDefaultWindowMin
-	if v, ok, err := p.st.GetSetting("threshold"); err != nil {
+	threshold, err := p.st.IntSetting(settingThreshold, store.DefaultThreshold)
+	if err != nil {
 		p.internal(w, err)
 		return
-	} else if ok {
-		if n, err := strconv.Atoi(v); err == nil {
-			threshold = n
-		}
 	}
-	if v, ok, err := p.st.GetSetting("window_minutes"); err != nil {
+	window, err := p.st.IntSetting(settingWindow, store.DefaultWindowMinutes)
+	if err != nil {
 		p.internal(w, err)
 		return
-	} else if ok {
-		if n, err := strconv.Atoi(v); err == nil {
-			window = n
-		}
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"threshold": threshold, "windowMinutes": window})
+	httpx.WriteJSON(w, http.StatusOK, map[string]int{"threshold": threshold, "windowMinutes": window})
 }
 
 // updateSettings persists the matching defaults; absent/zero fields keep the
@@ -360,13 +353,13 @@ func (p *portalServer) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Threshold != 0 {
-		if err := p.st.SetSetting("threshold", strconv.Itoa(body.Threshold)); err != nil {
+		if err := p.st.SetSetting(settingThreshold, strconv.Itoa(body.Threshold)); err != nil {
 			p.internal(w, err)
 			return
 		}
 	}
 	if body.WindowMinutes != 0 {
-		if err := p.st.SetSetting("window_minutes", strconv.Itoa(body.WindowMinutes)); err != nil {
+		if err := p.st.SetSetting(settingWindow, strconv.Itoa(body.WindowMinutes)); err != nil {
 			p.internal(w, err)
 			return
 		}
@@ -393,7 +386,7 @@ func (p *portalServer) readout(w http.ResponseWriter, r *http.Request) {
 		p.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]int64{
+	httpx.WriteJSON(w, http.StatusOK, map[string]int64{
 		"clicks": clicks, "organic": organic, "nonOrganic": nonOrganic,
 	})
 }

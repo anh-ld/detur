@@ -42,7 +42,7 @@ func newWellKnownServer(t *testing.T, domains []string) (*httptest.Server, *stor
 	}
 	t.Cleanup(func() { st.Close() })
 	mux := http.NewServeMux()
-	Register(mux, st)
+	Register(mux, st, 24)
 	RegisterWellKnown(mux, st, domains)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)

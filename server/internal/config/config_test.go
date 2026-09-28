@@ -7,7 +7,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"DETUR_DOMAIN", "DETUR_ADDR", "DETUR_PORTAL_ADDR", "DETUR_DB_PATH", "DETUR_RETENTION_HOURS", "DETUR_WINDOW_MINUTES", "DETUR_THRESHOLD"} {
+	for _, k := range []string{"DETUR_DOMAIN", "DETUR_ADDR", "DETUR_PORTAL_ADDR", "DETUR_DB_PATH", "DETUR_RETENTION_HOURS"} {
 		t.Setenv(k, "")
 	}
 }
@@ -30,8 +30,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DBPath != "detur.db" {
 		t.Errorf("DBPath default = %q, want detur.db", cfg.DBPath)
 	}
-	if cfg.RetentionHours != 24 || cfg.WindowMinutes != 15 || cfg.Threshold != 850 {
-		t.Errorf("defaults = %d/%d/%d, want 24/15/850", cfg.RetentionHours, cfg.WindowMinutes, cfg.Threshold)
+	if cfg.RetentionHours != 24 {
+		t.Errorf("RetentionHours default = %d, want 24", cfg.RetentionHours)
 	}
 }
 
@@ -41,12 +41,12 @@ func TestLoadEnvOverride(t *testing.T) {
 	t.Setenv("DETUR_ADDR", ":9000")
 	t.Setenv("DETUR_PORTAL_ADDR", "0.0.0.0:9001")
 	t.Setenv("DETUR_DB_PATH", "/data/detur.db")
-	t.Setenv("DETUR_THRESHOLD", "1000")
+	t.Setenv("DETUR_RETENTION_HOURS", "48")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Domain != "links.example.com" || cfg.HTTPAddr != ":9000" || cfg.PortalAddr != "0.0.0.0:9001" || cfg.DBPath != "/data/detur.db" || cfg.Threshold != 1000 {
+	if cfg.Domain != "links.example.com" || cfg.HTTPAddr != ":9000" || cfg.PortalAddr != "0.0.0.0:9001" || cfg.DBPath != "/data/detur.db" || cfg.RetentionHours != 48 {
 		t.Errorf("override not applied: %+v", cfg)
 	}
 }
@@ -56,10 +56,8 @@ func TestLoadInvalidValues(t *testing.T) {
 	for _, tc := range []struct {
 		key, val, wantErr string
 	}{
-		{"DETUR_THRESHOLD", "500", "out of range"},
-		{"DETUR_THRESHOLD", "not-a-number", "must be an integer"},
-		{"DETUR_WINDOW_MINUTES", "200", "out of range"},
 		{"DETUR_RETENTION_HOURS", "0", "out of range"},
+		{"DETUR_RETENTION_HOURS", "not-a-number", "must be an integer"},
 	} {
 		clearEnv(t)
 		t.Setenv(tc.key, tc.val)

@@ -2,11 +2,11 @@ package match
 
 import (
 	"math"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/ua"
 )
 
 // Documented scoring weights (R6; detour.swmansion.com/docs/platform/
@@ -24,11 +24,6 @@ const (
 	weightTimezone          = 200
 	weightScreen            = 200
 	weightLanguage          = 100
-)
-
-var (
-	reAndroidVersion = regexp.MustCompile(`Android ([\d.]+)`)
-	reIOSVersion     = regexp.MustCompile(`(?:iPhone OS|CPU OS) ([\d_.]+)`)
 )
 
 // Score computes the probabilistic score of one candidate click against the
@@ -60,7 +55,7 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 	platform, cm, cv := clickSignals(click)
 	fm := fp.Model
 	if fm == "" {
-		fm = androidModel(fp.UserAgent)
+		fm = ua.AndroidModel(fp.UserAgent)
 	}
 	fv := fp.SystemVersion
 	switch {
@@ -86,17 +81,17 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 // clickSignals derives the click-side device signals. Empty values mean the
 // signal is not derivable from the click fingerprint (weight skipped).
 func clickSignals(click store.Click) (platform, model, sysVer string) {
-	ua := click.Fingerprint.UserAgent
-	switch {
-	case strings.Contains(ua, "Android"):
+	raw := click.Fingerprint.UserAgent
+	switch ua.Platform(raw) {
+	case "android":
 		platform = "android"
-		sysVer = androidVersion(ua)
-	case strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") || strings.Contains(ua, "iPod"):
+		sysVer = ua.AndroidVersion(raw)
+	case "ios":
 		platform = "ios"
-		sysVer = iOSVersion(ua)
+		sysVer = ua.IOSVersion(raw)
 	}
 	if model = click.Fingerprint.Device; model == "" {
-		model = androidModel(ua)
+		model = ua.AndroidModel(raw)
 	}
 	return platform, model, sysVer
 }
@@ -166,49 +161,6 @@ func parseScreen(s string) (w, h int, scale float64, ok bool) {
 		return 0, 0, 0, false
 	}
 	return w, h, scale, true
-}
-
-// androidVersion extracts the Android OS version from a browser UA.
-func androidVersion(ua string) string {
-	m := reAndroidVersion.FindStringSubmatch(ua)
-	if m == nil {
-		return ""
-	}
-	return m[1]
-}
-
-// iOSVersion extracts the iOS system version from a click UA, normalizing
-// "17_2" to "17.2".
-func iOSVersion(ua string) string {
-	m := reIOSVersion.FindStringSubmatch(ua)
-	if m == nil {
-		return ""
-	}
-	return strings.ReplaceAll(m[1], "_", ".")
-}
-
-// androidModel extracts the device model token from an Android browser UA:
-// modern "(Linux; Android 14; Pixel 7 Build/...)" -> "Pixel 7"; legacy
-// "(Linux; U; Android 4.4; en-us; GT-I9300 Build/...)" -> "GT-I9300".
-func androidModel(ua string) string {
-	i := strings.Index(ua, "Android ")
-	if i < 0 {
-		return ""
-	}
-	rest := strings.TrimSpace(ua[i+len("Android "):])
-	j := strings.Index(rest, ";")
-	if j < 0 {
-		return ""
-	}
-	rest = strings.TrimSpace(rest[j+1:])
-	if k := strings.Index(rest, ";"); k >= 0 { // legacy locale slot
-		rest = strings.TrimSpace(rest[k+1:])
-	}
-	rest = strings.TrimSuffix(strings.TrimSpace(rest), ")")
-	if b := strings.Index(rest, " Build"); b >= 0 {
-		rest = rest[:b]
-	}
-	return strings.TrimSpace(rest)
 }
 
 // normVersion normalizes a system version for comparison (underscores -> dots).

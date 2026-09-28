@@ -157,12 +157,20 @@ func TestPurgeExpired(t *testing.T) {
 	if _, err := s.rawExec(`UPDATE clicks SET expires_at = ? WHERE id = ?`, rfc3339(time.Now().Add(-time.Hour)), c.ID); err != nil {
 		t.Fatalf("force expiry: %v", err)
 	}
-	n, err := s.PurgeExpired(time.Now())
+	// a recent event (kept) and an old event past the retention floor (purged)
+	if err := s.RecordEvent(app.ID, "install", `{}`); err != nil {
+		t.Fatalf("RecordEvent: %v", err)
+	}
+	old := app.ID + "-old"
+	if _, err := s.rawExec(`INSERT INTO events (id, app_id, event, metadata, created_at) VALUES (?, ?, 'retention', NULL, ?)`, old, app.ID, rfc3339(time.Now().Add(-48*time.Hour))); err != nil {
+		t.Fatalf("insert old event: %v", err)
+	}
+	n, err := s.PurgeExpired(time.Now(), 24)
 	if err != nil {
 		t.Fatalf("PurgeExpired: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("PurgeExpired removed %d, want 1", n)
+	if n != 2 {
+		t.Errorf("PurgeExpired removed %d, want 2 (expired click + old event)", n)
 	}
 	if _, err := s.GetClick(c.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("click survived purge: %v", err)

@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Button, Dialog, Input, Label } from 'kinu';
 import { api, App, CreatedApp } from './api';
+import { closeDialog } from './ui';
 
 function generateKey(): string {
   const b = crypto.getRandomValues(new Uint8Array(16));
   return 'dk_' + Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-}
-
-function closeDialog(id: string) {
-  (document.getElementById(id) as HTMLDialogElement | null)?.close();
 }
 
 export function AppsPage() {

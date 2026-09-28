@@ -67,9 +67,7 @@ Env only — no config file. All vars, one line each (full comments in
 | `DETUR_PORTAL_ADDR` | `0.0.0.0:8081` | portal listener (all-ifaces inside container; compose publishes loopback only) |
 | `DETUR_PORTAL_DIR` | `/app/portal-dist` | portal static files (baked into image) |
 | `DETUR_DB_PATH` | `/data/detur.db` | SQLite file (volume) |
-| `DETUR_RETENTION_HOURS` | `24` | click retention floor, 1–8760 |
-| `DETUR_WINDOW_MINUTES` | `15` | default match window, 5–180 |
-| `DETUR_THRESHOLD` | `850` | default match threshold, 700–1200 |
+| `DETUR_RETENTION_HOURS` | `24` | click + event retention floor, 1–8760 |
 | `DETUR_EXTRA_DOMAINS` | empty | extra comma-separated domains |
 
 Non-container deploys: set `DETUR_PORTAL_ADDR=127.0.0.1:8081` (strict loopback

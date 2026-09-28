@@ -2,10 +2,7 @@ import { JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { Button, Dialog, Input, Label } from 'kinu';
 import { api, App, Link, Readout } from './api';
-
-function closeDialog(id: string) {
-  (document.getElementById(id) as HTMLDialogElement | null)?.close();
-}
+import { closeDialog } from './ui';
 
 interface LinkDraft {
   key: string;
