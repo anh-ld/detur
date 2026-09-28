@@ -1,8 +1,7 @@
 package api
 
-// Test scenarios 1-14 from the U3 implementation unit (docs/plans/
-// 2026-09-28-1507-feat-detour-selfhost-server-plan.md, R1-R4, AE1-AE4).
-// Real store + real mux via httptest; no store-layer mocks.
+// SDK endpoint tests. Real store + real mux via httptest; no store-layer
+// mocks.
 
 import (
 	"database/sql"
@@ -58,7 +57,7 @@ func setup(t *testing.T, s *store.Store) (store.App, store.Link) {
 }
 
 // recordAndroidClick persists a click carrying every Android-scorable signal
-// (R6) so a matching fingerprint scores 1450 >= 850.
+// so a matching fingerprint scores 1450 >= 850.
 func recordAndroidClick(t *testing.T, s *store.Store, app store.App, link store.Link) store.Click {
 	t.Helper()
 	c, err := s.RecordClick(store.Click{
@@ -154,7 +153,7 @@ func countInstallsAttribution(t *testing.T, path, appID, attribution string) int
 }
 
 // Scenario 1: valid fingerprint above threshold -> 200 link + non-organic
-// install recorded (AE1).
+// install recorded.
 func TestMatchLinkFingerprintAboveThreshold(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -177,7 +176,7 @@ func TestMatchLinkFingerprintAboveThreshold(t *testing.T) {
 	}
 }
 
-// Scenario 2: no matching click -> 404 + organic install recorded (AE2).
+// Scenario 2: no matching click -> 404 + organic install recorded.
 func TestMatchLinkNoMatch404Organic(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -204,7 +203,7 @@ func mustLink(t *testing.T, s *store.Store, app store.App) store.Link {
 }
 
 // Scenario 3: backend error mid-request -> 404 + unknown attribution row
-// recorded, logged distinctly (R3, AE3 path).
+// recorded, logged distinctly.
 func TestMatchLinkBackendErrorFailOpen404Unknown(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -243,7 +242,7 @@ func TestMatchLinkDuplicateIdempotent(t *testing.T) {
 	}
 }
 
-// Scenario 5: invalid apiKey -> 401 with the SDK-visible error shape (R4).
+// Scenario 5: invalid apiKey -> 401 with the SDK-visible error shape.
 func TestMatchLinkInvalidAPIKey401(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -276,7 +275,7 @@ func TestMatchLinkMissingAppID401(t *testing.T) {
 }
 
 // Scenario 7: clickId present but unknown -> 404, no probabilistic fallback
-// even with a strongly matching click inside the window (R5, AE4).
+// even with a strongly matching click inside the window.
 func TestMatchLinkUnknownClickIDNoProbabilisticFallback(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -327,7 +326,7 @@ func TestResolveShortUnknown404(t *testing.T) {
 }
 
 // Scenario 10: universal-link-click fails open on DB error -> allowed:true
-// with the no-limit fields present (R3, AE3).
+// with the no-limit fields present.
 func TestUniversalLinkClickFailOpenOnDBError(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -353,7 +352,7 @@ func TestUniversalLinkClickFailOpenOnDBError(t *testing.T) {
 }
 
 // Scenario 11: universal-link-click normal -> allowed:true, effectiveLimit -1,
-// clickId returned, click recorded (F2).
+// clickId returned, click recorded.
 func TestUniversalLinkClickNormal(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -381,7 +380,7 @@ func TestUniversalLinkClickNormal(t *testing.T) {
 }
 
 // Bot UA clicks are skipped (no click recorded); the response still carries
-// the allow shape (KD4 bot filter, R3).
+// the allow shape (bot filter, fail-open).
 func TestUniversalLinkClickBotSkipped(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -451,8 +450,7 @@ func TestAnalyticsRetentionPersisted(t *testing.T) {
 	}
 }
 
-
-// The auth wrapper applies to all five endpoints (R4).
+// The auth wrapper applies to all five endpoints.
 func TestAllSDKEndpointsRequireAuth(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	_, _ = setup(t, s)
@@ -471,7 +469,7 @@ func TestAllSDKEndpointsRequireAuth(t *testing.T) {
 }
 
 // universal-link-click fails open even when the auth check itself cannot
-// query the store (R3): a closed DB must still yield the allow shape.
+// query the store: a closed DB must still yield the allow shape.
 func TestUniversalLinkClickAuthFailOpenOnClosedDB(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)

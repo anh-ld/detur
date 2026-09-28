@@ -15,7 +15,7 @@ import (
 var TrustProxy bool
 
 // RemoteIP returns the request connection IP. X-Forwarded-For (first entry)
-// is honored only when TrustProxy is set — the proxy must overwrite the
+// is honored only when TrustProxy is set: the proxy must overwrite the
 // header so a direct client cannot forge it.
 func RemoteIP(r *http.Request) string {
 	if TrustProxy {

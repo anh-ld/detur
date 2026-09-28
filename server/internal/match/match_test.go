@@ -1,7 +1,6 @@
 package match
 
-// Test scenarios 1-20 from the U2 implementation unit (docs/plans/
-// 2026-09-28-1507-feat-detour-selfhost-server-plan.md, R5-R8).
+// Test scenarios 1-20 for the matching engine.
 
 import (
 	"database/sql"
@@ -25,7 +24,7 @@ func testLink() store.Link {
 }
 
 // androidClick is a click whose fingerprint carries every Android-scorable
-// signal (R6): IP, model+system version in the UA, locale, timezone, screen.
+// signal: IP, model+system version in the UA, locale, timezone, screen.
 func androidClick(link store.Link) store.Click {
 	return store.Click{
 		AppID: link.AppID, LinkID: link.ID, Destination: link.URL,
@@ -37,7 +36,7 @@ func androidClick(link store.Link) store.Click {
 	}
 }
 
-// iosClick is a click with every iOS-scorable signal (R6): IP, iOS system
+// iosClick is a click with every iOS-scorable signal: IP, iOS system
 // version in the UA, locale, timezone, screen, pasted link.
 func iosClick(link store.Link) store.Click {
 	return store.Click{
@@ -128,7 +127,7 @@ func recordClickBackdated(t *testing.T, s *store.Store, dbPath string, c store.C
 	return got
 }
 
-// Scenario 1: exact clickId resolves regardless of score (AE4).
+// Scenario 1: exact clickId resolves regardless of score.
 func TestDeterministicClickIDWinsRegardlessOfScore(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -163,7 +162,7 @@ func TestUnknownClickIDNoProbabilisticFallback(t *testing.T) {
 	}
 }
 
-// Scenario 3: score above threshold -> match; returns the click destination (AE1).
+// Scenario 3: score above threshold -> match; returns the click destination.
 func TestScoreAboveThresholdMatches(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -177,7 +176,7 @@ func TestScoreAboveThresholdMatches(t *testing.T) {
 	}
 }
 
-// Scenario 4: score below threshold -> no match (AE2). Mirrors the docs'
+// Scenario 4: score below threshold -> no match. Mirrors the docs'
 // rejection example: timezone+language+screen = 200+100+200 = 500.
 func TestScoreBelowThresholdNoMatch(t *testing.T) {
 	s, _ := newTestStore(t)
@@ -195,7 +194,7 @@ func TestScoreBelowThresholdNoMatch(t *testing.T) {
 }
 
 // Scenario 5: score exactly at threshold -> match. Mirrors the docs' example
-// "iOS — IP + exact pasteboard token and URL — 500 + 350 = 850".
+// "iOS: IP + exact pasteboard token and URL, 500 + 350 = 850".
 func TestScoreAtThresholdMatches(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -210,7 +209,7 @@ func TestScoreAtThresholdMatches(t *testing.T) {
 	}
 }
 
-// Scenario 6a: window edge — click 14:59 min ago is inside the 15-min window.
+// Scenario 6a: window edge, click 14:59 min ago is inside the 15-min window.
 func TestWindowEdgeInsideMatches(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -224,7 +223,7 @@ func TestWindowEdgeInsideMatches(t *testing.T) {
 	}
 }
 
-// Scenario 6b: window edge — click 15:01 min ago is outside the 15-min window.
+// Scenario 6b: window edge, click 15:01 min ago is outside the 15-min window.
 func TestWindowEdgeOutsideNoMatch(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -238,7 +237,7 @@ func TestWindowEdgeOutsideNoMatch(t *testing.T) {
 	}
 }
 
-// Scenario 7: window bounds — 5..180 minutes enforced; out of range errors.
+// Scenario 7: window bounds, 5..180 minutes enforced; out of range errors.
 func TestWindowRangeValidation(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -250,9 +249,8 @@ func TestWindowRangeValidation(t *testing.T) {
 	}
 }
 
-
 // Scenario 9: deterministic clickId lookup succeeds beyond the window
-// (24h retention floor; deterministic matching has no window).
+// (24h retention floor, deterministic matching has no window).
 func TestDeterministicClickIDBeyondWindow(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -330,7 +328,7 @@ func TestUADeviceSignatureFallback(t *testing.T) {
 	}
 }
 
-// Scenario 14: pasteboard tiers — 350 token+prefix, 175 prefix-only.
+// Scenario 14: pasteboard tiers, 350 token+prefix, 175 prefix-only.
 func TestPasteboardTiers(t *testing.T) {
 	click := store.Click{Fingerprint: store.Fingerprint{PastedLink: "https://lnk.example/abc123"}}
 	if s := Score(click, Fingerprint{PastedLink: "https://lnk.example/abc123"}, ""); s != 350 {
@@ -416,7 +414,7 @@ func TestMissingSignalsNoPanic(t *testing.T) {
 	}
 }
 
-// Scenario 19: documented maxima — iOS full match 1700, Android 1450
+// Scenario 19: documented maxima, iOS full match 1700, Android 1450
 // (asserts the one-device-signal rule holds).
 func TestMaxTotalsSanity(t *testing.T) {
 	link := testLink()
@@ -428,8 +426,8 @@ func TestMaxTotalsSanity(t *testing.T) {
 	}
 }
 
-// Scenario 20: threshold clamp 700..1200 — out of range errors, bounds
-// inclusive — respected even on the deterministic path.
+// Scenario 20: threshold clamp 700..1200, out of range errors, bounds
+// inclusive, respected even on the deterministic path.
 func TestThresholdClamp(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -450,7 +448,7 @@ func TestThresholdClamp(t *testing.T) {
 	}
 }
 
-// linkWith creates a second link on app with per-link overrides (R14).
+// linkWith creates a second link on app with per-link overrides.
 func linkWith(t *testing.T, s *store.Store, appID string, threshold, window int) store.Link {
 	t.Helper()
 	l, err := s.CreateLink(store.Link{AppID: appID, Key: "override", URL: "https://example.com/override",

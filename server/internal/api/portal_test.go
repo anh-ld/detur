@@ -1,11 +1,10 @@
 package api
 
-// U6 portal tests (docs/plans/2026-09-28-1507-feat-detour-selfhost-server-
-// plan.md): portal API CRUD, settings driving the matching engine, readout
-// (R15), the no-auth contract (R19), the origin/host guard (KTD5), static
-// serving, and show-once API-key semantics (R14). Real store + real mux via
-// httptest; the SDK endpoints run on a second listener sharing the store
-// (production topology: separate listeners, one store).
+// Portal tests: portal API CRUD, settings driving the matching engine,
+// readout, the no-auth contract, the origin/host guard, static serving, and
+// show-once API-key semantics. Real store + real mux via httptest; the SDK
+// endpoints run on a second listener sharing the store (production topology:
+// separate listeners, one store).
 
 import (
 	"encoding/json"
@@ -182,7 +181,7 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 }
 
 // Scenario 2: matching settings persisted via PATCH /api/settings drive the
-// matching engine (U2) — the same fingerprint matches or 404s purely per the
+// matching engine: the same fingerprint matches or 404s purely per the
 // configured threshold (950-score candidate: matches at 850, not at 1200).
 func TestPortalSettingsDriveMatching(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
@@ -224,9 +223,8 @@ func TestPortalSettingsDriveMatching(t *testing.T) {
 	}
 }
 
-// Scenario 3: readout numbers (R15). Recorded click + matched launch →
-// non-organic; fresh no-match launch → organic (covers AE1, AE2 through the
-// readout).
+// Scenario 3: readout numbers. Recorded click + matched launch -> non-organic;
+// fresh no-match launch -> organic.
 func TestPortalReadout(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
 	app, link := setup(t, st)
@@ -258,8 +256,7 @@ func TestPortalReadout(t *testing.T) {
 	}
 }
 
-
-// Scenario 5: cross-origin requests rejected by the guard (KTD5 CSRF).
+// Scenario 5: cross-origin requests rejected by the guard (CSRF).
 func TestPortalRejectsCrossOrigin(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x","apiKey":"k-0123456789abcdef-XYZ-000"}`,
@@ -293,7 +290,7 @@ func TestPortalRejectsForeignHost(t *testing.T) {
 	}
 }
 
-// Scenario 7: static serving — GET / returns the built index.html; a missing
+// Scenario 7: static serving. GET / returns the built index.html; a missing
 // file 404s as plain text; a missing static dir never crashes the API.
 func TestPortalStaticServing(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
@@ -327,7 +324,7 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 	}
 }
 
-// Scenario 8: show-once key semantics — the create response carries the
+// Scenario 8: show-once key semantics. The create response carries the
 // plaintext key; every later GET carries only the hash.
 func TestPortalKeyShownOnce(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)

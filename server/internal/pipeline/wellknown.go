@@ -1,9 +1,9 @@
 package pipeline
 
-// Well-known hosting (U5): the platform association files per app (R11) —
-// Apple App Site Association (iOS Universal Links) and assetlinks.json
-// (Android App Links) — served under the operator's configured domains
-// (R12, R17): hosts outside the domain set get 404.
+// Well-known hosting: the platform association files per app, Apple App
+// Site Association (iOS Universal Links) and assetlinks.json (Android App
+// Links), served under the operator's configured domains. Hosts outside the
+// domain set get 404.
 
 import (
 	"net"
@@ -20,19 +20,19 @@ type wellKnownServer struct {
 	domains []string
 }
 
-// RegisterWellKnown attaches the well-known routes to mux (R11). Their
-// literal patterns are more specific than the pipeline's GET /{key}, so they
-// win for these paths. domains is the configured domain set (config.DomainSet,
-// R12/R17); hosts outside it get 404 so one instance never serves another
-// operator's configured domain.
+// RegisterWellKnown attaches the well-known routes to mux. Their literal
+// patterns are more specific than the pipeline's GET /{key}, so they win for
+// these paths. domains is the configured domain set (config.DomainSet);
+// hosts outside it get 404 so one instance never serves another operator's
+// configured domain.
 func RegisterWellKnown(mux *http.ServeMux, st *store.Store, domains []string) {
 	w := &wellKnownServer{st: st, domains: domains}
 	mux.HandleFunc("GET /.well-known/apple-app-site-association", w.handleAASA)
 	mux.HandleFunc("GET /.well-known/assetlinks.json", w.handleAssetLinks)
 }
 
-// aasaPayload is the Apple App Site Association shape (R11): one details
-// entry per app with an ios_app_id; apps always stays an empty array.
+// aasaPayload is the Apple App Site Association shape: one details entry
+// per app with an ios_app_id; apps always stays an empty array.
 type aasaPayload struct {
 	AppLinks aasaAppLinks `json:"applinks"`
 }
@@ -47,7 +47,7 @@ type aasaDetails struct {
 	Paths []string `json:"paths"`
 }
 
-// assetlinkEntry is one Android assetlinks.json entry (R11).
+// assetlinkEntry is one Android assetlinks.json entry.
 type assetlinkEntry struct {
 	Relation []string        `json:"relation"`
 	Target   assetlinkTarget `json:"target"`
@@ -111,7 +111,7 @@ func (w *wellKnownServer) handleAssetLinks(rw http.ResponseWriter, r *http.Reque
 }
 
 // allowedHost reports whether the request Host is in the configured domain
-// set (R12, R17). Ports are stripped and comparison is case-insensitive.
+// set. Ports are stripped and comparison is case-insensitive.
 func (w *wellKnownServer) allowedHost(r *http.Request) bool {
 	host := hostnameOnly(r.Host)
 	for _, d := range w.domains {

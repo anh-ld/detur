@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
 	"time"
@@ -12,12 +13,15 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// main wires config → store → HTTP listeners. SDK endpoints (U3), the
-// browser pipeline (U4) and well-known hosting (U5) run on the public
-// listener; the portal (U6, API + static UI) runs on its own loopback
-// listener, origin/host-guarded (KTD5). Expired clicks and events are purged
-// at startup and hourly (System-Wide Impact retention).
+// main wires config -> store -> HTTP listeners. SDK endpoints, the browser
+// pipeline and well-known hosting run on the public listener; the portal
+// (API + static UI) runs on its own loopback listener, origin/host-guarded.
+// Expired clicks and events are purged at startup and hourly.
 func main() {
+	// Not an env var: the Docker image passes 0.0.0.0:8081 so the host can
+	// publish it; bare runs keep the unauthenticated portal on loopback.
+	portalAddr := flag.String("portal-addr", "127.0.0.1:8081", "portal listen address")
+	flag.Parse()
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -33,8 +37,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		// The healthcheck probes the store: a wedged DB is visible as
-		// unhealthy instead of silently failing open (R3 fail-open paths
-		// keep serving while the funnel dies).
+		// unhealthy instead of silently failing open while the funnel dies.
 		if err := st.Ping(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("db unavailable"))
@@ -44,24 +47,20 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	api.RegisterSDK(mux, st, cfg.RetentionHours)
-	pipeline.Register(mux, st, cfg.RetentionHours) // GET /{key}: short links, click recording, store redirects (U4)
-	// Well-known hosting (U5, R11/R12): AASA + assetlinks under the
-	// configured domains; unknown hosts get 404.
+	pipeline.Register(mux, st, cfg.RetentionHours) // GET /{key}: short links, click recording, store redirects
+	// Well-known hosting: AASA + assetlinks under the configured domains;
+	// unknown hosts get 404.
 	pipeline.RegisterWellKnown(mux, st, config.DomainSet(cfg))
 
-	// Portal (U6): separate listener (loopback default, KTD5). Extra Host
-	// values from PORTAL_HOSTS let a zero-trust tunnel in front pass
-	// the guard; a missing static dir logs a warning but the portal API
-	// still works.
-	portalHosts := append(cfg.PortalHosts, cfg.PortalAddr)
+	// Portal: own listener; static UI from ./portal/dist (missing dir = API only).
 	go func() {
-		portal := api.RegisterPortal(st, cfg.PortalDir, portalHosts)
-		log.Printf("portal on %s (static %s)", cfg.PortalAddr, cfg.PortalDir)
-		log.Fatal(serve(cfg.PortalAddr, portal))
+		portal := api.RegisterPortal(st, "portal/dist", []string{*portalAddr})
+		log.Printf("portal on %s", *portalAddr)
+		log.Fatal(serve(*portalAddr, portal))
 	}()
 
-	log.Printf("detur %s (domain %s, db %s)", cfg.HTTPAddr, cfg.Domain, cfg.DBPath)
-	log.Fatal(serve(cfg.HTTPAddr, mux))
+	log.Printf("detur :8080 (domain %s, db %s)", cfg.Domain, cfg.DBPath)
+	log.Fatal(serve(":8080", mux))
 }
 
 // serve runs an HTTP server with explicit timeouts so a slow client cannot

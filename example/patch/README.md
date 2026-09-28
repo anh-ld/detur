@@ -1,23 +1,26 @@
 # Patch: repoint react-native-detour to a self-hosted server
 
-Reference patch for **2.3.1** — repoints five hardcoded endpoint constants
-from `https://godetour.dev` to `http://localhost:8080` (dev default; change
-to deployed domain before shipping — recipe: repo `README.md`, section 3).
+This is a reference patch for SDK **2.3.1**. It changes five hardcoded
+endpoint constants from `https://godetour.dev` to `http://localhost:8080`, the
+dev default. Change it to your deployed domain before shipping; the repo
+`README.md`, step 3, has the recipe.
 
 > [!NOTE]
-> Reference ONLY, never a pin. Every SDK version ships a different layout —
-> use the README's AI patch prompt for your version.
+> This patch is a reference only, not a version pin. Each SDK version ships a
+> different file layout, so use the README's AI patch prompt for your version.
 
 ## Why
 
-`Config` has **no base-URL field**. Five endpoint URLs hardcoded to
-godetour.dev. Only way to point an app at a self-hosted server: patch the
-installed package. (Upstream base-URL PR would retire it.)
+The SDK's `Config` has **no base-URL field**, and its five endpoint URLs are
+hardcoded to godetour.dev. Patching the installed package is the only way to
+point an app at a self-hosted server. An upstream base-URL option would make
+the patch unnecessary.
 
 ## What it changes
 
-Five constants, one line each, **10 files** — package ships both `src/*.ts`
-(Expo/Metro) + `lib/module/*.js` (other bundlers). Both copies patched:
+It changes five constants, one line each, across **10 files**. The package
+ships both `src/*.ts` (used by Expo/Metro) and `lib/module/*.js` (used by
+other bundlers), and the patch changes both copies:
 
 | Endpoint | Constant | src/ | lib/module/ |
 |---|---|---|---|
@@ -27,17 +30,18 @@ Five constants, one line each, **10 files** — package ships both `src/*.ts`
 | analytics event | `EVENT_API_URL` | `analytics/api/events.ts` | `analytics/api/events.js` |
 | analytics retention | `RETENTION_API_URL` | `analytics/api/retention.ts` | `analytics/api/retention.js` |
 
-NOT patched (deliberately):
+Two things are deliberately left unpatched:
 
-- Host matcher (`*.godetour.link` default) — per-app config; `+native-intent.tsx`
-  lists the self-host domain (repo README, section 3)
-- `package.json` author line (`https://godetour.dev/`) — metadata; grep still
-  shows it
+- The host matcher (default `*.godetour.link`) is per-app config. Your
+  `+native-intent.tsx` lists the self-hosted domain instead (repo README,
+  step 4).
+- The `package.json` author line (`https://godetour.dev/`) is metadata, so a
+  grep still finds it.
 
 ## Regenerate
 
-On every upstream SDK release (no stability statement; patch may not apply to
-newer versions):
+Regenerate the patch on every upstream SDK release. The SDK makes no stability
+promise, so the patch may not apply to newer versions:
 
 ```sh
 npm init -y

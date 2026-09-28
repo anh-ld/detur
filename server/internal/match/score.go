@@ -9,17 +9,17 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// Documented scoring weights (R6; detour.swmansion.com/docs/platform/
-// architecture/matching/). Only ONE device signal is scored per candidate:
+// Documented scoring weights (detour.swmansion.com/docs/platform/
+// architecture/matching/). Only ONE device signal scored per candidate:
 // Android model+system version (450) when the click supplies both, else iOS
-// system version (350), else the UA device signature (350) — never two. This
-// keeps the documented maxima at 1700 iOS / 1450 Android.
+// system version (350), else UA device signature (350), never two. Keeps
+// documented maxima at 1700 iOS / 1450 Android.
 const (
 	weightIPExact           = 500
 	weightModelSystemVer    = 450
 	weightiOSSystemVersion  = 350
 	weightUADeviceSignature = 350
-	weightPasteboardToken   = 350 // pasteboard token + URL prefix
+	weightPasteboardToken   = 350 // token + URL prefix
 	weightPasteboardPrefix  = 175 // URL prefix only
 	weightTimezone          = 200
 	weightScreen            = 200
@@ -27,10 +27,10 @@ const (
 )
 
 // Score computes the probabilistic score of one candidate click against the
-// first-launch fingerprint fp and the request connection IP (R6 weights).
-// Click-side signals that are unavailable skip their weight; nothing is
-// fabricated. A chosen device-signal branch that does not match scores 0 —
-// the UA fallback is never stacked on it.
+// first-launch fingerprint fp and the request connection IP. Unavailable
+// click-side signals skip their weight; nothing fabricated. A chosen
+// device-signal branch that doesn't match scores 0; UA fallback never
+// stacks on top of it.
 func Score(click store.Click, fp Fingerprint, ip string) int {
 	s := 0
 	if ip != "" && click.Fingerprint.IP != "" && ip == click.Fingerprint.IP {
@@ -48,9 +48,9 @@ func Score(click store.Click, fp Fingerprint, ip string) int {
 	return s
 }
 
-// deviceSignal applies the one-device-signal ladder (R6): Android
-// model+system version when the click supplies both, else iOS system version
-// parsed from the click UA, else the UA device signature as fallback.
+// deviceSignal applies the one-device-signal ladder: Android model+system
+// version when the click supplies both, else iOS system version parsed from
+// the click UA, else UA device signature as fallback.
 func deviceSignal(click store.Click, fp Fingerprint) int {
 	platform, cm, cv := clickSignals(click)
 	fm := fp.Model
@@ -70,7 +70,7 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 		}
 		return 0
 	default:
-		// Platform device signal unavailable -> UA device signature fallback.
+		// Platform device signal unavailable -> UA device signature fallback
 		if cm != "" && fm != "" && normModel(cm) == normModel(fm) {
 			return weightUADeviceSignature
 		}
@@ -79,7 +79,7 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 }
 
 // clickSignals derives the click-side device signals. Empty values mean the
-// signal is not derivable from the click fingerprint (weight skipped).
+// signal isn't derivable from the click fingerprint (weight skipped).
 func clickSignals(click store.Click) (platform, model, sysVer string) {
 	raw := click.Fingerprint.UserAgent
 	switch ua.Platform(raw) {
@@ -96,9 +96,9 @@ func clickSignals(click store.Click) (platform, model, sysVer string) {
 	return platform, model, sysVer
 }
 
-// pasteboard scores the iOS pasteboard two-tier match (R6): 350 when the
+// pasteboard scores the iOS pasteboard two-tier match: 350 when the
 // short-link token matches AND the first-launch pasted URL starts with the
-// click's pasted URL; 175 for the URL prefix alone.
+// click's pasted URL; 175 for URL prefix alone.
 func pasteboard(click store.Click, fp Fingerprint) int {
 	cp, pp := click.Fingerprint.PastedLink, fp.PastedLink
 	if cp == "" || pp == "" || !strings.HasPrefix(pp, cp) {
@@ -135,7 +135,7 @@ func screen(click store.Click, fp Fingerprint) int {
 	return 0
 }
 
-// langMatch reports a locale prefix match (R6: language 100).
+// langMatch reports a locale prefix match (language weight 100).
 func langMatch(a, b string) bool {
 	if a == "" || b == "" {
 		return false

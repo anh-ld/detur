@@ -1,10 +1,9 @@
 package api
 
-// Portal (U6, R14/R15/R19, KTD2/KTD5): apps/links CRUD, matching settings,
-// click/install readout, and static hosting of the kinu-built portal UI. No
-// identity checks anywhere (R19) — every route is wrapped in the origin/host
-// guard instead (DNS-rebinding + CSRF protection; the portal listener is
-// loopback by default, KTD5).
+// Portal: apps/links CRUD, matching settings, click/install readout, and
+// static hosting of the kinu-built portal UI. No identity checks; every
+// route is wrapped in the origin/host guard instead (DNS-rebinding + CSRF
+// protection; the portal listener is loopback by default).
 
 import (
 	"encoding/json"
@@ -24,8 +23,8 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// Portal matching defaults (R14) come from the store's exported defaults;
-// the settings table overrides them at runtime.
+// Portal matching defaults come from the store's exported defaults; the
+// settings table overrides them at runtime.
 type portalServer struct {
 	st  *store.Store
 	log *log.Logger
@@ -34,12 +33,12 @@ type portalServer struct {
 
 // RegisterPortal builds the portal handler: apps/links CRUD, settings, and
 // readout routes, plus the static UI served from staticDir (missing files or
-// a missing dir 404 plain text — never a crash). The whole mux is wrapped in
+// a missing dir 404 plain text, never a crash). The whole mux is wrapped in
 // the origin/host guard. allowedHosts holds the portal listener's own
-// configured address(es) plus any zero-trust tunnel hosts
-// (PORTAL_HOSTS); loopback is always accepted. A Host or Origin
-// outside those is rejected with 403 (KTD5). No auth: access control is
-// delegated to a zero-trust boundary in front of this listener (R19).
+// listen address;
+// loopback is always accepted. A Host or Origin outside those is rejected
+// with 403. No auth: access control is delegated to a zero-trust boundary
+// in front of this listener.
 func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) http.Handler {
 	p := &portalServer{st: st, log: log.Default(), dir: staticDir}
 	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
@@ -61,10 +60,10 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) ht
 	return guard(mux, allowedHosts)
 }
 
-// guard wraps the portal mux with the KTD5 origin/host check: requests whose
+// guard wraps the portal mux with the origin/host check: requests whose
 // Host is not loopback or an allowed host, and requests carrying an Origin
 // header that names a different host, get 403. This is the DNS-rebinding +
-// CSRF guard; there are no identity checks (R19).
+// CSRF guard; there are no identity checks.
 func guard(next http.Handler, allowedHosts []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !hostAllowed(r.Host, allowedHosts) {
@@ -82,7 +81,7 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 // hostAllowed reports whether the request Host is loopback or one of the
 // allowed hosts (the portal listener's own address + configured tunnel
 // hosts). Hostnames are compared without the port so a published/zero-trust
-// port in front of the portal still passes (KTD5).
+// port in front of the portal still passes.
 func hostAllowed(host string, allowedHosts []string) bool {
 	h := hostnameOf(host)
 	if h == "127.0.0.1" || h == "::1" || h == "localhost" {
@@ -117,9 +116,9 @@ func hostnameOf(host string) string {
 	return strings.Trim(h, "[]")
 }
 
-// appJSON is the wire shape for apps. API keys are never included — only the
-// hash (R14); the plaintext key appears in exactly one response: the create
-// call (show-once semantics).
+// appJSON is the wire shape for apps. API keys are never included, only the
+// hash; the plaintext key appears in exactly one response: the create call
+// (show-once semantics).
 type appJSON struct {
 	ID                     string `json:"id"`
 	Name                   string `json:"name"`
@@ -203,8 +202,8 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 		p.internal(w, err)
 		return
 	}
-	// Show-once semantics (R14): the plaintext key rides this one response;
-	// every later read returns only the hash.
+	// Show-once semantics: the plaintext key rides this one response; every
+	// later read returns only the hash.
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{
 		"id": a.ID, "name": a.Name, "apiKey": body.APIKey, "apiKeyHash": a.APIKeyHash,
 	})
@@ -295,8 +294,8 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The links.app_id FK rejects unknown apps; an absent app reads as
-		// not-found so the portal can tell the difference (no pre-check:
-		// the FK is the single source of truth).
+		// not-found so the portal can tell the difference (no pre-check: the
+		// FK is the single source of truth).
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -357,8 +356,8 @@ func (p *portalServer) deleteLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// getSettings reads the matching defaults (R14) from the settings table,
-// falling back to the store defaults.
+// getSettings reads the matching defaults from the settings table, falling
+// back to the store defaults.
 func (p *portalServer) getSettings(w http.ResponseWriter, r *http.Request) {
 	threshold, err := p.st.IntSetting(settingThreshold, store.DefaultThreshold)
 	if err != nil {
@@ -406,9 +405,9 @@ func (p *portalServer) updateSettings(w http.ResponseWriter, r *http.Request) {
 	p.getSettings(w, r)
 }
 
-// readout serves the app-level click/install counts (R15): clicks,
-// organic and non-organic installs. Unknown-attribution rows (R3 backend
-// errors) are excluded by the store's counts.
+// readout serves the app-level click/install counts: clicks, organic and
+// non-organic installs. Unknown-attribution rows (backend errors) are
+// excluded by the store's counts.
 func (p *portalServer) readout(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	if _, err := p.st.GetApp(appID); err != nil {
@@ -431,13 +430,13 @@ func (p *portalServer) readout(w http.ResponseWriter, r *http.Request) {
 }
 
 // static serves the built portal from the configured directory. A missing
-// dir or file 404s as plain text (FileServer) — the server keeps running.
+// dir or file 404s as plain text (FileServer); the server keeps running.
 func (p *portalServer) static(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.Dir(p.dir)).ServeHTTP(w, r)
 }
 
-// validateMatch rejects out-of-range matching settings (R6 ranges); zero
-// values mean "use the default/stored value" and pass.
+// validateMatch rejects out-of-range matching settings; zero values mean
+// "use the default/stored value" and pass.
 func validateMatch(threshold, windowMinutes int) error {
 	if threshold != 0 && (threshold < match.MinThreshold || threshold > match.MaxThreshold) {
 		return fmt.Errorf("threshold out of range %d..%d", match.MinThreshold, match.MaxThreshold)

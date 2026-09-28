@@ -1,7 +1,6 @@
-// Package ua shares the user-agent parsing used by matching (U2) and the
-// browser pipeline (U4) so the two cannot drift: one feeds click-time
-// fingerprint capture, the other scoring. The exact comparison semantics
-// below are preserved from the original package-local copies.
+// Package ua shares the user-agent parsing used by matching and the browser
+// pipeline so the two cannot drift: one feeds click-time fingerprint
+// capture, the other scoring.
 package ua
 
 import (
@@ -14,11 +13,11 @@ var (
 	reIOSVersion     = regexp.MustCompile(`(?:iPhone OS|CPU OS) ([\d_.]+)`)
 )
 
-// botMarkers is the cheap Dub-style UA bot filter (cloned from record-click,
-// KD4): any UA containing one of these markers skips click recording.
+// botMarkers is the cheap UA bot filter: any UA containing one of these
+// markers skips click recording.
 var botMarkers = []string{"bot", "spider", "crawler", "preview", "facebookexternalhit", "slackbot", "twitterbot", "whatsapp"}
 
-// IsBotUA reports whether a UA contains a known bot marker (KD4 filter).
+// IsBotUA reports whether a UA contains a known bot marker.
 func IsBotUA(ua string) bool {
 	ua = strings.ToLower(ua)
 	for _, m := range botMarkers {
@@ -42,7 +41,7 @@ func Platform(ua string) string {
 	return ""
 }
 
-// IsAndroid reports an Android browser UA (case-insensitive, R10 routing).
+// IsAndroid reports an Android browser UA (case-insensitive; redirect routing).
 func IsAndroid(ua string) bool {
 	return strings.Contains(strings.ToLower(ua), "android")
 }

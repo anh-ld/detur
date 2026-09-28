@@ -14,7 +14,7 @@ function parseHash(): Route {
   return { name: 'apps' };
 }
 
-// Thin SPA shell: hash routing (refresh keeps the page), no auth (R19).
+// Thin SPA shell: hash routing (refresh keeps the page), no auth.
 export function App() {
   const [route, setRoute] = useState<Route>(parseHash);
   useEffect(() => {

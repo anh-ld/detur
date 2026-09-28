@@ -1,6 +1,6 @@
-// Package api serves the Detour SDK endpoints (U3): match-link, resolve-short,
+// Package api serves the Detour SDK endpoints: match-link, resolve-short,
 // universal-link-click, and the two analytics calls, with godetour.dev
-// compatible shapes (R1), SDK header auth (R4), and fail-open behavior (R3).
+// compatible shapes, SDK header auth, and fail-open behavior.
 package api
 
 import (
@@ -19,18 +19,18 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// Settings keys (R14): the matching defaults live in the settings table,
-// edited through the portal.
+// Settings keys: the matching defaults live in the settings table, edited
+// through the portal.
 const (
 	settingWindow    = "window_minutes"
 	settingThreshold = "threshold"
 )
 
-// RegisterSDK attaches the five SDK endpoints to mux (KTD2: stdlib method
+// RegisterSDK attaches the five SDK endpoints to mux (stdlib method
 // patterns). The auth wrapper validates Bearer key + X-App-ID + X-SDK
-// presence (R4); universal-link-click fails open when auth cannot be checked
-// so a backend failure never blocks the link (R3). retentionHours is the
-// click retention floor threaded from config (KTD4).
+// presence; universal-link-click fails open when auth cannot be checked so a
+// backend failure never blocks the link. retentionHours is the click
+// retention floor threaded from config.
 func RegisterSDK(mux *http.ServeMux, st *store.Store, retentionHours int) {
 	s := &sdkServer{st: st, log: log.Default(), retentionHours: retentionHours}
 	mux.HandleFunc("POST /api/link/match-link", s.requireAuth(s.matchLink, false))
@@ -46,9 +46,9 @@ type sdkServer struct {
 	retentionHours int
 }
 
-// requireAuth enforces the SDK header contract (R4): Authorization Bearer +
+// requireAuth enforces the SDK header contract: Authorization Bearer +
 // X-App-ID + X-SDK present, apiKey valid for the app. failOpen endpoints
-// (universal-link-click) proceed when the store cannot be queried (R3).
+// (universal-link-click) proceed when the store cannot be queried.
 func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key, ok := bearerKey(r.Header.Get("Authorization"))
@@ -64,8 +64,8 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 				return
 			}
 			if r.URL.Path == "/api/link/match-link" {
-				// R3: a match-link backend error is a no-match, never a deny.
-				// The body is unread here, so no device hash for an unknown row.
+				// A match-link backend error is a no-match, never a deny. The body
+				// is unread here, so no device hash for an unknown row.
 				s.log.Printf("match-link auth backend error, returning no-match: %v", err)
 				w.WriteHeader(http.StatusNotFound)
 				return
@@ -83,9 +83,9 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 }
 
 // matchLinkBody is the union of the deterministic (clickId) and probabilistic
-// (fingerprint) match-link payloads (SDK source getDeferredLink.ts). locale
-// is the SDK's [{languageTag}...] array; timestamp is ignored — it is not a
-// device characteristic and would break device-hash stability.
+// (fingerprint) match-link payloads (getDeferredLink.ts). locale is the SDK's
+// [{languageTag}...] array; timestamp is ignored: not a device characteristic,
+// would break device-hash stability.
 type matchLinkBody struct {
 	ClickID       string      `json:"clickId"`
 	Model         string      `json:"model"`
@@ -104,10 +104,10 @@ type localeTag struct {
 	LanguageTag string `json:"languageTag"`
 }
 
-// matchLink serves POST /api/link/match-link (R5-R7): deterministic clickId
-// lookup or probabilistic fingerprint scoring; 200 {"link": destination} on
-// match, 404 on no-match (SDK reads organic -> null), and fail-open 404 with
-// an unknown-attribution row on backend error (R3).
+// matchLink serves POST /api/link/match-link: deterministic clickId lookup
+// or probabilistic fingerprint scoring; 200 {"link": destination} on match,
+// 404 on no-match (SDK reads organic -> null), and fail-open 404 with an
+// unknown-attribution row on backend error.
 func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body matchLinkBody
@@ -196,9 +196,9 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 }
 
 // universalLinkClick serves POST /api/link/universal-link-click. v1 answers
-// "no limit" (KD3): the deny shape is never sent; the allow shape is returned
-// even when click recording fails (R3). Bot clicks and URLs with no derivable
-// link key are not recorded; the response always carries a clickId.
+// "no limit": the deny shape is never sent; the allow shape is returned even
+// when click recording fails. Bot clicks and URLs with no derivable link key
+// are not recorded; the response always carries a clickId.
 func (s *sdkServer) universalLinkClick(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body struct {
@@ -214,8 +214,8 @@ func (s *sdkServer) universalLinkClick(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// recordClickID records a universal-link click (bot-filtered, R3 fail-open)
-// and returns the clickId to report. A fresh id is minted when nothing was
+// recordClickID records a universal-link click (bot-filtered, fail-open) and
+// returns the clickId to report. A fresh id is minted when nothing was
 // recorded so the SDK always sees one.
 func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string {
 	key := linkKey(rawURL)
@@ -273,8 +273,8 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defa
 	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// matchSettings reads the app defaults from the settings table (R14),
-// falling back to the store defaults.
+// matchSettings reads the app defaults from the settings table, falling
+// back to the store defaults.
 func (s *sdkServer) matchSettings() (window, threshold int, err error) {
 	window, err = s.st.IntSetting(settingWindow, store.DefaultWindowMinutes)
 	if err != nil {
@@ -288,7 +288,7 @@ func (s *sdkServer) matchSettings() (window, threshold int, err error) {
 }
 
 // windowSetting returns the configured match window, defaulting on missing
-// or invalid settings (R3: a bad setting must never block a click).
+// or invalid settings: a bad setting must never block a click.
 func (s *sdkServer) windowSetting() int {
 	v, err := s.st.IntSetting(settingWindow, store.DefaultWindowMinutes)
 	if err != nil {
@@ -298,8 +298,8 @@ func (s *sdkServer) windowSetting() int {
 	return v
 }
 
-// backendError logs a match-link backend failure (R3) and best-effort records
-// the unknown-attribution row: logged, never surfaced in readout.
+// backendError logs a match-link backend failure and best-effort records the
+// unknown-attribution row: logged, never surfaced in readout.
 func (s *sdkServer) backendError(appID, deviceHash string, err error) {
 	s.log.Printf("match-link backend error: %v", err)
 	if _, rerr := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: deviceHash, Attribution: store.AttributionUnknown}); rerr != nil {
