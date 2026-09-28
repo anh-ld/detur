@@ -7,7 +7,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"DETUR_DOMAIN", "DETUR_ADDR", "DETUR_PORTAL_ADDR", "DETUR_DB_PATH", "DETUR_RETENTION_HOURS"} {
+	for _, k := range []string{"DOMAIN", "ADDR", "PORTAL_ADDR", "DB_PATH", "RETENTION_HOURS"} {
 		t.Setenv(k, "")
 	}
 }
@@ -37,11 +37,11 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadEnvOverride(t *testing.T) {
 	clearEnv(t)
-	t.Setenv("DETUR_DOMAIN", "links.example.com")
-	t.Setenv("DETUR_ADDR", ":9000")
-	t.Setenv("DETUR_PORTAL_ADDR", "0.0.0.0:9001")
-	t.Setenv("DETUR_DB_PATH", "/data/detur.db")
-	t.Setenv("DETUR_RETENTION_HOURS", "48")
+	t.Setenv("DOMAIN", "links.example.com")
+	t.Setenv("ADDR", ":9000")
+	t.Setenv("PORTAL_ADDR", "0.0.0.0:9001")
+	t.Setenv("DB_PATH", "/data/detur.db")
+	t.Setenv("RETENTION_HOURS", "48")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -56,8 +56,8 @@ func TestLoadInvalidValues(t *testing.T) {
 	for _, tc := range []struct {
 		key, val, wantErr string
 	}{
-		{"DETUR_RETENTION_HOURS", "0", "out of range"},
-		{"DETUR_RETENTION_HOURS", "not-a-number", "must be an integer"},
+		{"RETENTION_HOURS", "0", "out of range"},
+		{"RETENTION_HOURS", "not-a-number", "must be an integer"},
 	} {
 		clearEnv(t)
 		t.Setenv(tc.key, tc.val)

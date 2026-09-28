@@ -33,9 +33,9 @@ RUN adduser -D -u 1000 -h /app detur
 COPY --from=build --chown=detur:detur /out/detur /app/detur
 COPY --from=build --chown=detur:detur /out/data /data
 COPY --from=portal --chown=detur:detur /src/dist /app/portal-dist
-ENV DETUR_PORTAL_DIR=/app/portal-dist \
-    DETUR_DB_PATH=/data/detur.db \
-    DETUR_PORTAL_ADDR=0.0.0.0:8081
+ENV PORTAL_DIR=/app/portal-dist \
+    DB_PATH=/data/detur.db \
+    PORTAL_ADDR=0.0.0.0:8081
 USER detur
 EXPOSE 8080 8081
 VOLUME ["/data"]

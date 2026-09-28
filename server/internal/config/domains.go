@@ -1,7 +1,7 @@
 package config
 
 // DomainSet returns the operator's configured domains (R12, R17): the
-// primary DETUR_DOMAIN, any DETUR_EXTRA_DOMAINS, plus "localhost" for local
+// primary DOMAIN, any EXTRA_DOMAINS, plus "localhost" for local
 // development. Plain slice, order preserved, no duplicates.
 func DomainSet(cfg *Config) []string {
 	var domains []string
