@@ -1,6 +1,6 @@
 import { createDetourNativeIntentHandler } from "@swmansion/react-native-detour/expo-router";
 
-// Hosts this app claims from the OS. SDK default matcher is *.godetour.link —
+// Hosts this app claims from the OS. SDK default matcher is *.godetour.link,
 // self-host links never match, so list your own domain(s) here.
 // dev: localhost. deploy: your short-link domain, e.g. links.example.com
 const hosts = (process.env.EXPO_PUBLIC_DETOUR_HOSTS ?? "localhost")

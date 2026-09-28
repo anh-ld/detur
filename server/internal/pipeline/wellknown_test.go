@@ -1,9 +1,8 @@
 package pipeline
 
-// Test scenarios 1-8 from the U5 implementation unit (docs/plans/
-// 2026-09-28-1507-feat-detour-selfhost-server-plan.md, R11, R12, R17, AE5).
-// Real store + real mux via httptest; request hosts come from the configured
-// domain set built the same way main.go builds it (config.DomainSet).
+// Well-known hosting tests. Real store + real mux via
+// httptest; request hosts come from the configured domain set built the
+// same way main.go builds it (config.DomainSet).
 
 import (
 	"encoding/json"
@@ -17,18 +16,12 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-const (
-	primaryDomain = "detur.example.com"
-	extraDomain   = "links.example.com"
-)
+const primaryDomain = "detur.example.com"
 
-// testDomains builds the domain set the way main.go does (R12/R17): the
-// primary DOMAIN, EXTRA_DOMAINS (comma-separated), plus
-// "localhost" for dev.
+// testDomains builds the domain set the way main.go does.
 func testDomains(t *testing.T) []string {
 	t.Helper()
-	t.Setenv("EXTRA_DOMAINS", extraDomain)
-	return config.DomainSet(&config.Config{Domain: primaryDomain, ExtraDomains: []string{extraDomain}})
+	return config.DomainSet(&config.Config{Domain: primaryDomain})
 }
 
 // newWellKnownServer wires the real store + the short-link pipeline + the
@@ -72,7 +65,7 @@ func getWithHost(t *testing.T, ts *httptest.Server, path, host string) (*http.Re
 	return resp, b
 }
 
-// aasaResp decodes the Apple App Site Association shape (R11).
+// aasaResp decodes the Apple App Site Association shape.
 type aasaResp struct {
 	AppLinks struct {
 		Apps    []string `json:"apps"`
@@ -83,7 +76,7 @@ type aasaResp struct {
 	} `json:"applinks"`
 }
 
-// assetlinksResp decodes one assetlinks.json entry shape (R11).
+// assetlinksResp decodes one assetlinks.json entry shape.
 type assetlinksResp []struct {
 	Relation []string `json:"relation"`
 	Target   struct {
@@ -106,7 +99,7 @@ func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	return app
 }
 
-// Scenario 1: AASA valid JSON per app — one details entry per app with an
+// Scenario 1: AASA valid JSON per app, one details entry per app with an
 // ios_app_id, each with paths ["*"]; apps stays [].
 func TestAASAValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
@@ -148,7 +141,7 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 	}
 }
 
-// Scenario 2: assetlinks.json valid per app — one entry per app with an
+// Scenario 2: assetlinks.json valid per app, one entry per app with an
 // android package AND cert fingerprint; ios-only apps are absent.
 func TestAssetlinksValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
@@ -190,7 +183,7 @@ func TestAssetlinksValidJSONPerApp(t *testing.T) {
 	}
 }
 
-// Scenario 3: apps without details are omitted — AASA details empty (apps
+// Scenario 3: apps without details are omitted; AASA details empty (apps
 // still []), assetlinks an empty array, both 200 valid JSON.
 func TestAppsWithoutDetailsOmitted(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
@@ -227,8 +220,7 @@ func TestAppsWithoutDetailsOmitted(t *testing.T) {
 	}
 }
 
-// Scenario 4: a host outside the configured domain set gets 404 (R12 host
-// gate).
+// Scenario 4: a host outside the configured domain set gets 404 (host gate).
 func TestUnknownDomain404(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	setupWellKnownApp(t, st)
@@ -237,50 +229,6 @@ func TestUnknownDomain404(t *testing.T) {
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("%s on unknown domain: status = %d; want 404", path, resp.StatusCode)
 		}
-	}
-}
-
-// Scenario 5 (AE5 leg): a EXTRA_DOMAINS host serves the well-known
-// files like the primary domain does.
-func TestExtraDomainServesWellKnown(t *testing.T) {
-	ts, st := newWellKnownServer(t, testDomains(t))
-	setupWellKnownApp(t, st)
-	resp, b := getWithHost(t, ts, "/.well-known/apple-app-site-association", extraDomain)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, body %s; want 200 on extra domain", resp.StatusCode, b)
-	}
-	var aasa aasaResp
-	if err := json.Unmarshal(b, &aasa); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, b)
-	}
-	if len(aasa.AppLinks.Details) != 1 {
-		t.Errorf("details = %+v; want the app's entry", aasa.AppLinks.Details)
-	}
-}
-
-// Scenario 6 (AE5 leg): GET /{key} on an extra configured domain still serves
-// the short link and redirects (the pipeline stays host-agnostic — links are
-// keys, any configured domain resolves them).
-func TestCustomDomainServesShortLinkRedirect(t *testing.T) {
-	ts, st := newWellKnownServer(t, testDomains(t))
-	app, err := st.CreateApp("link app", "sekrit-key-123")
-	if err != nil {
-		t.Fatalf("CreateApp: %v", err)
-	}
-	link, err := st.CreateLink(store.Link{
-		AppID: app.ID, Key: "abc", URL: "https://example.com/product",
-		FallbackURL: "https://example.com/landing",
-	})
-	if err != nil {
-		t.Fatalf("CreateLink: %v", err)
-	}
-
-	resp, _ := getWithHost(t, ts, "/"+link.Key, extraDomain)
-	if resp.StatusCode != http.StatusFound {
-		t.Fatalf("status = %d; want 302 on extra domain", resp.StatusCode)
-	}
-	if loc := resp.Header.Get("Location"); loc != link.FallbackURL {
-		t.Errorf("Location = %q; want fallback %q (desktop UA)", loc, link.FallbackURL)
 	}
 }
 
@@ -340,7 +288,7 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 	}
 }
 
-// Scenario 8 (AE5): AASA + assetlinks + short link all served on the same
+// Scenario 8: AASA + assetlinks + short link all served on the same
 // configured domain by the same mux.
 func TestIntegrationWellKnownAndShortLinksOnConfiguredDomain(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))

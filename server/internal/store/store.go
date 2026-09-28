@@ -1,9 +1,9 @@
 // Package store persists detur state in SQLite (WAL mode).
 //
-// Attribution values: organic | non_organic | unknown (R7, R3 backend-error
-// path). Clicks carry expires_at = max(configured window, retention floor);
-// deterministic clickId lookups are exempt from the window filter (documented
-// Detour contract: deterministic match has no window).
+// Attribution values: organic | non_organic | unknown (backend-error path).
+// Clicks carry expires_at = max(configured window, retention floor);
+// deterministic clickId lookups skip the window filter (deterministic match
+// has no window).
 package store
 
 import (
@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // pure-Go driver (KTD1): no cgo, static builds
+	_ "modernc.org/sqlite" // pure-Go driver, no cgo, static builds
 )
 
 //go:embed schema.sql
@@ -29,7 +29,7 @@ const (
 	AttributionOrganic = "organic"
 	// AttributionNonOrganic marks an install matched to a click.
 	AttributionNonOrganic = "non_organic"
-	// AttributionUnknown marks a backend-error path (R3): logged, not surfaced in readout.
+	// AttributionUnknown marks a backend-error path: logged, not surfaced in readout.
 	AttributionUnknown = "unknown"
 )
 
@@ -53,7 +53,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	db.SetMaxOpenConns(1) // single writer; WAL readers still share the one conn
+	db.SetMaxOpenConns(1) // single writer, WAL readers still share the one conn
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("PRAGMA journal_mode=WAL: %w", err)
@@ -78,22 +78,22 @@ func (s *Store) Ping() error {
 	return s.db.QueryRow(`SELECT 1`).Scan(&one)
 }
 
-// Matching defaults (R6, R14): applied when no settings are stored; the
-// portal edits threshold/window through the settings table.
+// Matching defaults, applied when no settings are stored; the portal edits
+// threshold/window through the settings table.
 const (
 	DefaultThreshold     = 850
 	DefaultWindowMinutes = 15
 	RetentionFloorHours  = 24
 )
 
-// HashKey returns the SHA-256 hex digest of an API key (hash-at-rest, R14).
+// HashKey returns the SHA-256 hex digest of an API key (hash-at-rest).
 func HashKey(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:])
 }
 
-// App is a registered application holding links and API keys. The three
-// trailing fields carry the well-known hosting details (R11): iOS appID
+// App is a registered application holding links and API keys. Trailing
+// fields carry the well-known hosting details: iOS appID
 // (TEAMID.BUNDLEID), Android package + SHA-256 cert fingerprint.
 type App struct {
 	ID                     string
@@ -104,8 +104,8 @@ type App struct {
 	AndroidCertFingerprint string
 }
 
-// CreateApp inserts an app and returns it. apiKey is returned to the caller
-// only once by the portal; only its hash is stored.
+// CreateApp inserts an app and returns it. apiKey returns to the caller
+// only once, from the portal; only its hash is stored.
 func (s *Store) CreateApp(name, apiKey string) (App, error) {
 	id := Nanoid(21)
 	hash := HashKey(apiKey)
@@ -133,9 +133,9 @@ func (s *Store) GetApp(id string) (App, error) {
 	return a, nil
 }
 
-// UpdateAppDetails sets the app's well-known hosting details (R11). Empty
-// strings clear the corresponding field (nullable columns). ErrNotFound when
-// the app is unknown.
+// UpdateAppDetails sets the app's well-known hosting details. Empty strings
+// clear the corresponding field (nullable columns). ErrNotFound when the app
+// is unknown.
 func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint string) error {
 	res, err := s.db.Exec(
 		`UPDATE apps SET ios_app_id = ?, android_package = ?, android_cert_fingerprint = ? WHERE id = ?`,
@@ -204,13 +204,13 @@ type Link struct {
 	IOS           string
 	Android       string
 	FallbackURL   string
-	Threshold     int // per-link match threshold (R14 settings)
-	WindowMinutes int // per-link match window (R14 settings)
+	Threshold     int // per-link match threshold
+	WindowMinutes int // per-link match window
 }
 
 // CreateLink inserts a link. Threshold/window 0 = "unset": the matching
-// engine and click expiry then use the global settings (R14 per-link
-// overrides only when explicitly set).
+// engine and click expiry then fall back to the global settings; a link
+// overrides only when explicitly set.
 func (s *Store) CreateLink(l Link) (Link, error) {
 	if l.ID == "" {
 		l.ID = Nanoid(16)
@@ -349,9 +349,9 @@ func scanLink(row *sql.Row) (Link, error) {
 	return l, nil
 }
 
-// Fingerprint is the device signal set captured at click time (R8: IP,
-// device, locale, timezone, screen, user-agent, pasted link) and matched
-// against the first-launch fingerprint.
+// Fingerprint is the device signal set captured at click time (IP, device,
+// locale, timezone, screen, user-agent, pasted link) and matched against the
+// first-launch fingerprint.
 type Fingerprint struct {
 	IP         string
 	Device     string
@@ -376,8 +376,7 @@ type Click struct {
 }
 
 // RecordClick persists a click. Expiry = max(configured window, retention
-// floor) so deterministic lookups survive beyond the probabilistic window
-// (KTD4, U1).
+// floor) so deterministic lookups survive beyond the probabilistic window.
 func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, error) {
 	window := time.Duration(windowMinutes) * time.Minute
 	floor := time.Duration(retentionHours) * time.Hour
@@ -389,8 +388,8 @@ func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, 
 		c.ID = Nanoid(16)
 	}
 	// The id handed to clients (rec.ID, Android Play referrer, universal-link
-	// clickId) is the deterministic match key: default the click_id column to
-	// it so ClickByClickID can resolve what the SDK sends back.
+	// clickId) is the deterministic match key: default click_id to it so
+	// ClickByClickID can resolve what the SDK sends back.
 	if c.ClickID == "" {
 		c.ClickID = c.ID
 	}
@@ -418,7 +417,7 @@ func (s *Store) GetClick(id string) (Click, error) {
 	))
 }
 
-// ClickByClickID finds a click by deterministic clickId (no window filter —
+// ClickByClickID finds a click by deterministic clickId (no window filter:
 // deterministic matching has no window; the retention floor governs expiry,
 // so expired-but-unpurged rows no longer resolve).
 func (s *Store) ClickByClickID(appID, clickID string) (Click, error) {
@@ -450,8 +449,8 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	return clicks, rows.Err()
 }
 
-// LinkThresholds returns per-link matching thresholds (R14) as a map from
-// link id to threshold; links without an explicit threshold are absent.
+// LinkThresholds returns per-link matching thresholds as a map from link id
+// to threshold; links without an explicit threshold are absent.
 func (s *Store) LinkThresholds(appID string) (map[string]int, error) {
 	rows, err := s.db.Query(`SELECT id, threshold FROM links WHERE app_id = ?`, appID)
 	if err != nil {
@@ -491,7 +490,7 @@ func (s *Store) LinkWindows(appID string) (map[string]int, error) {
 
 // PurgeExpired deletes clicks past their expiry and events older than the
 // retention floor, returning the total rows removed. Retention governs both
-// tables (System-Wide Impact: events get the same treatment).
+// tables; events get the same treatment.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
 	res, err := s.db.Exec(`DELETE FROM clicks WHERE expires_at < ?`, rfc3339(now))
@@ -676,7 +675,7 @@ func migrateInstallUniqueness(db *sql.DB) error {
 }
 
 // CountInstalls returns organic and non-organic install counts for an app
-// (R15 readout; unknown excluded).
+// (readout; unknown excluded).
 func (s *Store) CountInstalls(appID string) (organic, nonOrganic int64, err error) {
 	err = s.db.QueryRow(
 		`SELECT
@@ -688,7 +687,7 @@ func (s *Store) CountInstalls(appID string) (organic, nonOrganic int64, err erro
 	return organic, nonOrganic, err
 }
 
-// CountClicks returns the click count for an app (R15 readout).
+// CountClicks returns the click count for an app (readout).
 func (s *Store) CountClicks(appID string) (int64, error) {
 	var n int64
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE app_id = ?`, appID).Scan(&n)
@@ -707,7 +706,7 @@ func (s *Store) RecordEvent(appID, event, metadata string) error {
 	return nil
 }
 
-// CountEvents returns the analytics event count for an app (U3 persistence check).
+// CountEvents returns the analytics event count for an app.
 func (s *Store) CountEvents(appID string) (int64, error) {
 	var n int64
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE app_id = ?`, appID).Scan(&n)

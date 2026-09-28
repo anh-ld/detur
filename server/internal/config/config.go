@@ -5,32 +5,21 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 )
 
-// Config holds runtime configuration. All fields come from environment
-// variables; unset fields fall back to defaults (see Load).
+// Config holds runtime configuration, read from exactly four env vars:
+// DOMAIN, DB_PATH, RETENTION_HOURS, TRUST_PROXY.
 type Config struct {
-	Domain         string   // public base domain for links, well-known, redirects
-	HTTPAddr       string   // SDK + pipeline listen address
-	PortalAddr     string   // portal listen address (separate listener, loopback default)
-	PortalDir      string   // portal static files dir (built UI)
-	PortalHosts    []string // extra Host values the portal guard accepts (zero-trust tunnels)
-	ExtraDomains   []string // extra domains served for links/well-known
+	Domain         string // public domain for links, well-known, redirects
 	DBPath         string
-	RetentionHours int  // click + event retention floor (KTD4)
-	TrustProxy     bool // honor X-Forwarded-For (set when TLS terminates at a trusted proxy)
+	RetentionHours int  // click + event retention floor
+	TrustProxy     bool // honor X-Forwarded-For (only behind a trusted proxy)
 }
 
 // Load reads configuration from the environment with sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
 		Domain:         envOr("DOMAIN", "localhost"),
-		HTTPAddr:       envOr("ADDR", ":8080"),
-		PortalAddr:     envOr("PORTAL_ADDR", "127.0.0.1:8081"),
-		PortalDir:      envOr("PORTAL_DIR", "portal/dist"),
-		PortalHosts:    envList("PORTAL_HOSTS"),
-		ExtraDomains:   envList("EXTRA_DOMAINS"),
 		DBPath:         envOr("DB_PATH", "detur.db"),
 		RetentionHours: 24,
 		TrustProxy:     os.Getenv("TRUST_PROXY") == "1",
@@ -47,22 +36,6 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
-}
-
-// envList parses a comma-separated env var into a trimmed, de-duplicated,
-// non-empty slice.
-func envList(key string) []string {
-	var out []string
-	seen := make(map[string]bool)
-	for _, v := range strings.Split(os.Getenv(key), ",") {
-		v = strings.TrimSpace(v)
-		if v == "" || seen[v] {
-			continue
-		}
-		seen[v] = true
-		out = append(out, v)
-	}
-	return out
 }
 
 // envIntRange parses an int env var; out-of-range or malformed values fail

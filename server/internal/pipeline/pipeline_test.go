@@ -1,8 +1,7 @@
 package pipeline
 
-// Test scenarios 1-10 from the U4 implementation unit (docs/plans/
-// 2026-09-28-1507-feat-detour-selfhost-server-plan.md, R8-R10, AE1, F1).
-// Real store + real mux via httptest; no store-layer mocks.
+// Test scenarios 1-10 for the browser pipeline. Real store + real mux via
+// httptest; no store-layer mocks.
 
 import (
 	"database/sql"
@@ -139,7 +138,7 @@ func latestClicks(t *testing.T, s *store.Store, appID string) []store.Click {
 }
 
 // Scenario 1: iOS click -> 302 to the App Store URL + a click row recorded
-// with the fingerprint (R9, R10).
+// with the fingerprint.
 func TestIOSClickRedirectsAppStoreAndRecordsClick(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -168,7 +167,7 @@ func TestIOSClickRedirectsAppStoreAndRecordsClick(t *testing.T) {
 }
 
 // Scenario 2: Android click -> 302 to the Play URL and the referrer param
-// carries the recorded clickId (AE1 leg: Play install referrer -> match-link).
+// carries the recorded clickId (Play install referrer -> match-link).
 func TestAndroidClickRedirectsPlayWithClickIDReferrer(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -205,9 +204,9 @@ func TestAndroidClickRedirectsPlayWithClickIDReferrer(t *testing.T) {
 	}
 }
 
-// Scenario 2b: the deterministic chain end-to-end — browser click (Android UA)
+// Scenario 2b: the deterministic chain end-to-end: browser click (Android UA)
 // -> referrer click_id -> match-link {clickId} -> 200 {link} + non-organic
-// install (AE4/R5; verifies the server-side referrer contract).
+// install (verifies the server-side referrer contract).
 func TestAndroidDeterministicChainEndToEnd(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -244,7 +243,7 @@ func TestAndroidDeterministicChainEndToEnd(t *testing.T) {
 	}
 }
 
-// Scenario 3: desktop click -> 302 to the fallback URL (R10).
+// Scenario 3: desktop click -> 302 to the fallback URL.
 func TestDesktopClickRedirectsFallback(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -257,8 +256,8 @@ func TestDesktopClickRedirectsFallback(t *testing.T) {
 	}
 }
 
-// Scenario 4: the click-time fingerprint is persisted verbatim (R8) — IP,
-// UA-derived device, locale, user-agent — readable via store.GetClick.
+// Scenario 4: the click-time fingerprint is persisted verbatim: IP,
+// UA-derived device, locale, user-agent, readable via store.GetClick.
 func TestClickFingerprintPersisted(t *testing.T) {
 	httpx.TrustProxy = true // the XFF header stands in for the trusted-proxy deployment
 	t.Cleanup(func() { httpx.TrustProxy = false })
@@ -292,7 +291,7 @@ func TestClickFingerprintPersisted(t *testing.T) {
 	}
 }
 
-// Scenario 5: bot UA -> no click row, redirect still happens (KD4 filter).
+// Scenario 5: bot UA -> no click row, redirect still happens (bot filter).
 func TestBotUASkipsRecordingStillRedirects(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -322,7 +321,7 @@ func TestUnknownKeyReturns404(t *testing.T) {
 	}
 }
 
-// Scenario 7: reserved params ppid and dtb pass through to the redirect (KD4).
+// Scenario 7: reserved params ppid and dtb pass through to the redirect.
 func TestPpidAndDtbParamsPassThrough(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -341,8 +340,8 @@ func TestPpidAndDtbParamsPassThrough(t *testing.T) {
 }
 
 // Scenario 8: a link without ios/android overrides falls through to link.URL
-// on mobile (R10); missing ios -> URL. Android still carries the clickId
-// referrer (R10 applies it on every Android redirect, override or not).
+// on mobile; missing ios -> URL. Android still carries the clickId referrer
+// (applied on every Android redirect, override or not).
 func TestMobileWithoutOverridesFallsThroughToURL(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)
@@ -369,12 +368,12 @@ func TestMobileWithoutOverridesFallsThroughToURL(t *testing.T) {
 		t.Errorf("Android: Location = %q; want target %q (falls through to URL)", u, plain.URL)
 	}
 	if u.Query().Get("referrer") == "" {
-		t.Errorf("Android: referrer missing in %q (R10 appends the clickId)", u)
+		t.Errorf("Android: referrer missing in %q (redirect appends the clickId)", u)
 	}
 }
 
-// Scenario 9: a click-record failure must NOT block the redirect — the 302
-// still goes out (R9, "record before redirect"). Injection: drop the clicks
+// Scenario 9: a click-record failure must NOT block the redirect; the 302
+// still goes out ("record before redirect"). Injection: drop the clicks
 // table; the link lookup keeps working so the redirect target is known.
 func TestRecordFailureDoesNotBlockRedirect(t *testing.T) {
 	ts, s, path := newPipelineServer(t)
@@ -396,9 +395,9 @@ func TestRecordFailureDoesNotBlockRedirect(t *testing.T) {
 	}
 }
 
-// Scenario 10: full F1 chain — browser click via GET /{key}, then a match-link
-// call with a matching fingerprint (same IP/UA/locale) returns the destination
-// and records a non-organic install.
+// Scenario 10: full chain: browser click via GET /{key}, then a match-link
+// call with a matching fingerprint (same IP/UA/locale) returns the
+// destination and records a non-organic install.
 func TestIntegrationBrowserClickThenMatchLinkNonOrganic(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)

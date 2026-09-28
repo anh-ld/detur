@@ -11,3 +11,4 @@ portal/dist/
 # OS / editor
 .DS_Store
 .compound-engineering/
+.env
