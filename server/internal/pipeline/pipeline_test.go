@@ -44,8 +44,8 @@ func newPipelineServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 	}
 	t.Cleanup(func() { st.Close() })
 	mux := http.NewServeMux()
-	Register(mux, st)
-	api.RegisterSDK(mux, st)
+	Register(mux, st, 24)
+	api.RegisterSDK(mux, st, 24)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return ts, st, path

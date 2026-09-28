@@ -27,12 +27,13 @@ var (
 )
 
 // Fingerprint is the first-launch device fingerprint the SDK sends on
-// match-link (full payload — no clickId).
+// match-link (full payload — no clickId). Platform is not stored: the
+// scoring engine derives it from the click's UA (R6 one-device-signal rule).
 type Fingerprint struct {
-	Platform, Model, Manufacturer, SystemVersion string
-	ScreenWidth, ScreenHeight                    int
-	Scale                                        float64
-	Locale, Timezone, UserAgent, PastedLink      string
+	Model, Manufacturer, SystemVersion      string
+	ScreenWidth, ScreenHeight               int
+	Scale                                   float64
+	Locale, Timezone, UserAgent, PastedLink string
 }
 
 // Request is a match-link request: either an exact ClickID (Android Play

@@ -44,7 +44,7 @@ func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) 
 	t.Cleanup(portal.Close)
 
 	sdkMux := http.NewServeMux()
-	RegisterSDK(sdkMux, st)
+	RegisterSDK(sdkMux, st, 24)
 	sdk = httptest.NewServer(sdkMux)
 	t.Cleanup(sdk.Close)
 	return portal, sdk, st

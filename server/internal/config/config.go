@@ -14,9 +14,7 @@ type Config struct {
 	HTTPAddr       string // SDK + pipeline listen address
 	PortalAddr     string // portal listen address (separate listener, loopback default)
 	DBPath         string
-	RetentionHours int // click retention floor (deterministic lookups)
-	WindowMinutes  int // default probabilistic match window
-	Threshold      int // default match threshold
+	RetentionHours int // click + event retention floor (KTD4)
 }
 
 // Load reads configuration from the environment with sensible defaults.
@@ -27,17 +25,9 @@ func Load() (*Config, error) {
 		PortalAddr:     envOr("DETUR_PORTAL_ADDR", "127.0.0.1:8081"),
 		DBPath:         envOr("DETUR_DB_PATH", "detur.db"),
 		RetentionHours: 24,
-		WindowMinutes:  15,
-		Threshold:      850,
 	}
 	var err error
 	if cfg.RetentionHours, err = envIntRange("DETUR_RETENTION_HOURS", cfg.RetentionHours, 1, 8760); err != nil {
-		return nil, err
-	}
-	if cfg.WindowMinutes, err = envIntRange("DETUR_WINDOW_MINUTES", cfg.WindowMinutes, 5, 180); err != nil {
-		return nil, err
-	}
-	if cfg.Threshold, err = envIntRange("DETUR_THRESHOLD", cfg.Threshold, 700, 1200); err != nil {
 		return nil, err
 	}
 	return cfg, nil

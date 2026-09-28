@@ -34,7 +34,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 	}
 	t.Cleanup(func() { st.Close() })
 	mux := http.NewServeMux()
-	RegisterSDK(mux, st)
+	RegisterSDK(mux, st, 24)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return ts, st, path

@@ -6,11 +6,11 @@ package pipeline
 // (R12, R17): hosts outside the domain set get 404.
 
 import (
-	"encoding/json"
 	"net"
 	"net/http"
 	"strings"
 
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 )
 
@@ -78,7 +78,7 @@ func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 		}
 		payload.AppLinks.Details = append(payload.AppLinks.Details, aasaDetails{AppID: a.IOSAppID, Paths: []string{"*"}})
 	}
-	writeJSON(rw, payload)
+	httpx.WriteJSON(rw, http.StatusOK, payload)
 }
 
 // handleAssetLinks serves the Android association file: one entry per app
@@ -107,7 +107,7 @@ func (w *wellKnownServer) handleAssetLinks(rw http.ResponseWriter, r *http.Reque
 			},
 		})
 	}
-	writeJSON(rw, entries)
+	httpx.WriteJSON(rw, http.StatusOK, entries)
 }
 
 // allowedHost reports whether the request Host is in the configured domain
@@ -128,9 +128,4 @@ func hostnameOnly(h string) string {
 		return host
 	}
 	return h
-}
-
-func writeJSON(rw http.ResponseWriter, v any) {
-	rw.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(rw).Encode(v)
 }

@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go driver (KTD1): no cgo, static builds
@@ -66,6 +67,14 @@ func Open(path string) (*Store, error) {
 // Close closes the underlying database.
 func (s *Store) Close() error { return s.db.Close() }
 
+// Matching defaults (R6, R14): applied when no settings are stored; the
+// portal edits threshold/window through the settings table.
+const (
+	DefaultThreshold     = 850
+	DefaultWindowMinutes = 15
+	RetentionFloorHours  = 24
+)
+
 // HashKey returns the SHA-256 hex digest of an API key (hash-at-rest, R14).
 func HashKey(key string) string {
 	sum := sha256.Sum256([]byte(key))
@@ -87,7 +96,7 @@ type App struct {
 // CreateApp inserts an app and returns it. apiKey is returned to the caller
 // only once by the portal; only its hash is stored.
 func (s *Store) CreateApp(name, apiKey string) (App, error) {
-	id := nanoid(21)
+	id := Nanoid(21)
 	hash := HashKey(apiKey)
 	if _, err := s.db.Exec(
 		`INSERT INTO apps (id, name, api_key_hash) VALUES (?, ?, ?)`, id, name, hash,
@@ -189,14 +198,14 @@ type Link struct {
 }
 
 const (
-	defaultThreshold = 850
-	defaultWindowMin = 15
+	defaultThreshold = DefaultThreshold
+	defaultWindowMin = DefaultWindowMinutes
 )
 
 // CreateLink inserts a link, applying per-link defaults.
 func (s *Store) CreateLink(l Link) (Link, error) {
 	if l.ID == "" {
-		l.ID = nanoid(16)
+		l.ID = Nanoid(16)
 	}
 	if l.Threshold == 0 {
 		l.Threshold = defaultThreshold
@@ -339,7 +348,7 @@ func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, 
 	}
 	now := time.Now().UTC()
 	if c.ID == "" {
-		c.ID = nanoid(16)
+		c.ID = Nanoid(16)
 	}
 	c.CreatedAt = now
 	c.ExpiresAt = now.Add(window)
@@ -396,13 +405,27 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	return clicks, rows.Err()
 }
 
-// PurgeExpired deletes clicks past their expiry and returns the count removed.
-func (s *Store) PurgeExpired(now time.Time) (int64, error) {
+// PurgeExpired deletes clicks past their expiry and events older than the
+// retention floor, returning the total rows removed. Retention governs both
+// tables (System-Wide Impact: events get the same treatment).
+func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
+	var removed int64
 	res, err := s.db.Exec(`DELETE FROM clicks WHERE expires_at < ?`, rfc3339(now))
 	if err != nil {
-		return 0, fmt.Errorf("purge expired: %w", err)
+		return 0, fmt.Errorf("purge clicks: %w", err)
 	}
-	return res.RowsAffected()
+	if n, _ := res.RowsAffected(); n > 0 {
+		removed += n
+	}
+	cutoff := now.Add(-time.Duration(retentionHours) * time.Hour)
+	res, err = s.db.Exec(`DELETE FROM events WHERE created_at < ?`, rfc3339(cutoff))
+	if err != nil {
+		return 0, fmt.Errorf("purge events: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		removed += n
+	}
+	return removed, nil
 }
 
 func scanClick(row *sql.Row) (Click, error) {
@@ -451,7 +474,7 @@ type Install struct {
 // constraint then dedupes retried organic installs per device too.
 func (s *Store) RecordInstall(i Install) (Install, error) {
 	if i.ID == "" {
-		i.ID = nanoid(16)
+		i.ID = Nanoid(16)
 	}
 	now := time.Now().UTC()
 	i.CreatedAt = now
@@ -505,7 +528,7 @@ func (s *Store) CountClicks(appID string) (int64, error) {
 func (s *Store) RecordEvent(appID, event, metadata string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO events (id, app_id, event, metadata) VALUES (?, ?, ?, ?)`,
-		nanoid(21), appID, event, nullStr(metadata),
+		Nanoid(21), appID, event, nullStr(metadata),
 	)
 	if err != nil {
 		return fmt.Errorf("record event: %w", err)
@@ -546,13 +569,31 @@ func (s *Store) SetSetting(key, value string) error {
 	return nil
 }
 
+// IntSetting returns a settings value parsed as an int, falling back to def
+// when the key is missing or unparsable. Only a store read error is
+// returned.
+func (s *Store) IntSetting(key string, def int) (int, error) {
+	v, ok, err := s.GetSetting(key)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def, nil
+	}
+	return n, nil
+}
+
 // rawExec executes a statement directly (test-only hook for expiry/purge setup).
 func (s *Store) rawExec(q string, args ...any) (sql.Result, error) {
 	return s.db.Exec(q, args...)
 }
 
-// nanoid returns a crypto-random base62 string of length n (ids, not secrets).
-func nanoid(n int) string {
+// Nanoid returns a crypto-random base62 string of length n (ids, not secrets).
+func Nanoid(n int) string {
 	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
