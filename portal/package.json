@@ -8,11 +8,11 @@
     "build": "vite build"
   },
   "dependencies": {
-    "kinu": "^0.2.0",
-    "preact": "^10.29.0"
+    "kinu": "0.2.0",
+    "preact": "10.29.0"
   },
   "devDependencies": {
-    "@preact/preset-vite": "^2.10.6",
-    "vite": "^8.3.1"
+    "@preact/preset-vite": "2.10.6",
+    "vite": "8.3.1"
   }
 }
