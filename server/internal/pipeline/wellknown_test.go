@@ -28,7 +28,7 @@ const (
 func testDomains(t *testing.T) []string {
 	t.Helper()
 	t.Setenv("DETUR_EXTRA_DOMAINS", extraDomain)
-	return config.DomainSet(&config.Config{Domain: primaryDomain})
+	return config.DomainSet(&config.Config{Domain: primaryDomain, ExtraDomains: []string{extraDomain}})
 }
 
 // newWellKnownServer wires the real store + the short-link pipeline + the

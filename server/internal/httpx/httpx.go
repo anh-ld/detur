@@ -9,14 +9,22 @@ import (
 	"strings"
 )
 
-// RemoteIP returns the request connection IP, honoring X-Forwarded-For
-// (first entry) for the reverse-proxy deployment (TLS termination).
+// TrustProxy gates the X-Forwarded-For path: only set when TLS terminates
+// at a trusted reverse proxy (DETUR_TRUST_PROXY). Off by default so a
+// client-supplied header cannot spoof the IP match signal.
+var TrustProxy bool
+
+// RemoteIP returns the request connection IP. X-Forwarded-For (first entry)
+// is honored only when TrustProxy is set — the proxy must overwrite the
+// header so a direct client cannot forge it.
 func RemoteIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			xff = xff[:i]
+	if TrustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if i := strings.IndexByte(xff, ','); i >= 0 {
+				xff = xff[:i]
+			}
+			return strings.TrimSpace(xff)
 		}
-		return strings.TrimSpace(xff)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

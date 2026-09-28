@@ -84,6 +84,12 @@ func Match(st *store.Store, appID string, req Request, windowMinutes, threshold 
 	if err != nil {
 		return Result{}, err
 	}
+	// R14: per-link thresholds override the global default for clicks on
+	// that link; links without one use the global setting.
+	thresholdByLink, err := st.LinkThresholds(appID)
+	if err != nil {
+		return Result{}, err
+	}
 	fp := Fingerprint{}
 	if req.Fingerprint != nil {
 		fp = *req.Fingerprint
@@ -94,8 +100,17 @@ func Match(st *store.Store, appID string, req Request, windowMinutes, threshold 
 			best, bestClick = s, c
 		}
 	}
-	if best >= threshold {
+	if best >= thresholdFor(bestClick, thresholdByLink, threshold) {
 		return Result{Matched: true, Click: bestClick, Destination: bestClick.Destination}, nil
 	}
 	return Result{}, nil
+}
+
+// thresholdFor returns the per-link threshold when the matched click's link
+// sets one, else the global default.
+func thresholdFor(c store.Click, byLink map[string]int, global int) int {
+	if t, ok := byLink[c.LinkID]; ok && t > 0 {
+		return t
+	}
+	return global
 }

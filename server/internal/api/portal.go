@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -34,11 +35,12 @@ type portalServer struct {
 // RegisterPortal builds the portal handler: apps/links CRUD, settings, and
 // readout routes, plus the static UI served from staticDir (missing files or
 // a missing dir 404 plain text — never a crash). The whole mux is wrapped in
-// the origin/host guard. allowedHost is the portal listener's own configured
-// address (cfg.PortalAddr); a Host or Origin outside loopback or that host is
-// rejected with 403 (KTD5). No auth: access control is delegated to a
-// zero-trust boundary in front of this listener (R19).
-func RegisterPortal(st *store.Store, staticDir, allowedHost string) http.Handler {
+// the origin/host guard. allowedHosts holds the portal listener's own
+// configured address(es) plus any zero-trust tunnel hosts
+// (DETUR_PORTAL_HOSTS); loopback is always accepted. A Host or Origin
+// outside those is rejected with 403 (KTD5). No auth: access control is
+// delegated to a zero-trust boundary in front of this listener (R19).
+func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) http.Handler {
 	p := &portalServer{st: st, log: log.Default(), dir: staticDir}
 	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
 		p.log.Printf("portal static dir %q missing: portal API only, UI will 404", staticDir)
@@ -56,20 +58,20 @@ func RegisterPortal(st *store.Store, staticDir, allowedHost string) http.Handler
 	mux.HandleFunc("PATCH /api/settings", p.updateSettings)
 	mux.HandleFunc("GET /api/apps/{id}/readout", p.readout)
 	mux.HandleFunc("GET /", p.static) // SPA shell + assets (catch-all)
-	return guard(mux, allowedHost)
+	return guard(mux, allowedHosts)
 }
 
 // guard wraps the portal mux with the KTD5 origin/host check: requests whose
-// Host is not loopback or the configured portal host, and requests carrying
-// an Origin header that names a different host, get 403. This is the
-// DNS-rebinding + CSRF guard; there are no identity checks (R19).
-func guard(next http.Handler, allowedHost string) http.Handler {
+// Host is not loopback or an allowed host, and requests carrying an Origin
+// header that names a different host, get 403. This is the DNS-rebinding +
+// CSRF guard; there are no identity checks (R19).
+func guard(next http.Handler, allowedHosts []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !hostAllowed(r.Host, allowedHost) {
+		if !hostAllowed(r.Host, allowedHosts) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if o := r.Header.Get("Origin"); o != "" && !originAllowed(o, allowedHost) {
+		if o := r.Header.Get("Origin"); o != "" && !originAllowed(o, allowedHosts) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -77,26 +79,32 @@ func guard(next http.Handler, allowedHost string) http.Handler {
 	})
 }
 
-// hostAllowed reports whether the request Host is loopback or the portal
-// listener's own host. Hostnames are compared without the port so a
-// published/zero-trust port in front of the portal still passes (KTD5).
-func hostAllowed(host, allowedHost string) bool {
+// hostAllowed reports whether the request Host is loopback or one of the
+// allowed hosts (the portal listener's own address + configured tunnel
+// hosts). Hostnames are compared without the port so a published/zero-trust
+// port in front of the portal still passes (KTD5).
+func hostAllowed(host string, allowedHosts []string) bool {
 	h := hostnameOf(host)
 	if h == "127.0.0.1" || h == "::1" || h == "localhost" {
 		return true
 	}
-	return allowedHost != "" && hostnameOf(allowedHost) == h
+	for _, a := range allowedHosts {
+		if hostnameOf(a) == h {
+			return true
+		}
+	}
+	return false
 }
 
 // originAllowed reports whether an Origin header (scheme://host[:port])
-// names loopback or the portal host. Missing Origins (curl, same-origin GETs
+// names loopback or an allowed host. Missing Origins (curl, same-origin GETs
 // without CORS preflight) pass the guard untouched.
-func originAllowed(origin, allowedHost string) bool {
+func originAllowed(origin string, allowedHosts []string) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
 		return false
 	}
-	return hostAllowed(u.Host, allowedHost)
+	return hostAllowed(u.Host, allowedHosts)
 }
 
 // hostnameOf extracts the lowercase hostname from "host[:port]" (bracket-
@@ -185,6 +193,12 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name and apiKey are required", http.StatusBadRequest)
 		return
 	}
+	// Entropy floor: keys below this are brute-forceable even hashed at
+	// rest; the UI generates 128-bit keys by default.
+	if len(body.APIKey) < 24 {
+		http.Error(w, "apiKey must be at least 24 characters", http.StatusBadRequest)
+		return
+	}
 	a, err := p.st.CreateApp(body.Name, body.APIKey)
 	if err != nil {
 		p.internal(w, err)
@@ -252,6 +266,12 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 	body.URL = strings.TrimSpace(body.URL)
 	if body.Key == "" || body.URL == "" {
 		http.Error(w, "key and url are required", http.StatusBadRequest)
+		return
+	}
+	// Short keys live in the URL path: restrict to path-safe characters so
+	// a key can never shadow a registered route or break the pipeline.
+	if !linkKeyRe.MatchString(body.Key) || isReservedKey(body.Key) {
+		http.Error(w, "key must be 1-64 chars of [A-Za-z0-9_-]", http.StatusBadRequest)
 		return
 	}
 	if err := validateMatch(body.Threshold, body.WindowMinutes); err != nil {
@@ -421,4 +441,16 @@ func (p *portalServer) storeErr(w http.ResponseWriter, err error) {
 func (p *portalServer) internal(w http.ResponseWriter, err error) {
 	p.log.Printf("portal backend error: %v", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
+}
+
+// linkKeyRe is the short-link key charset (URL-path-safe, single segment).
+var linkKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// isReservedKey rejects keys that shadow registered routes.
+func isReservedKey(key string) bool {
+	switch key {
+	case "health", "api", "favicon.ico":
+		return true
+	}
+	return strings.HasPrefix(key, ".well-known")
 }

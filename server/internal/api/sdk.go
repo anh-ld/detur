@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -103,7 +104,7 @@ type localeTag struct {
 func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body matchLinkBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}
@@ -156,7 +157,7 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		URL string `json:"url"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}
@@ -244,7 +245,7 @@ func (s *sdkServer) analyticsRetention(w http.ResponseWriter, r *http.Request) {
 func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defaultName string) {
 	appID := r.Header.Get("X-App-ID")
 	var body map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}
@@ -359,4 +360,15 @@ func firstString(body map[string]json.RawMessage, keys ...string) string {
 
 func errorBody(msg string) map[string]any {
 	return map[string]any{"error": map[string]any{"message": msg}}
+}
+
+// decodeJSON reads a bounded request body into v (1MB cap keeps a hostile
+// client from pinning the single-writer connection with a giant upload).
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, r.Body)
+	return nil
 }

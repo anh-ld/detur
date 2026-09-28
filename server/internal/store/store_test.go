@@ -64,8 +64,8 @@ func TestLinkCRUD(t *testing.T) {
 	if err != nil || len(links) != 1 {
 		t.Fatalf("ListLinks = %d links, %v; want 1", len(links), err)
 	}
-	if links[0].Threshold != 850 || links[0].WindowMinutes != 15 {
-		t.Errorf("link defaults = %d/%d, want 850/15", links[0].Threshold, links[0].WindowMinutes)
+	if links[0].Threshold != 0 || links[0].WindowMinutes != 0 {
+		t.Errorf("unset link settings = %d/%d, want 0/0 (global applies)", links[0].Threshold, links[0].WindowMinutes)
 	}
 
 	l, err := s.GetLinkByKey(app.ID, "abc")

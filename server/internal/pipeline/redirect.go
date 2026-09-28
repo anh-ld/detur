@@ -45,7 +45,10 @@ func redirectTarget(link store.Link, agent string, clickID string, q url.Values)
 		p.Set("dtb", v)
 	}
 	if platform == "android" && clickID != "" {
-		p.Set("referrer", clickID)
+		// The SDK parses the Play install referrer for click_id= (verified
+		// against getDeferredLink.ts: /(?:^|&)click_id=([^&]+)/ after
+		// decodeURIComponent); Encode escapes the '=' and decodes back.
+		p.Set("referrer", "click_id="+clickID)
 	}
 	u.RawQuery = p.Encode()
 	return u.String()
