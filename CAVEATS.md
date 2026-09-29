@@ -13,9 +13,9 @@ detur in production.
   operator.
 - API keys are hashed with plain, unsalted SHA-256 rather than a slow KDF.
   This is safe only because the keys are 128-bit random values.
-- `TRUST_PROXY=1` makes the server trust `X-Forwarded-For`. If it is set
-  without a real proxy in front, clients can spoof the IP match signal, which
-  is worth 500 points.
+- `TRUST_PROXY=1`: trust `X-Real-IP`, else rightmost `X-Forwarded-For` entry
+  (peer the proxy saw). Set only with a real proxy in front — a direct client
+  can still spoof the IP match signal (500 points).
 
 ## Matching and attribution
 
@@ -24,12 +24,16 @@ detur in production.
   undercounted.
 - Deterministic matches are limited to the 24h retention. An install more than
   24h after the tap loses the deferred link.
-- v1 has no iOS copy-link or interstitial page, so the pasteboard signal
-  (350/175 points) rarely fires. iOS matching relies on IP, OS, timezone,
-  screen, and language, which add up to at most 1350. That is still above the
-  default threshold of 850.
-- The bot filter is a short list of user-agent markers. The `preview` marker
-  can drop traffic that looks real.
+- One-hop interstitial captures screen, timezone, device model + OS version
+  (client hints): iOS matching reaches 1350 (IP, OS, timezone, screen,
+  language). No iOS copy-link page yet — pasteboard signal (350/175) rarely
+  fires.
+- Bot filter: Dub's UA_BOTS list (HEAD + `?bot=` count as bots), with the
+  "Google/google" webview exception. Clicks deduped per link + device (IP +
+  user agent) within an hour, like Dub's click cache.
+- Stored click's destination = final redirect target (platform URL +
+  forwarded params; Play targets add the clickId referrer), not the link's
+  base URL. Short-link keys case-insensitive.
 
 ## Operations and scale
 
@@ -37,7 +41,8 @@ detur in production.
   use, but not for high concurrency.
 - There is no graceful shutdown. A hard exit kills in-flight requests; WAL
   keeps the stored data safe.
-- The schema is not versioned in v1. Back up the database before upgrading.
+- Schema not versioned in v1; `Open()` adds new columns to existing databases
+  in place. Back up before upgrading.
 - There is no rate limiting. A flood of unauthenticated clicks grows the
   clicks table, and the hourly purge limits it to the retention period.
 - The installs table is never purged, so attribution history grows without

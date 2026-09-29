@@ -6,14 +6,26 @@ package pipeline
 
 import (
 	"errors"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 	"detur.dev/server/internal/ua"
+)
+
+// Interstitial-appended query params (internal, never forwarded).
+const (
+	paramDone     = "_dt"
+	paramScreen   = "screen"
+	paramTimezone = "tz"
+	paramPasted   = "pasted_link"
+	paramNoTrack  = "detur-no-track" // Dub's dub-no-track
 )
 
 type pipelineServer struct {
@@ -30,55 +42,124 @@ func Register(mux *http.ServeMux, st *store.Store, retentionHours int) {
 	mux.HandleFunc("GET /{key}", p.handleShort)
 }
 
-// handleShort serves a short link: resolve the key globally, record the
-// click (bot-filtered), then 302 to the store or fallback. The click row is
-// written BEFORE the redirect; a record failure is logged and never blocks
-// the redirect.
+// handleShort: short link — resolve key globally, record click
+// (bot-filtered), 302 to store or fallback. Mobile browsers first get a
+// one-hop interstitial reading screen + timezone (Dub's deeplink preview
+// does the same). Record failure logged, never blocks the redirect.
 func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
-	link, err := p.st.GetLinkByKeyGlobal(r.PathValue("key"))
-	if errors.Is(err, store.ErrNotFound) {
+	key := r.PathValue("key")
+	link, err := p.st.GetLinkByKeyGlobal(key)
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrAmbiguousKey) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		p.log.Printf("short-link lookup failed for %q: %v", r.PathValue("key"), err)
-		http.Error(w, "not found", http.StatusNotFound)
+		p.log.Printf("short-link lookup failed for %q: %v", key, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("X-Robots-Tag", "googlebot: noindex")
+	if link.Expired(time.Now()) {
+		if link.ExpiredURL != "" {
+			http.Redirect(w, r, link.ExpiredURL, http.StatusFound)
+			return
+		}
+		http.Error(w, "link expired", http.StatusGone)
 		return
 	}
 	q := r.URL.Query()
+	agent := r.UserAgent()
+	track := !ua.IsBot(r) && q.Get(paramNoTrack) == "" && r.Header.Get(paramNoTrack) == ""
+	mobile := ua.IsIOS(agent) || ua.IsAndroid(agent)
+	if track && mobile && q.Get(paramDone) == "" {
+		serveInterstitial(w, q)
+		return
+	}
+	// Dub mints clickId first, embeds in final URL: click's destination IS
+	// the redirect target (link.ts getFinalUrl). Dedup hit hands back an
+	// earlier click with its own id.
 	clickID := ""
-	if agent := r.UserAgent(); !ua.IsBotUA(agent) {
+	if track {
+		clickID = store.Nanoid(16)
+	}
+	dest := redirectTarget(link, agent, clickID, q)
+	if track {
 		rec, err := p.st.RecordClick(store.Click{
-			AppID: link.AppID, LinkID: link.ID, Destination: link.URL,
+			ID: clickID, AppID: link.AppID, LinkID: link.ID, Destination: dest,
 			Fingerprint: fingerprint(r, q),
 		}, link.WindowMinutes, p.retentionHours)
 		if err != nil {
 			p.log.Printf("click record failed (redirect continues): %v", err)
-		} else {
-			clickID = rec.ID // Android Play install referrer
+			dest = redirectTarget(link, agent, "", q) // no recorded click -> no referrer
+		} else if rec.ID != clickID {
+			dest = redirectTarget(link, agent, rec.ID, q)
 		}
 	}
-	http.Redirect(w, r, redirectTarget(link, r.UserAgent(), clickID, q), http.StatusFound)
+	http.Redirect(w, r, dest, http.StatusFound)
 }
 
-// fingerprint captures the click-time device signals: IP, UA-derived device,
-// first Accept-Language tag, user-agent, and screen/pasted_link when the
-// link page appended them. Timezone isn't derivable server-side; simply
-// absent (scored 0 by the matching engine).
+// interstitialTmpl: reloads the short link once with screen + timezone
+// appended (no-JS browsers fall through with neither). Accept-CH: Chromium
+// sends device model + OS version on the reload.
+var interstitialTmpl = template.Must(template.New("i").Parse(`<!doctype html>
+<meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width">
+<noscript><meta http-equiv="refresh" content="0;url={{.}}"></noscript>
+<script>
+var q = new URLSearchParams(location.search);
+q.set("_dt", "1");
+q.set("screen", screen.width + "x" + screen.height + "@" + (window.devicePixelRatio || 1));
+try { q.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone || ""); } catch (e) {}
+location.replace(location.pathname + "?" + q.toString());
+</script>`))
+
+func serveInterstitial(w http.ResponseWriter, q url.Values) {
+	next := url.Values{}
+	for k, v := range q {
+		next[k] = v
+	}
+	next.Set(paramDone, "1")
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Accept-CH", "Sec-CH-UA-Model, Sec-CH-UA-Platform-Version")
+	_ = interstitialTmpl.Execute(w, "?"+next.Encode())
+}
+
+// fingerprint: click-time device signals — IP, device model (client hint,
+// else UA), OS version hint, first Accept-Language tag, user-agent,
+// screen/timezone/pasted_link from the interstitial.
 func fingerprint(r *http.Request, q url.Values) store.Fingerprint {
 	locale := ""
 	if al := r.Header.Get("Accept-Language"); al != "" {
 		if i := strings.IndexByte(al, ','); i >= 0 {
 			al = al[:i]
 		}
+		if i := strings.IndexByte(al, ';'); i >= 0 {
+			al = al[:i]
+		}
 		locale = strings.TrimSpace(al)
+	}
+	device := hint(r, "Sec-CH-UA-Model")
+	if device == "" {
+		device = ua.DeviceLabel(r.UserAgent())
 	}
 	return store.Fingerprint{
 		IP:         httpx.RemoteIP(r),
-		Device:     ua.DeviceLabel(r.UserAgent()),
+		Device:     device,
 		Locale:     locale,
+		Timezone:   q.Get(paramTimezone),
+		Screen:     q.Get(paramScreen),
 		UserAgent:  r.UserAgent(),
-		Screen:     q.Get("screen"),
-		PastedLink: q.Get("pasted_link"),
+		OSVersion:  hint(r, "Sec-CH-UA-Platform-Version"),
+		PastedLink: q.Get(paramPasted),
 	}
+}
+
+// hint: structured-header string client hint ("\"Pixel 7\"").
+func hint(r *http.Request, name string) string {
+	v := strings.TrimSpace(r.Header.Get(name))
+	if s, err := strconv.Unquote(v); err == nil {
+		return strings.TrimSpace(s)
+	}
+	return v
 }

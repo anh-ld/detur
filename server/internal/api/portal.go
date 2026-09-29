@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/match"
@@ -144,11 +145,18 @@ type linkJSON struct {
 	FallbackURL   string `json:"fallbackUrl"`
 	Threshold     int    `json:"threshold"`
 	WindowMinutes int    `json:"windowMinutes"`
+	ExpiresAt     string `json:"expiresAt"` // RFC3339; empty = never
+	ExpiredURL    string `json:"expiredUrl"`
 }
 
 func toLinkJSON(l store.Link) linkJSON {
-	return linkJSON{ID: l.ID, AppID: l.AppID, Key: l.Key, URL: l.URL, IOS: l.IOS,
-		Android: l.Android, FallbackURL: l.FallbackURL, Threshold: l.Threshold, WindowMinutes: l.WindowMinutes}
+	j := linkJSON{ID: l.ID, AppID: l.AppID, Key: l.Key, URL: l.URL, IOS: l.IOS,
+		Android: l.Android, FallbackURL: l.FallbackURL, Threshold: l.Threshold, WindowMinutes: l.WindowMinutes,
+		ExpiredURL: l.ExpiredURL}
+	if l.ExpiresAt != nil {
+		j.ExpiresAt = l.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	return j
 }
 
 // linkBody is the portal link payload (create and update share it). Omitted
@@ -161,6 +169,20 @@ type linkBody struct {
 	FallbackURL   *string `json:"fallbackUrl"`
 	Threshold     *int    `json:"threshold"`
 	WindowMinutes *int    `json:"windowMinutes"`
+	ExpiresAt     *string `json:"expiresAt"` // RFC3339; "" clears
+	ExpiredURL    *string `json:"expiredUrl"`
+}
+
+// parseExpiry: optional RFC3339 expiry; nil or "" = never.
+func parseExpiry(v *string) (*time.Time, error) {
+	if v == nil || strings.TrimSpace(*v) == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(*v))
+	if err != nil {
+		return nil, errors.New("expiresAt must be RFC3339, e.g. 2026-12-31T23:59:59Z")
+	}
+	return &t, nil
 }
 
 func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {
@@ -269,7 +291,7 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 	// Short keys live in the URL path: restrict to path-safe characters so
 	// a key can never shadow a registered route or break the pipeline.
 	if !linkKeyRe.MatchString(body.Key) || isReservedKey(body.Key) {
-		http.Error(w, "key must be 1-64 chars of [A-Za-z0-9_-]", http.StatusBadRequest)
+		http.Error(w, "key must be 1-64 chars of [A-Za-z0-9_-], not starting with _", http.StatusBadRequest)
 		return
 	}
 	threshold, window := 0, 0
@@ -283,10 +305,16 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	expiresAt, err := parseExpiry(body.ExpiresAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	l, err := p.st.CreateLink(store.Link{
 		AppID: appID, Key: body.Key, URL: body.URL,
 		IOS: stringValue(body.IOS), Android: stringValue(body.Android), FallbackURL: stringValue(body.FallbackURL),
 		Threshold: threshold, WindowMinutes: window,
+		ExpiresAt: expiresAt, ExpiredURL: strings.TrimSpace(stringValue(body.ExpiredURL)),
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrKeyConflict) {
@@ -336,6 +364,15 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.WindowMinutes != nil {
 		l.WindowMinutes = *body.WindowMinutes
+	}
+	if body.ExpiresAt != nil {
+		if l.ExpiresAt, err = parseExpiry(body.ExpiresAt); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if body.ExpiredURL != nil {
+		l.ExpiredURL = strings.TrimSpace(*body.ExpiredURL)
 	}
 	if err := validateMatch(l.Threshold, l.WindowMinutes); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -475,11 +512,13 @@ func (p *portalServer) internal(w http.ResponseWriter, err error) {
 // linkKeyRe is the short-link key charset (URL-path-safe, single segment).
 var linkKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// isReservedKey rejects keys that shadow registered routes.
+// isReservedKey: reject keys shadowing registered routes (keys match
+// case-insensitively) or the "_" prefix Dub reserves (_root).
 func isReservedKey(key string) bool {
+	key = strings.ToLower(key)
 	switch key {
 	case "health", "api", "favicon.ico":
 		return true
 	}
-	return strings.HasPrefix(key, ".well-known")
+	return strings.HasPrefix(key, ".well-known") || strings.HasPrefix(key, "_")
 }

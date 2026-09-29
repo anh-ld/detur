@@ -62,6 +62,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := addMissingColumns(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate columns: %w", err)
+	}
 	if err := migrateInstallUniqueness(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate installs: %w", err)
@@ -204,8 +208,15 @@ type Link struct {
 	IOS           string
 	Android       string
 	FallbackURL   string
-	Threshold     int // per-link match threshold
-	WindowMinutes int // per-link match window
+	Threshold     int        // per-link match threshold
+	WindowMinutes int        // per-link match window
+	ExpiresAt     *time.Time // nil = never expires
+	ExpiredURL    string     // redirect target once expired; empty = 410
+}
+
+// Expired: link past its expiry.
+func (l Link) Expired(now time.Time) bool {
+	return l.ExpiresAt != nil && now.After(*l.ExpiresAt)
 }
 
 // CreateLink inserts a link. Threshold/window 0 = "unset": the matching
@@ -221,16 +232,16 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 	}
 	defer tx.Rollback()
 	var exists int
-	if err := tx.QueryRow(`SELECT 1 FROM links WHERE key = ? LIMIT 1`, l.Key).Scan(&exists); err == nil {
+	if err := tx.QueryRow(`SELECT 1 FROM links WHERE key = ? COLLATE NOCASE LIMIT 1`, l.Key).Scan(&exists); err == nil {
 		return Link{}, ErrKeyConflict
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Link{}, fmt.Errorf("create link: %w", err)
 	}
 	_, err = tx.Exec(
-		`INSERT INTO links (id, app_id, key, url, ios, android, fallback_url, threshold, window_minutes)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO links (id, app_id, key, url, ios, android, fallback_url, threshold, window_minutes, expires_at, expired_url)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		l.ID, l.AppID, l.Key, l.URL, nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
-		l.Threshold, l.WindowMinutes,
+		l.Threshold, l.WindowMinutes, nullTime(l.ExpiresAt), nullStr(l.ExpiredURL),
 	)
 	if err != nil {
 		// An unknown app_id hits the FK; the portal treats it as 404.
@@ -248,8 +259,8 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 // GetLinkByKey returns the link with the given key under the app.
 func (s *Store) GetLinkByKey(appID, key string) (Link, error) {
 	return scanLink(s.db.QueryRow(
-		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes
-		 FROM links WHERE app_id = ? AND key = ?`, appID, key,
+		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes, COALESCE(expires_at, ''), COALESCE(expired_url, '')
+		 FROM links WHERE app_id = ? AND key = ? COLLATE NOCASE`, appID, key,
 	))
 }
 
@@ -257,8 +268,8 @@ func (s *Store) GetLinkByKey(appID, key string) (Link, error) {
 // fail closed rather than silently sending traffic to the wrong app.
 func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
 	rows, err := s.db.Query(
-		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes
-		 FROM links WHERE key = ? LIMIT 2`, key,
+		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes, COALESCE(expires_at, ''), COALESCE(expired_url, '')
+		 FROM links WHERE key = ? COLLATE NOCASE LIMIT 2`, key,
 	)
 	if err != nil {
 		return Link{}, err
@@ -270,8 +281,8 @@ func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
 		}
 		return Link{}, ErrNotFound
 	}
-	var l Link
-	if err := rows.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.IOS, &l.Android, &l.FallbackURL, &l.Threshold, &l.WindowMinutes); err != nil {
+	l, err := scanLinkRow(rows)
+	if err != nil {
 		return Link{}, err
 	}
 	if rows.Next() {
@@ -283,7 +294,7 @@ func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
 // GetLink returns the link by id.
 func (s *Store) GetLink(id string) (Link, error) {
 	return scanLink(s.db.QueryRow(
-		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes
+		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes, COALESCE(expires_at, ''), COALESCE(expired_url, '')
 		 FROM links WHERE id = ?`, id,
 	))
 }
@@ -291,7 +302,7 @@ func (s *Store) GetLink(id string) (Link, error) {
 // ListLinks returns all links under the app.
 func (s *Store) ListLinks(appID string) ([]Link, error) {
 	rows, err := s.db.Query(
-		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes
+		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes, COALESCE(expires_at, ''), COALESCE(expired_url, '')
 		 FROM links WHERE app_id = ? ORDER BY created_at`, appID,
 	)
 	if err != nil {
@@ -300,8 +311,8 @@ func (s *Store) ListLinks(appID string) ([]Link, error) {
 	defer rows.Close()
 	var links []Link
 	for rows.Next() {
-		var l Link
-		if err := rows.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.IOS, &l.Android, &l.FallbackURL, &l.Threshold, &l.WindowMinutes); err != nil {
+		l, err := scanLinkRow(rows)
+		if err != nil {
 			return nil, err
 		}
 		links = append(links, l)
@@ -312,9 +323,10 @@ func (s *Store) ListLinks(appID string) ([]Link, error) {
 // UpdateLink updates mutable link fields.
 func (s *Store) UpdateLink(l Link) error {
 	res, err := s.db.Exec(
-		`UPDATE links SET url = ?, ios = ?, android = ?, fallback_url = ?, threshold = ?, window_minutes = ?
+		`UPDATE links SET url = ?, ios = ?, android = ?, fallback_url = ?, threshold = ?, window_minutes = ?, expires_at = ?, expired_url = ?
 		 WHERE id = ?`,
-		l.URL, nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL), l.Threshold, l.WindowMinutes, l.ID,
+		l.URL, nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL), l.Threshold, l.WindowMinutes,
+		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), l.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update link: %w", err)
@@ -338,15 +350,31 @@ func (s *Store) DeleteLink(id string) error {
 }
 
 func scanLink(row *sql.Row) (Link, error) {
-	var l Link
-	err := row.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.IOS, &l.Android, &l.FallbackURL, &l.Threshold, &l.WindowMinutes)
+	l, err := scanLinkRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Link{}, ErrNotFound
 	}
-	if err != nil {
+	return l, err
+}
+
+func scanLinkRow(row rowScanner) (Link, error) {
+	var l Link
+	var expiresAt string
+	if err := row.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.IOS, &l.Android, &l.FallbackURL, &l.Threshold, &l.WindowMinutes, &expiresAt, &l.ExpiredURL); err != nil {
 		return Link{}, err
 	}
+	if expiresAt != "" {
+		t := parseTime(expiresAt)
+		l.ExpiresAt = &t
+	}
 	return l, nil
+}
+
+func nullTime(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return rfc3339(*t)
 }
 
 // Fingerprint is the device signal set captured at click time (IP, device,
@@ -359,6 +387,7 @@ type Fingerprint struct {
 	Timezone   string
 	Screen     string
 	UserAgent  string
+	OSVersion  string // UA Client Hint Sec-CH-UA-Platform-Version; empty = derive from UA
 	PastedLink string
 }
 
@@ -375,8 +404,15 @@ type Click struct {
 	ExpiresAt   time.Time
 }
 
-// RecordClick persists a click. Expiry = max(configured window, retention
-// floor) so deterministic lookups survive beyond the probabilistic window.
+// clickDedupWindow: mirrors Dub's recordClickCache — one click per link and
+// device (IP + user agent) per hour.
+const clickDedupWindow = time.Hour
+
+// RecordClick: persist a click, or return the existing click when the same
+// device (IP + user agent) clicked the same link within the last hour (Dub
+// record-click-cache) — repeat taps keep one clickId. Expiry = max(configured
+// window, retention floor), so deterministic lookups survive beyond the
+// probabilistic window.
 func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, error) {
 	window := time.Duration(windowMinutes) * time.Minute
 	floor := time.Duration(retentionHours) * time.Hour
@@ -384,6 +420,23 @@ func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, 
 		window = floor
 	}
 	now := time.Now().UTC()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Click{}, fmt.Errorf("record click: %w", err)
+	}
+	defer tx.Rollback()
+	existing, err := scanClick(tx.QueryRow(
+		`SELECT `+clickCols+` FROM clicks
+		 WHERE link_id = ? AND COALESCE(ip, '') = ? AND COALESCE(user_agent, '') = ? AND created_at >= ? AND expires_at >= ?
+		 ORDER BY created_at DESC LIMIT 1`,
+		c.LinkID, c.Fingerprint.IP, c.Fingerprint.UserAgent, rfc3339(now.Add(-clickDedupWindow)), rfc3339(now),
+	))
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return Click{}, fmt.Errorf("record click dedup: %w", err)
+	}
 	if c.ID == "" {
 		c.ID = Nanoid(16)
 	}
@@ -395,25 +448,31 @@ func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, 
 	}
 	c.CreatedAt = now
 	c.ExpiresAt = now.Add(window)
-	_, err := s.db.Exec(
-		`INSERT INTO clicks (id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, pasted_link, destination, click_id, is_bot, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = tx.Exec(
+		`INSERT INTO clicks (id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.AppID, c.LinkID, nullStr(c.Fingerprint.IP), nullStr(c.Fingerprint.Device),
 		nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone), nullStr(c.Fingerprint.Screen),
-		nullStr(c.Fingerprint.UserAgent), nullStr(c.Fingerprint.PastedLink), c.Destination,
-		nullStr(c.ClickID), boolInt(c.IsBot), rfc3339(c.ExpiresAt),
+		nullStr(c.Fingerprint.UserAgent), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink), c.Destination,
+		nullStr(c.ClickID), boolInt(c.IsBot), rfc3339(c.CreatedAt), rfc3339(c.ExpiresAt),
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return Click{}, fmt.Errorf("record click: %w", err)
+	}
+	c.CreatedAt = parseTime(rfc3339(c.CreatedAt)) // stored precision
+	c.ExpiresAt = parseTime(rfc3339(c.ExpiresAt))
 	return c, nil
 }
+
+const clickCols = `id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(os_version, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at`
 
 // GetClick returns a click by id.
 func (s *Store) GetClick(id string) (Click, error) {
 	return scanClick(s.db.QueryRow(
-		`SELECT id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at
-		 FROM clicks WHERE id = ?`, id,
+		`SELECT `+clickCols+` FROM clicks WHERE id = ?`, id,
 	))
 }
 
@@ -422,16 +481,14 @@ func (s *Store) GetClick(id string) (Click, error) {
 // so expired-but-unpurged rows no longer resolve).
 func (s *Store) ClickByClickID(appID, clickID string) (Click, error) {
 	return scanClick(s.db.QueryRow(
-		`SELECT id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at
-		 FROM clicks WHERE app_id = ? AND click_id = ? AND expires_at >= ?`, appID, clickID, rfc3339(time.Now()),
+		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND click_id = ? AND expires_at >= ?`, appID, clickID, rfc3339(time.Now()),
 	))
 }
 
 // ClicksSince returns non-bot clicks created at or after since (window scan).
 func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	rows, err := s.db.Query(
-		`SELECT id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at
-		 FROM clicks WHERE app_id = ? AND is_bot = 0 AND created_at >= ? ORDER BY created_at DESC`,
+		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND is_bot = 0 AND created_at >= ? ORDER BY created_at DESC`,
 		appID, rfc3339(since),
 	)
 	if err != nil {
@@ -511,7 +568,7 @@ func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	return removed, nil
 }
 
-func scanClick(row *sql.Row) (Click, error) {
+func scanClick(row rowScanner) (Click, error) {
 	c, err := scanClickRows(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Click{}, ErrNotFound
@@ -525,16 +582,16 @@ type rowScanner interface {
 
 func scanClickRows(row rowScanner) (Click, error) {
 	var (
-		c                                                         Click
-		ip, device, locale, timezone, screen, ua, pasted, clickID string
-		createdAt, expiresAt                                      string
+		c                                                                Click
+		ip, device, locale, timezone, screen, ua, osVer, pasted, clickID string
+		createdAt, expiresAt                                             string
 	)
 	err := row.Scan(&c.ID, &c.AppID, &c.LinkID, &ip, &device, &locale, &timezone,
-		&screen, &ua, &pasted, &c.Destination, &clickID, &c.IsBot, &createdAt, &expiresAt)
+		&screen, &ua, &osVer, &pasted, &c.Destination, &clickID, &c.IsBot, &createdAt, &expiresAt)
 	if err != nil {
 		return Click{}, err
 	}
-	c.Fingerprint = Fingerprint{IP: ip, Device: device, Locale: locale, Timezone: timezone, Screen: screen, UserAgent: ua, PastedLink: pasted}
+	c.Fingerprint = Fingerprint{IP: ip, Device: device, Locale: locale, Timezone: timezone, Screen: screen, UserAgent: ua, OSVersion: osVer, PastedLink: pasted}
 	c.ClickID = clickID
 	c.CreatedAt = parseTime(createdAt)
 	c.ExpiresAt = parseTime(expiresAt)
@@ -602,6 +659,27 @@ func (s *Store) SetSettings(threshold, windowMinutes *string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// addMissingColumns: columns introduced after v0.1, added to existing
+// databases (CREATE TABLE IF NOT EXISTS leaves old tables untouched).
+func addMissingColumns(db *sql.DB) error {
+	for _, c := range []struct{ table, column, decl string }{
+		{"links", "expires_at", "TEXT"},
+		{"links", "expired_url", "TEXT"},
+		{"clicks", "os_version", "TEXT"},
+	} {
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, c.table, c.column).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func migrateInstallUniqueness(db *sql.DB) error {
@@ -789,11 +867,15 @@ func boolInt(b bool) int {
 	return 0
 }
 
+// timeLayout: matches SQLite strftime('%Y-%m-%dT%H:%M:%fZ') column defaults
+// — fixed width, stored timestamps compare correctly as text.
+const timeLayout = "2006-01-02T15:04:05.000Z"
+
 func rfc3339(t time.Time) string {
-	return t.UTC().Format(time.RFC3339Nano)
+	return t.UTC().Format(timeLayout)
 }
 
-// parseTime parses RFC3339 text stored by rfc3339.
+// parseTime: RFC3339 text stored by rfc3339 or SQLite defaults.
 func parseTime(s string) time.Time {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {

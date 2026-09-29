@@ -176,6 +176,27 @@ func TestMatchLinkFingerprintAboveThreshold(t *testing.T) {
 	}
 }
 
+// Scenario 1b: failed install write must not deny the link — match-link
+// still returns 200 (backend errors never deny a link).
+func TestMatchLinkInstallFailureStillReturnsLink(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, link := setup(t, s)
+	recordAndroidClick(t, s, app, link)
+	dropTable(t, path, "installs")
+	hdr := authHeaders(app.ID)
+	hdr["X-Forwarded-For"] = testIP
+	resp, b := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), hdr)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body %s; want 200 even when the install write fails", resp.StatusCode, b)
+	}
+	var out struct {
+		Link string `json:"link"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil || out.Link != link.URL {
+		t.Fatalf("body = %s; want top-level link %s", b, link.URL)
+	}
+}
+
 // Scenario 2: no matching click -> 404 + organic install recorded.
 func TestMatchLinkNoMatch404Organic(t *testing.T) {
 	ts, s, _ := newTestServer(t)
@@ -379,9 +400,9 @@ func TestUniversalLinkClickNormal(t *testing.T) {
 	}
 }
 
-// Bot UA clicks are skipped (no click recorded); the response still carries
-// the allow shape (bot filter, fail-open).
-func TestUniversalLinkClickBotSkipped(t *testing.T) {
+// SDK deep-link clicks not bot-filtered: caller is the app (Dub skips bot
+// checks for deeplink opens), so bot-ish UA still records.
+func TestUniversalLinkClickBotUARecorded(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
 	hdr := authHeaders(app.ID)
@@ -397,8 +418,8 @@ func TestUniversalLinkClickBotSkipped(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil || !out.Allowed {
 		t.Fatalf("body = %s; want allowed true", b)
 	}
-	if n, _ := s.CountClicks(app.ID); n != 0 {
-		t.Errorf("bot click recorded: %d clicks, want 0", n)
+	if n, _ := s.CountClicks(app.ID); n != 1 {
+		t.Errorf("click recorded = %d; want 1 (SDK clicks are not bot-filtered)", n)
 	}
 }
 

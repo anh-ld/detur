@@ -4,6 +4,7 @@
 package ua
 
 import (
+	"net/http"
 	"regexp"
 	"strings"
 )
@@ -13,19 +14,37 @@ var (
 	reIOSVersion     = regexp.MustCompile(`(?:iPhone OS|CPU OS) ([\d_.]+)`)
 )
 
-// botMarkers is the cheap UA bot filter: any UA containing one of these
-// markers skips click recording.
-var botMarkers = []string{"bot", "spider", "crawler", "preview", "facebookexternalhit", "slackbot", "twitterbot", "whatsapp"}
+// uaBots: Dub's UA_BOTS list (apps/web/lib/middleware/utils/bots-list.ts),
+// matched case-insensitively as substrings.
+var uaBots = regexp.MustCompile(`(?i)` + strings.Join([]string{
+	"bot", "crawler", "spider", "http", "scraper", "fetch", "curl", "wget", "python", "node", "ruby",
+	"chatgpt", "bluesky", "facebookexternalhit", "meta-externalagent", "meta-externalads",
+	"meta-externalfetcher", "meta-webindexer", "thirdLandingPageFeInfra", "WhatsApp", "google",
+	"baidu", "bing", "msn", "duckduckbot", "teoma", "slurp", "yandex", "MetaInspector", "iframely",
+	"HeadlessChrome", "ia_archiver", "Sogou", "SkypeUriPreview", "vkShare", "Slackbot", "Tumblr",
+	"FeedBurner", "upptime", "Hyperping", "cron-job", "InternetMeasurement", "HostTracker", "Expanse",
+	"anthropic-ai", "Claude-Web", "Applebot-Extended", "perplexity", "Omigili", "timpi",
+	"ShortLinkTranslate", "BingPreview", "facebookcatalog", "Embedly", "Scrapy", "axios", "Guzzle",
+	"Postman", "Insomnia", "Newman", "Qwantify", "Wayback", "heritrix", "nutch", "seokicks", "sistrix",
+	"searchmetrics", "linkdex", "opensiteexplorer", "spyfu", "serpstat", "cognitiveseo", "seobility",
+	"seositecheckup", "woorank", "gtmetrix", "pingdom", "statuscake", "site24x7", "monitis", "gomez",
+	"neustar", "catchpoint", "webpagetest", "speedcurve", "dareboost", "yellowlab", "linkchecker",
+	"deadlinkchecker", "brokenlinkcheck", "xenu", "scrutiny", "powermapper", "siteimprove", "monsido",
+}, "|"))
 
-// IsBotUA reports whether a UA contains a known bot marker.
+// uaFalsePositive: Dub's UA_FALSE_POSITIVES — Instagram's webview on Pixel
+// appends "Google/google", which would otherwise trip "google".
+var uaFalsePositive = regexp.MustCompile(`Google/google\b`)
+
+// IsBotUA: UA matches Dub's bot list.
 func IsBotUA(ua string) bool {
-	ua = strings.ToLower(ua)
-	for _, m := range botMarkers {
-		if strings.Contains(ua, m) {
-			return true
-		}
-	}
-	return false
+	return uaBots.MatchString(uaFalsePositive.ReplaceAllString(ua, ""))
+}
+
+// IsBot: Dub's detectBot for browser clicks — ?bot= param, any HEAD
+// request, or a bot UA.
+func IsBot(r *http.Request) bool {
+	return r.URL.Query().Get("bot") != "" || r.Method == http.MethodHead || IsBotUA(r.UserAgent())
 }
 
 // Platform classifies the browser UA for scoring: "android"/"ios"/"".
@@ -46,10 +65,10 @@ func IsAndroid(ua string) bool {
 	return strings.Contains(strings.ToLower(ua), "android")
 }
 
-// IsIOS reports an iOS browser UA (iPhone/iPad/iOS, case-insensitive).
+// IsIOS: iOS browser UA (iPhone/iPad/iPod, case-insensitive).
 func IsIOS(ua string) bool {
 	ua = strings.ToLower(ua)
-	return strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad") || strings.Contains(ua, "ios")
+	return strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad") || strings.Contains(ua, "ipod")
 }
 
 // AndroidVersion extracts the Android OS version from a browser UA.
@@ -73,27 +92,38 @@ func IOSVersion(ua string) string {
 
 // AndroidModel extracts the device model token from an Android browser UA:
 // modern "(Linux; Android 14; Pixel 7 Build/...)" -> "Pixel 7"; legacy
-// "(Linux; U; Android 4.4; en-us; GT-I9300 Build/...)" -> "GT-I9300".
+// "(Linux; U; Android 4.4; en-us; GT-I9300 Build/...)" -> "GT-I9300";
+// WebView "(Linux; Android 14; Pixel 7 Build/UP1A; wv)" -> "Pixel 7".
+// Reduced UA "(Linux; Android 10; K)" carries no model -> "".
 func AndroidModel(ua string) string {
 	i := strings.Index(ua, "Android ")
 	if i < 0 {
 		return ""
 	}
-	rest := strings.TrimSpace(ua[i+len("Android "):])
-	j := strings.Index(rest, ";")
-	if j < 0 {
-		return ""
+	rest := ua[i+len("Android "):]
+	if j := strings.IndexByte(rest, ')'); j >= 0 {
+		rest = rest[:j]
 	}
-	rest = strings.TrimSpace(rest[j+1:])
-	if k := strings.Index(rest, ";"); k >= 0 { // legacy locale slot
-		rest = strings.TrimSpace(rest[k+1:])
+	// Tokens after the version: [locale;] model [Build/...] [; wv]
+	parts := strings.Split(rest, ";")[1:]
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if b := strings.Index(p, " Build"); b >= 0 {
+			p = p[:b]
+		} else if strings.HasPrefix(p, "Build/") {
+			continue
+		}
+		p = strings.TrimSpace(p)
+		switch {
+		case p == "", p == "K", p == "U", p == "wv", reLocale.MatchString(p):
+			continue
+		}
+		return p
 	}
-	rest = strings.TrimSuffix(strings.TrimSpace(rest), ")")
-	if b := strings.Index(rest, " Build"); b >= 0 {
-		rest = rest[:b]
-	}
-	return strings.TrimSpace(rest)
+	return ""
 }
+
+var reLocale = regexp.MustCompile(`^[a-z]{2}(?:[-_][a-zA-Z]{2})?$`)
 
 // DeviceLabel derives the click-time device label (pipeline fingerprint):
 // Android model, else iPhone/iPad/iPod.
