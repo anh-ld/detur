@@ -186,6 +186,31 @@ func (s *Store) ListApps() ([]App, error) {
 	return apps, rows.Err()
 }
 
+// UpdateAppKey replaces the app's API key hash (rotation); the previous key
+// stops working immediately.
+func (s *Store) UpdateAppKey(id, apiKey string) error {
+	res, err := s.db.Exec(`UPDATE apps SET api_key_hash = ? WHERE id = ?`, HashKey(apiKey), id)
+	if err != nil {
+		return fmt.Errorf("update app key: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ClearAppKey removes the app's API key (revocation): SDK auth then fails.
+func (s *Store) ClearAppKey(id string) error {
+	res, err := s.db.Exec(`UPDATE apps SET api_key_hash = '' WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("clear app key: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ValidateAPIKey reports whether the key matches the app's stored hash.
 func (s *Store) ValidateAPIKey(appID, apiKey string) (bool, error) {
 	var hash string

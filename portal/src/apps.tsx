@@ -3,18 +3,12 @@ import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Spinner
 import { api, App, CreatedApp } from './api';
 import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
 
-function generateKey(): string {
-  const b = crypto.getRandomValues(new Uint8Array(16));
-  return 'dk_' + Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-}
-
 export function AppsPage() {
   const [apps, setApps] = useState<App[] | null>(null);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
-  const [key, setKey] = useState(generateKey());
   const [created, setCreated] = useState<CreatedApp | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState(''); // '' | 'id' | 'key'
 
   const load = () => {
     api
@@ -27,15 +21,14 @@ export function AppsPage() {
   // Runs when the trigger is clicked, before the dialog opens.
   const resetCreate = () => {
     setCreated(null);
-    setCopied(false);
+    setCopied('');
     setName('');
-    setKey(generateKey());
   };
 
   const submitCreate = async () => {
     setError('');
     try {
-      const app = await api.createApp(name.trim(), key.trim());
+      const app = await api.createApp(name.trim());
       setCreated(app); // show-once panel: plaintext key from this one response
       load();
     } catch (e) {
@@ -43,10 +36,13 @@ export function AppsPage() {
     }
   };
 
-  const copyKey = async () => {
-    if (!created) return;
-    await navigator.clipboard.writeText(created.apiKey);
-    setCopied(true);
+  const copy = async (field: 'id' | 'key', v: string) => {
+    await navigator.clipboard.writeText(v);
+    setCopied(field);
+  };
+
+  const copyText = async (v: string) => {
+    await navigator.clipboard.writeText(v);
   };
 
   const del = async (a: App) => {
@@ -69,14 +65,24 @@ export function AppsPage() {
           <div style={{ display: 'grid', gap: 16 }}>
             <h2 style={{ margin: 0 }}>App created</h2>
             <Alert variant="warning">
-              This is the only time the API key for <strong>{created.name}</strong> is shown. Copy it now.
+              Copy both now — the API key is shown only once.
             </Alert>
-            <Input readOnly value={created.apiKey} style={mono} />
+            <Field>
+              <Label>App ID</Label>
+              <Input readOnly value={created.id} style={mono} />
+              <Field.Description>EXPO_PUBLIC_DETOUR_APP_ID in the SDK config.</Field.Description>
+            </Field>
+            <Field>
+              <Label>API key</Label>
+              <Input readOnly value={created.apiKey} style={mono} />
+              <Field.Description>EXPO_PUBLIC_DETOUR_API_KEY in the SDK config.</Field.Description>
+            </Field>
             <div style={{ ...row, justifyContent: 'flex-end' }}>
               <Dialog.Close>
                 <Button variant="outline">Done</Button>
               </Dialog.Close>
-              <Button onClick={copyKey}>{copied ? 'Copied' : 'Copy key'}</Button>
+              <Button onClick={() => copy('id', created.id)}>{copied === 'id' ? 'Copied' : 'Copy app ID'}</Button>
+              <Button onClick={() => copy('key', created.apiKey)}>{copied === 'key' ? 'Copied' : 'Copy key'}</Button>
             </div>
           </div>
         ) : (
@@ -89,16 +95,11 @@ export function AppsPage() {
           >
             <div style={{ display: 'grid', gap: 4 }}>
               <h2 style={{ margin: 0 }}>Create app</h2>
-              <p style={muted}>One app per mobile app. Its API key goes in the SDK config.</p>
+              <p style={muted}>One app per mobile app. The server mints its API key.</p>
             </div>
             <Field>
               <Label htmlFor="new-name">Name</Label>
               <Input id="new-name" value={name} onInput={(e) => setName(e.currentTarget.value)} placeholder="My app" />
-            </Field>
-            <Field>
-              <Label htmlFor="new-key">API key</Label>
-              <Input id="new-key" style={mono} value={key} onInput={(e) => setKey(e.currentTarget.value)} />
-              <Field.Description>Auto-generated. Replace it to use your own.</Field.Description>
             </Field>
             {error && <Alert variant="destructive">{error}</Alert>}
             <div style={{ ...row, justifyContent: 'flex-end' }}>
@@ -142,8 +143,16 @@ export function AppsPage() {
                   {!a.iosAppId && !a.androidPackage && <Badge variant="outline">Not set up</Badge>}
                 </div>
               </div>
+              <div style={row}>
+                <span style={{ ...muted, ...mono }}>id {a.id}</span>
+                <Button size="sm" variant="outline" onClick={() => copyText(a.id)}>
+                  Copy
+                </Button>
+              </div>
               <div style={{ ...row, justifyContent: 'space-between' }}>
-                <span style={{ ...muted, ...mono }}>key {a.apiKeyHash.slice(0, 12)}…</span>
+                <span style={{ ...muted, ...mono }}>
+                  key {a.apiKeyHash ? a.apiKeyHash.slice(0, 12) + '…' : 'revoked'}
+                </span>
                 <div style={row}>
                   <EditDialog
                     key={a.id + '|' + a.iosAppId + '|' + a.androidPackage + '|' + a.androidCertFingerprint}
@@ -188,7 +197,7 @@ function EditDialog({ app, onSaved }: { app: App; onSaved: () => void }) {
   return (
     <Dialog id={id}>
       <Dialog.Trigger>
-        <Button size="sm" variant="ghost">
+        <Button size="sm" variant="outline">
           Edit
         </Button>
       </Dialog.Trigger>
