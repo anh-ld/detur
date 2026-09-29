@@ -1,5 +1,4 @@
-// Portal API client. Relative URLs: the built portal is served by the Go
-// binary on the same origin as the API.
+// Portal API client. Relative URLs: Go binary serves portal + API on one origin.
 
 export interface App {
   id: string;
@@ -33,8 +32,14 @@ export interface Settings {
   windowMinutes: number;
 }
 
+// Base URL override: '' = same origin; integration tests point the client at a live server.
+export let apiBase = '';
+export function setApiBase(url: string) {
+  apiBase = url;
+}
+
 export async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(apiBase + path, {
     method,
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,

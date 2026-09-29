@@ -419,8 +419,7 @@ function LinkDialog({
   );
 }
 
-// RotateKeyDialog mints a new API key (old one dies immediately) and shows
-// the plaintext once, like the create flow.
+// RotateKeyDialog mints a key (old dies immediately); plaintext shown once, like create.
 function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }) {
   const [rotated, setRotated] = useState<CreatedApp | null>(null);
   const [err, setErr] = useState('');

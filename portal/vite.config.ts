@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
 
-// base "./": the built portal is served by the Go binary from any path.
+// base "./": Go binary serves the built portal from any path.
 export default defineConfig({
   base: './',
   plugins: [preact()],

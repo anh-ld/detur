@@ -1,5 +1,4 @@
-// Matching ranges mirrored from server/internal/match/match.go.
-// On the wire, 0 = unset (inherit the stored default).
+// Ranges mirrored from server/internal/match/match.go; 0 = unset on the wire.
 export const THRESHOLD = { min: 700, max: 1200 };
 export const WINDOW = { min: 5, max: 180 };
 
