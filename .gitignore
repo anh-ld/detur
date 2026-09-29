@@ -12,3 +12,6 @@ portal/dist/
 .DS_Store
 .compound-engineering/
 .env
+
+# Local planning notes (kept on disk, not in the repo)
+/plans/
