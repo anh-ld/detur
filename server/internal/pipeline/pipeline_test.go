@@ -93,6 +93,21 @@ func doGET(t *testing.T, ts *httptest.Server, path string, hdr map[string]string
 	return resp, b
 }
 
+// mobileClick: one-hop interstitial — first GET serves the screen/timezone
+// page (200, no click); reload with _dt=1 records the click, returns 302.
+func mobileClick(t *testing.T, ts *httptest.Server, path string, hdr map[string]string) (*http.Response, []byte) {
+	t.Helper()
+	first, _ := doGET(t, ts, path, hdr)
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("interstitial status = %d; want 200 (mobile click first hop)", first.StatusCode)
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return doGET(t, ts, path+sep+paramDone+"=1", hdr)
+}
+
 func doPost(t *testing.T, ts *httptest.Server, path, body string, hdr map[string]string) (*http.Response, []byte) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, ts.URL+path, strings.NewReader(body))
@@ -143,7 +158,7 @@ func TestIOSClickRedirectsAppStoreAndRecordsClick(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
 	screen := url.Values{"screen": {"393x852@3"}}.Encode()
-	resp, _ := doGET(t, ts, "/"+link.Key+"?"+screen, map[string]string{
+	resp, _ := mobileClick(t, ts, "/"+link.Key+"?"+screen, map[string]string{
 		"User-Agent":      iosUA,
 		"Accept-Language": "en-US,en;q=0.9",
 		"X-Forwarded-For": testIP,
@@ -158,8 +173,8 @@ func TestIOSClickRedirectsAppStoreAndRecordsClick(t *testing.T) {
 	if len(clicks) != 1 {
 		t.Fatalf("clicks = %d; want 1 recorded", len(clicks))
 	}
-	if clicks[0].Destination != link.URL || clicks[0].LinkID != link.ID {
-		t.Errorf("click destination/link = %q/%q; want %q/%q", clicks[0].Destination, clicks[0].LinkID, link.URL, link.ID)
+	if clicks[0].Destination != link.IOS || clicks[0].LinkID != link.ID {
+		t.Errorf("click destination/link = %q/%q; want %q/%q (the redirect target)", clicks[0].Destination, clicks[0].LinkID, link.IOS, link.ID)
 	}
 	if clicks[0].Fingerprint.Screen != "393x852@3" {
 		t.Errorf("click screen = %q; want 393x852@3", clicks[0].Fingerprint.Screen)
@@ -171,7 +186,7 @@ func TestIOSClickRedirectsAppStoreAndRecordsClick(t *testing.T) {
 func TestAndroidClickRedirectsPlayWithClickIDReferrer(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
-	resp, _ := doGET(t, ts, "/"+link.Key, map[string]string{
+	resp, _ := mobileClick(t, ts, "/"+link.Key, map[string]string{
 		"User-Agent":      androidUA,
 		"X-Forwarded-For": testIP,
 	})
@@ -210,7 +225,7 @@ func TestAndroidClickRedirectsPlayWithClickIDReferrer(t *testing.T) {
 func TestAndroidDeterministicChainEndToEnd(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
-	resp, _ := doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA})
+	resp, _ := mobileClick(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA})
 	loc, _ := url.Parse(resp.Header.Get("Location"))
 	values, err := url.ParseQuery(loc.Query().Get("referrer"))
 	if err != nil || values.Get("click_id") == "" {
@@ -234,8 +249,18 @@ func TestAndroidDeterministicChainEndToEnd(t *testing.T) {
 	var out struct {
 		Link string `json:"link"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil || out.Link != link.URL {
-		t.Fatalf("match-link link = %q (%v); want %q", out.Link, err, link.URL)
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatalf("match-link body: %v", err)
+	}
+	// Click recorded the actual redirect target: Play URL carrying the
+	// same clickId the SDK just used.
+	ul, err := url.Parse(out.Link)
+	if err != nil || ul.Host != "play.google.com" {
+		t.Fatalf("match-link link = %q (%v); want Play host", out.Link, err)
+	}
+	ref, _ := url.ParseQuery(ul.Query().Get("referrer"))
+	if ref.Get("click_id") != values.Get("click_id") {
+		t.Fatalf("returned link referrer click_id = %q; want %q", ref.Get("click_id"), values.Get("click_id"))
 	}
 	organic, nonOrganic, err := s.CountInstalls(app.ID)
 	if err != nil || organic != 0 || nonOrganic != 1 {
@@ -263,7 +288,7 @@ func TestClickFingerprintPersisted(t *testing.T) {
 	t.Cleanup(func() { httpx.TrustProxy = false })
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
-	doGET(t, ts, "/"+link.Key, map[string]string{
+	mobileClick(t, ts, "/"+link.Key, map[string]string{
 		"User-Agent":      iosUA,
 		"Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
 		"X-Forwarded-For": testIP,
@@ -340,8 +365,8 @@ func TestPpidAndDtbParamsPassThrough(t *testing.T) {
 }
 
 // Scenario 8: a link without ios/android overrides falls through to link.URL
-// on mobile; missing ios -> URL. Android still carries the clickId referrer
-// (applied on every Android redirect, override or not).
+// on mobile; missing ios -> URL. clickId referrer merged only into Play
+// Store targets (Dub get-final-url.ts).
 func TestMobileWithoutOverridesFallsThroughToURL(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)
@@ -349,14 +374,14 @@ func TestMobileWithoutOverridesFallsThroughToURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateLink: %v", err)
 	}
-	resp, _ := doGET(t, ts, "/plain", map[string]string{"User-Agent": iosUA})
+	resp, _ := mobileClick(t, ts, "/plain", map[string]string{"User-Agent": iosUA})
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("iOS: status = %d; want 302", resp.StatusCode)
 	}
 	if loc := resp.Header.Get("Location"); loc != plain.URL {
 		t.Errorf("iOS: Location = %q; want %q (falls through to URL)", loc, plain.URL)
 	}
-	resp, _ = doGET(t, ts, "/plain", map[string]string{"User-Agent": androidUA})
+	resp, _ = mobileClick(t, ts, "/plain", map[string]string{"User-Agent": androidUA})
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("Android: status = %d; want 302", resp.StatusCode)
 	}
@@ -367,8 +392,8 @@ func TestMobileWithoutOverridesFallsThroughToURL(t *testing.T) {
 	if u.Scheme+"://"+u.Host+u.Path != plain.URL {
 		t.Errorf("Android: Location = %q; want target %q (falls through to URL)", u, plain.URL)
 	}
-	if u.Query().Get("referrer") == "" {
-		t.Errorf("Android: referrer missing in %q (redirect appends the clickId)", u)
+	if u.Query().Get("referrer") != "" {
+		t.Errorf("Android: referrer = %q; want absent (clickId referrer only on Play Store targets)", u.Query().Get("referrer"))
 	}
 }
 
@@ -379,7 +404,9 @@ func TestRecordFailureDoesNotBlockRedirect(t *testing.T) {
 	ts, s, path := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
 	dropTable(t, path, "clicks")
-	resp, _ := doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA})
+	// Interstitial hop works (reads links only); _dt reload hits the dropped
+	// clicks table, 302 must still go out.
+	resp, _ := mobileClick(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA})
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d; want 302 even when click recording fails", resp.StatusCode)
 	}
@@ -401,7 +428,7 @@ func TestRecordFailureDoesNotBlockRedirect(t *testing.T) {
 func TestIntegrationBrowserClickThenMatchLinkNonOrganic(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
-	doGET(t, ts, "/"+link.Key, map[string]string{
+	mobileClick(t, ts, "/"+link.Key, map[string]string{
 		"User-Agent":      androidUA,
 		"Accept-Language": "en-US,en;q=0.9",
 		"X-Forwarded-For": testIP,
@@ -424,8 +451,12 @@ func TestIntegrationBrowserClickThenMatchLinkNonOrganic(t *testing.T) {
 	var out struct {
 		Link string `json:"link"`
 	}
-	if err := json.Unmarshal(b, &out); err != nil || out.Link != link.URL {
-		t.Fatalf("match-link body = %s; want top-level link %s", b, link.URL)
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("match-link body %s: %v", b, err)
+	}
+	ul, err := url.Parse(out.Link)
+	if err != nil || ul.Host != "play.google.com" {
+		t.Fatalf("match-link link = %q (%v); want the click's redirect target (Play host)", out.Link, err)
 	}
 	organic, nonOrganic, err := s.CountInstalls(app.ID)
 	if err != nil || organic != 0 || nonOrganic != 1 {

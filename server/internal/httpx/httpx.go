@@ -14,16 +14,23 @@ import (
 // client-supplied header cannot spoof the IP match signal.
 var TrustProxy bool
 
-// RemoteIP returns the request connection IP. X-Forwarded-For (first entry)
-// is honored only when TrustProxy is set: the proxy must overwrite the
-// header so a direct client cannot forge it.
+// RemoteIP: client IP. Trusted proxy (TrustProxy) prefers X-Real-IP
+// (proxy-set, the edge header Dub's ipAddress reads), else the LAST
+// X-Forwarded-For entry — proxies append the peer they saw, earlier entries
+// are client-controlled.
 func RemoteIP(r *http.Request) string {
 	if TrustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if i := strings.IndexByte(xff, ','); i >= 0 {
-				xff = xff[:i]
+		if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+			return ip
+		}
+		if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
+			last := xff[len(xff)-1]
+			if i := strings.LastIndexByte(last, ','); i >= 0 {
+				last = last[i+1:]
 			}
-			return strings.TrimSpace(xff)
+			if ip := strings.TrimSpace(last); ip != "" {
+				return ip
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

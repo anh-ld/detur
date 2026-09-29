@@ -133,6 +133,41 @@ func TestClickExpiryRespectsWindowAndFloor(t *testing.T) {
 	}
 }
 
+// RecordClick: reuses previous hour's click for the same link + device
+// (IP + user agent), like Dub's click cache; different device records a
+// new row.
+func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	fp := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"}
+	first, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 15, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	second, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 15, 24)
+	if err != nil {
+		t.Fatalf("second RecordClick: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Errorf("dedup returned %q; want the first click %q", second.ID, first.ID)
+	}
+	if n, _ := s.CountClicks(app.ID); n != 1 {
+		t.Errorf("clicks = %d; want 1 (deduped)", n)
+	}
+	// Different device (different UA), same link: new click.
+	other := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7)"}
+	third, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: other, Destination: link.URL}, 15, 24)
+	if err != nil {
+		t.Fatalf("third RecordClick: %v", err)
+	}
+	if third.ID == first.ID {
+		t.Error("different device reused the click; want a new row")
+	}
+	if n, _ := s.CountClicks(app.ID); n != 2 {
+		t.Errorf("clicks = %d; want 2 (one per device)", n)
+	}
+}
+
 func TestDeterministicLookupByClickID(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)

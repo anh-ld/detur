@@ -40,8 +40,9 @@ docker run -d --name detur --restart unless-stopped \
 - To check that it is up, `GET /health` should return `200 ok`.
 - Without Docker, run `cd server && go run ./cmd/detur`.
 - In production, publish 8080 on loopback behind a TLS reverse proxy. Set
-  `TRUST_PROXY=1` only when that proxy overwrites `X-Forwarded-For`. Otherwise
-  direct callers can spoof the IP match signal.
+  `TRUST_PROXY=1` only when a real proxy sits in front: it then trusts
+  `X-Real-IP`, else the rightmost `X-Forwarded-For` entry (the peer the proxy
+  saw). Otherwise direct callers can spoof the IP match signal.
 
 ### 2. Create an app in the portal
 

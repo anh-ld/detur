@@ -12,11 +12,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/match"
 	"detur.dev/server/internal/store"
-	"detur.dev/server/internal/ua"
 )
 
 // Settings keys: the matching defaults live in the settings table, edited
@@ -148,10 +148,10 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	// Failed install write: readout row lost, link still returned (backend
+	// errors never deny the link).
 	if _, err := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic}); err != nil {
-		s.backendError(appID, dh, err)
-		w.WriteHeader(http.StatusNotFound)
-		return
+		s.log.Printf("match-link install record failed (link still returned): %v", err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"link": res.Destination})
 }
@@ -188,17 +188,25 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	dest := link.URL
+	if link.Expired(time.Now()) {
+		if link.ExpiredURL == "" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		dest = link.ExpiredURL
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{
-		"link":       link.URL,
+		"link":       dest,
 		"route":      u.Path,
 		"parameters": u.RawQuery,
 	})
 }
 
-// universalLinkClick serves POST /api/link/universal-link-click. v1 answers
-// "no limit": the deny shape is never sent; the allow shape is returned even
-// when click recording fails. Bot clicks and URLs with no derivable link key
-// are not recorded; the response always carries a clickId.
+// universalLinkClick: POST /api/link/universal-link-click. v1 answers "no
+// limit": deny shape never sent, allow shape returned even when click
+// recording fails. URLs with no derivable link key not recorded; response
+// always carries a clickId.
 func (s *sdkServer) universalLinkClick(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body struct {
@@ -214,12 +222,13 @@ func (s *sdkServer) universalLinkClick(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// recordClickID records a universal-link click (bot-filtered, fail-open) and
-// returns the clickId to report. A fresh id is minted when nothing was
-// recorded so the SDK always sees one.
+// recordClickID: universal-link click (fail-open), returns clickId. No bot
+// filter — caller is the app (Dub skips bot checks for deeplink opens).
+// Repeat opens within an hour reuse the click (store dedup). Nothing
+// recorded -> fresh id minted, SDK always sees one.
 func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string {
 	key := linkKey(rawURL)
-	if key == "" || ua.IsBotUA(r.UserAgent()) {
+	if key == "" {
 		return store.Nanoid(16)
 	}
 	link, err := s.st.GetLinkByKey(appID, key)
@@ -227,10 +236,14 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 		s.log.Printf("universal-link-click link lookup failed: %v", err)
 		return store.Nanoid(16)
 	}
+	window := link.WindowMinutes
+	if window == 0 {
+		window = s.windowSetting()
+	}
 	rec, err := s.st.RecordClick(store.Click{
 		AppID: appID, LinkID: link.ID, Destination: link.URL,
 		Fingerprint: store.Fingerprint{IP: httpx.RemoteIP(r), UserAgent: r.UserAgent()},
-	}, s.windowSetting(), s.retentionHours)
+	}, window, s.retentionHours)
 	if err != nil {
 		s.log.Printf("universal-link-click backend error (click not recorded): %v", err)
 		return store.Nanoid(16)

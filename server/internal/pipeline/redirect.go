@@ -7,20 +7,25 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// redirectTarget picks the 302 destination by platform, falling back to link.URL:
-// iOS -> link.IOS, Android -> link.Android + clickId as Play install referrer,
-// desktop -> link.FallbackURL. ppid and dtb pass through everywhere.
+// internalParams: detur's own query params — consumed here, never forwarded
+// to the destination (Dub skips dub-no-track and redir_url).
+var internalParams = map[string]bool{
+	paramDone: true, paramScreen: true, paramTimezone: true, paramPasted: true, paramNoTrack: true,
+}
+
+// redirectTarget: 302 destination by platform, fallback link.URL:
+// iOS -> link.IOS, Android -> link.Android, desktop -> link.FallbackURL.
+// Every incoming query param except detur's own forwarded, overriding
+// same-name keys (Dub get-final-url.ts). Play Store targets: clickId merged
+// into install referrer.
 func redirectTarget(link store.Link, agent string, clickID string, q url.Values) string {
 	target := link.URL
-	platform := ""
 	switch {
 	case ua.IsIOS(agent):
-		platform = "ios"
 		if link.IOS != "" {
 			target = link.IOS
 		}
 	case ua.IsAndroid(agent):
-		platform = "android"
 		if link.Android != "" {
 			target = link.Android
 		}
@@ -34,17 +39,25 @@ func redirectTarget(link store.Link, agent string, clickID string, q url.Values)
 		return target
 	}
 	p := u.Query()
-	if v := q.Get("ppid"); v != "" {
-		p.Set("ppid", v)
+	for k, vs := range q {
+		if !internalParams[k] && len(vs) > 0 {
+			p.Set(k, vs[len(vs)-1])
+		}
 	}
-	if v := q.Get("dtb"); v != "" {
-		p.Set("dtb", v)
-	}
-	if platform == "android" && clickID != "" {
-		// SDK reads click_id= from the referrer (/(?:^|&)click_id=([^&]+)/ after
-		// decodeURIComponent); Encode's escaping round-trips.
-		p.Set("referrer", "click_id="+clickID)
+	if clickID != "" && isPlayStore(u) {
+		// Merge into operator's referrer (utm_* etc.), like Dub. SDK reads
+		// click_id= from decoded referrer via /(?:^|&)click_id=([^&]+)/,
+		// so it stays its own key=value pair.
+		ref, _ := url.ParseQuery(p.Get("referrer"))
+		ref.Set("click_id", clickID)
+		p.Set("referrer", ref.Encode())
 	}
 	u.RawQuery = p.Encode()
 	return u.String()
+}
+
+// isPlayStore: Play Store URL — the only target passing an install referrer
+// to the app (Dub is-google-play-store-url.ts, plus market://).
+func isPlayStore(u *url.URL) bool {
+	return u.Hostname() == "play.google.com" || u.Scheme == "market"
 }

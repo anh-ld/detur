@@ -70,8 +70,10 @@ type aasaResp struct {
 	AppLinks struct {
 		Apps    []string `json:"apps"`
 		Details []struct {
-			AppID string   `json:"appID"`
-			Paths []string `json:"paths"`
+			AppID      string              `json:"appID"`
+			Paths      []string            `json:"paths"`
+			AppIDs     []string            `json:"appIDs"`
+			Components []map[string]string `json:"components"`
 		} `json:"details"`
 	} `json:"applinks"`
 }
@@ -99,8 +101,10 @@ func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	return app
 }
 
-// Scenario 1: AASA valid JSON per app, one details entry per app with an
-// ios_app_id, each with paths ["*"]; apps stays [].
+// Scenario 1: AASA valid JSON per app. Several iOS apps: each claims only
+// its own link keys — iOS routes a URL to the first matching entry (blanket
+// ["*"] per app shadows all but the first). Single iOS app still claims
+// every path.
 func TestAASAValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	iosOnly, err := st.CreateApp("ios only", "key-1")
@@ -109,6 +113,9 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 	}
 	if err := st.UpdateAppDetails(iosOnly.ID, "TEAM1.com.example.ios", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
+	}
+	if _, err := st.CreateLink(store.Link{AppID: iosOnly.ID, Key: "abc", URL: "https://example.com/abc"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
 	}
 	setupWellKnownApp(t, st)
 
@@ -126,17 +133,33 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 	if len(aasa.AppLinks.Apps) != 0 {
 		t.Errorf("apps = %v; want empty array", aasa.AppLinks.Apps)
 	}
-	want := map[string]bool{"TEAM1.com.example.ios": true, "TEAM123.com.example.app": true}
+	want := map[string][]string{
+		"TEAM1.com.example.ios":   {"/abc"},
+		"TEAM123.com.example.app": {},
+	}
 	if len(aasa.AppLinks.Details) != len(want) {
 		t.Fatalf("details = %+v; want %d entries", aasa.AppLinks.Details, len(want))
 	}
 	for _, d := range aasa.AppLinks.Details {
-		if !want[d.AppID] {
+		wantPaths, ok := want[d.AppID]
+		if !ok {
 			t.Errorf("unexpected details appID %q", d.AppID)
+			continue
 		}
 		delete(want, d.AppID)
-		if len(d.Paths) != 1 || d.Paths[0] != "*" {
-			t.Errorf("appID %s paths = %v; want [\"*\"]", d.AppID, d.Paths)
+		if len(d.Paths) != len(wantPaths) {
+			t.Errorf("appID %s paths = %v; want %v", d.AppID, d.Paths, wantPaths)
+			continue
+		}
+		for i, p := range wantPaths {
+			if d.Paths[i] != p {
+				t.Errorf("appID %s paths = %v; want %v", d.AppID, d.Paths, wantPaths)
+				break
+			}
+		}
+		// iOS 13+ format mirrors the same claim (appIDs + components).
+		if len(d.AppIDs) != 1 || d.AppIDs[0] != d.AppID || len(d.Components) != len(d.Paths) {
+			t.Errorf("appID %s appIDs/components = %v/%v; want one entry mirroring paths", d.AppID, d.AppIDs, d.Components)
 		}
 	}
 }

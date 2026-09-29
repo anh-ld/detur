@@ -1,4 +1,5 @@
--- detur schema. Timestamps are RFC3339 UTC text.
+-- detur schema. Timestamps are fixed-width UTC text (YYYY-MM-DDTHH:MM:SS.sssZ,
+-- same as strftime('%Y-%m-%dT%H:%M:%fZ')) so text comparison orders them.
 
 CREATE TABLE IF NOT EXISTS apps (
     id                      TEXT PRIMARY KEY,
@@ -20,6 +21,8 @@ CREATE TABLE IF NOT EXISTS links (
     fallback_url   TEXT,
     threshold      INTEGER NOT NULL DEFAULT 850,
     window_minutes INTEGER NOT NULL DEFAULT 15,
+    expires_at     TEXT,
+    expired_url    TEXT,
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (app_id, key)
 );
@@ -34,6 +37,7 @@ CREATE TABLE IF NOT EXISTS clicks (
     timezone    TEXT,
     screen      TEXT,
     user_agent  TEXT,
+    os_version  TEXT,
     pasted_link TEXT,
     destination TEXT NOT NULL,
     click_id    TEXT,
@@ -46,6 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_clickid ON clicks (click_id);
 CREATE INDEX IF NOT EXISTS idx_clicks_app_created ON clicks (app_id, is_bot, created_at);
+CREATE INDEX IF NOT EXISTS idx_clicks_dedup ON clicks (link_id, ip, created_at);
 
 CREATE TABLE IF NOT EXISTS installs (
     id          TEXT PRIMARY KEY,

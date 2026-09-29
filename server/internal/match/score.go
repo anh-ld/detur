@@ -82,16 +82,22 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 // signal isn't derivable from the click fingerprint (weight skipped).
 func clickSignals(click store.Click) (platform, model, sysVer string) {
 	raw := click.Fingerprint.UserAgent
+	if model = click.Fingerprint.Device; model == "" {
+		model = ua.AndroidModel(raw)
+	}
 	switch ua.Platform(raw) {
 	case "android":
 		platform = "android"
-		sysVer = ua.AndroidVersion(raw)
+		// Client hint carries the real version. Reduced UA freezes "Android
+		// 10; K" and drops the model: UA version trusted only when the UA
+		// still names the model.
+		sysVer = click.Fingerprint.OSVersion
+		if sysVer == "" && ua.AndroidModel(raw) != "" {
+			sysVer = ua.AndroidVersion(raw)
+		}
 	case "ios":
 		platform = "ios"
 		sysVer = ua.IOSVersion(raw)
-	}
-	if model = click.Fingerprint.Device; model == "" {
-		model = ua.AndroidModel(raw)
 	}
 	return platform, model, sysVer
 }
@@ -135,12 +141,28 @@ func screen(click store.Click, fp Fingerprint) int {
 	return 0
 }
 
-// langMatch reports a locale prefix match (language weight 100).
-func langMatch(a, b string) bool {
-	if a == "" || b == "" {
+// langMatch: click's browser language (first tag) shares its primary subtag
+// with any device locale (comma-separated SDK tags), case-insensitive:
+// en-GB matches en-US; browser en matches device vi-VN,en-US.
+func langMatch(click, device string) bool {
+	c := primaryLang(click)
+	if c == "" {
 		return false
 	}
-	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+	for _, tag := range strings.Split(device, ",") {
+		if primaryLang(tag) == c {
+			return true
+		}
+	}
+	return false
+}
+
+func primaryLang(tag string) string {
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if i := strings.IndexAny(tag, "-_"); i >= 0 {
+		tag = tag[:i]
+	}
+	return tag
 }
 
 // parseScreen parses the clicks-table screen string "WxH@scale"
@@ -163,9 +185,14 @@ func parseScreen(s string) (w, h int, scale float64, ok bool) {
 	return w, h, scale, true
 }
 
-// normVersion normalizes a system version for comparison (underscores -> dots).
+// normVersion: system version for comparison — underscores -> dots, trailing
+// ".0" dropped ("14.0.0" client hint == "14" SDK).
 func normVersion(v string) string {
-	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), "_", "."))
+	v = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), "_", "."))
+	for strings.HasSuffix(v, ".0") {
+		v = strings.TrimSuffix(v, ".0")
+	}
+	return v
 }
 
 // normModel normalizes a device model for comparison (case + whitespace).
