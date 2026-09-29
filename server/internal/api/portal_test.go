@@ -1,10 +1,8 @@
 package api
 
-// Portal tests: portal API CRUD, settings driving the matching engine,
-// readout, the no-auth contract, the origin/host guard, static serving, and
-// show-once API-key semantics. Real store + real mux via httptest; the SDK
-// endpoints run on a second listener sharing the store (production topology:
-// separate listeners, one store).
+// Portal tests: portal API CRUD, settings driving matching engine, readout,
+// no-auth contract, origin/host guard, static serving, show-once API-key semantics.
+// Real store + real mux via httptest; SDK endpoints on second listener sharing store (separate listeners, one store).
 
 import (
 	"encoding/json"
@@ -20,12 +18,10 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// portalAddr mirrors cfg.PortalAddr's default (config.Load).
+// portalAddr mirrors cfg.PortalAddr default (config.Load).
 const portalAddr = "127.0.0.1:8081"
 
-// newPortalEnv spins up the portal listener (RegisterPortal with a temp
-// static dir containing an index.html) and a second SDK listener sharing the
-// same store.
+// newPortalEnv: portal listener (RegisterPortal with temp static dir containing index.html) + second SDK listener sharing same store.
 func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) {
 	httpx.TrustProxy = true // api tests simulate the trusted-proxy deployment via X-Forwarded-For
 	t.Cleanup(func() { httpx.TrustProxy = false })
@@ -52,8 +48,7 @@ func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) 
 	return portal, sdk, st
 }
 
-// portalReq issues a request to a test server with optional headers; the
-// Host header defaults to the server's own (loopback) address.
+// portalReq issues request to test server with optional headers; Host defaults to server's own (loopback) address.
 func portalReq(t *testing.T, ts *httptest.Server, method, path, body string, hdr map[string]string) (*http.Response, []byte) {
 	t.Helper()
 	var rd io.Reader
@@ -86,7 +81,7 @@ func mustJSON(t *testing.T, b []byte, v any) {
 	}
 }
 
-// Scenario 1: full app + link CRUD round trip through the portal API.
+// Scenario 1: full app + link CRUD round trip through portal API.
 func TestPortalAppLinkCRUD(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 
@@ -136,8 +131,7 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 		t.Fatalf("list links: %d %s", resp.StatusCode, b)
 	}
 
-	// Omitted destinations stay unchanged, explicit empty clears, and zero
-	// matching overrides restore inheritance from global settings.
+	// omitted destinations stay unchanged, explicit empty clears, zero matching overrides restore inheritance from global settings
 	resp, b = portalReq(t, portal, "PATCH", "/api/links/"+link.ID,
 		`{"url":"https://example.com/p2","ios":"","threshold":0,"windowMinutes":0}`, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -179,9 +173,7 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 	}
 }
 
-// Scenario 2: matching settings persisted via PATCH /api/settings drive the
-// matching engine: the same fingerprint matches or 404s purely per the
-// configured threshold (950-score candidate: matches at 850, not at 1200).
+// Scenario 2: settings persisted via PATCH /api/settings drive matching engine: same fingerprint matches or 404s purely per configured threshold (950-score candidate: matches at 850, not 1200).
 func TestPortalSettingsDriveMatching(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
 	app, link := setup(t, st)
@@ -192,7 +184,7 @@ func TestPortalSettingsDriveMatching(t *testing.T) {
 		t.Fatalf("set settings: %d %s", resp.StatusCode, b)
 	}
 
-	// Score 950 (IP differs: 127.0.0.1 vs click IP): below the raised threshold.
+	// score 950 (IP differs: 127.0.0.1 vs click IP): below raised threshold.
 	resp, b = portalReq(t, sdk, "POST", "/api/link/match-link", androidFingerprintJSON(), authHeaders(app.ID))
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("at threshold 1200 the 950-score match must 404, got %d %s", resp.StatusCode, b)
@@ -205,7 +197,7 @@ func TestPortalSettingsDriveMatching(t *testing.T) {
 		t.Fatalf("at threshold 1200 the 1450-score match must match, got %d %s", resp.StatusCode, b)
 	}
 
-	// Lower the threshold back to default: the 950-score candidate now matches.
+	// lower threshold back to default: 950-score candidate now matches.
 	resp, b = portalReq(t, portal, "PATCH", "/api/settings", `{"threshold":850,"windowMinutes":15}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("reset settings: %d %s", resp.StatusCode, b)
@@ -289,8 +281,7 @@ func TestPortalRejectsForeignHost(t *testing.T) {
 	}
 }
 
-// Scenario 7: static serving. GET / returns the built index.html; a missing
-// file 404s as plain text; a missing static dir never crashes the API.
+// Scenario 7: static serving. GET / returns built index.html; missing file 404s plain text; missing static dir never crashes API.
 func TestPortalStaticServing(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "GET", "/", "", nil)
@@ -323,8 +314,7 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 	}
 }
 
-// Scenario 8: show-once key semantics. The create response carries the
-// plaintext key; every later GET carries only the hash.
+// Scenario 8: show-once key semantics. Create response carries plaintext key; every later GET carries only hash.
 func TestPortalKeyShownOnce(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"once"}`, nil)
@@ -351,8 +341,7 @@ func TestPortalKeyShownOnce(t *testing.T) {
 	}
 }
 
-// Scenario 9: key management — rotation mints a new key and the old one
-// dies; revoke empties the hash so SDK auth fails.
+// Scenario 9: key management — rotation mints new key, old one dies; revoke empties hash, SDK auth fails.
 func TestPortalRotateAndRevokeKey(t *testing.T) {
 	portal, _, st := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"keys"}`, nil)

@@ -18,13 +18,12 @@ const (
 	otherIP = "198.51.100.9"
 )
 
-// testLink is a bare link for pure Score tests (no store required).
+// testLink: bare link for pure Score tests (no store required).
 func testLink() store.Link {
 	return store.Link{ID: "l1", AppID: "a1", URL: "https://example.com/product"}
 }
 
-// androidClick is a click whose fingerprint carries every Android-scorable
-// signal: IP, model+system version in the UA, locale, timezone, screen.
+// androidClick: click with every Android-scorable signal: IP, model+system version in UA, locale, timezone, screen.
 func androidClick(link store.Link) store.Click {
 	return store.Click{
 		AppID: link.AppID, LinkID: link.ID, Destination: link.URL,
@@ -36,8 +35,7 @@ func androidClick(link store.Link) store.Click {
 	}
 }
 
-// iosClick is a click with every iOS-scorable signal: IP, iOS system
-// version in the UA, locale, timezone, screen, pasted link.
+// iosClick: click with every iOS-scorable signal: IP, iOS system version in UA, locale, timezone, screen, pasted link.
 func iosClick(link store.Link) store.Click {
 	return store.Click{
 		AppID: link.AppID, LinkID: link.ID, Destination: link.URL,
@@ -99,7 +97,7 @@ func setupApp(t *testing.T, s *store.Store) (store.App, store.Link) {
 	return app, link
 }
 
-// recordClick persists a click with created_at = now.
+// recordClick: persist click, created_at = now.
 func recordClick(t *testing.T, s *store.Store, c store.Click) store.Click {
 	t.Helper()
 	got, err := s.RecordClick(c, 15, 24)
@@ -109,9 +107,7 @@ func recordClick(t *testing.T, s *store.Store, c store.Click) store.Click {
 	return got
 }
 
-// recordClickBackdated persists a click then rewrites its created_at into the
-// past. RecordClick always stamps now, so window-edge tests adjust the row
-// through a second connection (WAL allows it).
+// recordClickBackdated: persist click, then rewrite created_at into past. RecordClick always stamps now, so window-edge tests adjust row via second connection (WAL allows it).
 func recordClickBackdated(t *testing.T, s *store.Store, dbPath string, c store.Click, d time.Duration) store.Click {
 	t.Helper()
 	got := recordClick(t, s, c)
@@ -176,8 +172,7 @@ func TestScoreAboveThresholdMatches(t *testing.T) {
 	}
 }
 
-// Scenario 4: score below threshold -> no match. Mirrors the docs'
-// rejection example: timezone+language+screen = 200+100+200 = 500.
+// Scenario 4: score below threshold -> no match. Mirrors docs' rejection example: timezone+language+screen = 200+100+200 = 500.
 func TestScoreBelowThresholdNoMatch(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -193,8 +188,7 @@ func TestScoreBelowThresholdNoMatch(t *testing.T) {
 	}
 }
 
-// Scenario 5: score exactly at threshold -> match. Mirrors the docs' example
-// "iOS: IP + exact pasteboard token and URL, 500 + 350 = 850".
+// Scenario 5: score exactly at threshold -> match. Mirrors docs' example "iOS: IP + exact pasteboard token and URL, 500 + 350 = 850".
 func TestScoreAtThresholdMatches(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -249,8 +243,7 @@ func TestWindowRangeValidation(t *testing.T) {
 	}
 }
 
-// Scenario 9: deterministic clickId lookup succeeds beyond the window
-// (24h retention floor, deterministic matching has no window).
+// Scenario 9: deterministic clickId lookup succeeds beyond window (24h retention floor; deterministic matching has no window).
 func TestDeterministicClickIDBeyondWindow(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -282,15 +275,13 @@ func TestTieBreaksToNewerClick(t *testing.T) {
 	}
 }
 
-// Scenario 11: Android model+systemVersion 450 applied; UA device signature
-// NOT also added (one-device-signal rule).
+// Scenario 11: Android model+systemVersion 450 applied; UA device signature NOT added too (one-device-signal rule).
 func TestAndroidModelSystemVersionWeight(t *testing.T) {
 	link := testLink()
 	if s := Score(androidClick(link), androidFP(), testIP); s != 1450 {
 		t.Errorf("android full score = %d; want 1450 (450 device signal, no UA double-count)", s)
 	}
-	// Model mismatch: the 450 branch is chosen but fails -> 0 device, and the
-	// UA signature is not stacked on top.
+	// Model mismatch: 450 branch chosen but fails -> 0 device, UA signature not stacked on top.
 	bad := androidFP()
 	bad.Model = "Pixel 8"
 	if s := Score(androidClick(link), bad, testIP); s != 1000 {
@@ -311,9 +302,7 @@ func TestIOSSystemVersionWeight(t *testing.T) {
 	}
 }
 
-// Scenario 13: UA device signature 350 used only as fallback when the
-// platform device signal is unavailable (here: Android UA without a
-// derivable OS version).
+// Scenario 13: UA device signature 350 used only as fallback when platform device signal unavailable (here: Android UA without derivable OS version).
 func TestUADeviceSignatureFallback(t *testing.T) {
 	link := testLink()
 	c := androidClick(link)
@@ -414,8 +403,7 @@ func TestMissingSignalsNoPanic(t *testing.T) {
 	}
 }
 
-// Scenario 19: documented maxima, iOS full match 1700, Android 1450
-// (asserts the one-device-signal rule holds).
+// Scenario 19: documented maxima, iOS full match 1700, Android 1450 (asserts one-device-signal rule).
 func TestMaxTotalsSanity(t *testing.T) {
 	link := testLink()
 	if s := Score(androidClick(link), androidFP(), testIP); s != 1450 {
@@ -426,8 +414,7 @@ func TestMaxTotalsSanity(t *testing.T) {
 	}
 }
 
-// Scenario 20: threshold clamp 700..1200, out of range errors, bounds
-// inclusive, respected even on the deterministic path.
+// Scenario 20: threshold clamp 700..1200, out-of-range errors, bounds inclusive, respected even on deterministic path.
 func TestThresholdClamp(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -448,7 +435,7 @@ func TestThresholdClamp(t *testing.T) {
 	}
 }
 
-// linkWith creates a second link on app with per-link overrides.
+// linkWith: second link on app with per-link overrides.
 func linkWith(t *testing.T, s *store.Store, appID string, threshold, window int) store.Link {
 	t.Helper()
 	l, err := s.CreateLink(store.Link{AppID: appID, Key: "override", URL: "https://example.com/override",
@@ -480,9 +467,7 @@ func TestPerLinkThresholdOverridesGlobal(t *testing.T) {
 }
 
 func TestPerLinkWindowOverridesGlobal(t *testing.T) {
-	// A click 60 min old is outside the global 15-min window; a 90-min link
-	// window must still reach it (lookback covers the widest window), and a
-	// 5-min link window must reject a click the global window would accept.
+	// Click 60 min old outside global 15-min window; 90-min link window must still reach it (lookback covers widest window), 5-min link window must reject click global window would accept.
 	for _, tc := range []struct {
 		window int
 		age    time.Duration

@@ -32,7 +32,7 @@ export interface Settings {
   windowMinutes: number;
 }
 
-// Base URL override: '' = same origin; integration tests point the client at a live server.
+// Base URL override: '' = same origin; integration tests point client at live server.
 export let apiBase = '';
 export function setApiBase(url: string) {
   apiBase = url;

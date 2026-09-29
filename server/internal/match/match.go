@@ -1,6 +1,4 @@
-// Package match implements the matching engine: deterministic clickId
-// lookup plus probabilistic fingerprint scoring against the documented
-// Detour weights.
+// Package match: deterministic clickId lookup, else probabilistic fingerprint scoring against documented Detour weights.
 package match
 
 import (
@@ -25,9 +23,7 @@ var (
 	ErrWindowOutOfRange    = errors.New("window out of range 5..180 minutes")
 )
 
-// Fingerprint is the first-launch device fingerprint the SDK sends on
-// match-link (full payload, no clickId). Platform isn't stored: the scoring
-// engine derives it from the click's UA (one-device-signal rule).
+// Fingerprint: first-launch device fingerprint SDK sends on match-link (full payload, no clickId). Platform not stored: scoring engine derives it from click's UA (one-device-signal rule).
 type Fingerprint struct {
 	Model, Manufacturer, SystemVersion      string
 	ScreenWidth, ScreenHeight               int
@@ -35,25 +31,21 @@ type Fingerprint struct {
 	Locale, Timezone, UserAgent, PastedLink string
 }
 
-// Request is a match-link request: exact ClickID (Android Play referrer) or
-// Fingerprint payload, never both.
+// Request: match-link request, exact ClickID (Android Play referrer) or Fingerprint payload, never both.
 type Request struct {
 	ClickID     string
 	IP          string
 	Fingerprint *Fingerprint
 }
 
-// Result carries the match outcome. Matched=false is a no-match (404,
-// organic install).
+// Result: match outcome. Matched=false is no-match (404, organic install).
 type Result struct {
 	Matched     bool
 	Click       store.Click
 	Destination string
 }
 
-// Match resolves a match-link request deterministically when ClickID is
-// present, else probabilistically against the app's clicks in the window.
-// windowMinutes and threshold are validated against the configurable ranges.
+// Match: deterministic resolution when ClickID present, else probabilistic against app's clicks in window. windowMinutes/threshold validated against configurable ranges.
 func Match(st *store.Store, appID string, req Request, windowMinutes, threshold int) (Result, error) {
 	if windowMinutes < MinWindow || windowMinutes > MaxWindow {
 		return Result{}, fmt.Errorf("%w: got %d", ErrWindowOutOfRange, windowMinutes)
@@ -62,8 +54,7 @@ func Match(st *store.Store, appID string, req Request, windowMinutes, threshold 
 		return Result{}, fmt.Errorf("%w: got %d", ErrThresholdOutOfRange, threshold)
 	}
 
-	// Deterministic lookup has no window; unknown clickId is a no-match,
-	// never a probabilistic fallback.
+	// Deterministic lookup has no window; unknown clickId is no-match, never probabilistic fallback.
 	if req.ClickID != "" {
 		c, err := st.ClickByClickID(appID, req.ClickID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -75,15 +66,8 @@ func Match(st *store.Store, appID string, req Request, windowMinutes, threshold 
 		return Result{Matched: true, Click: c, Destination: c.Destination}, nil
 	}
 
-	// Probabilistic: window scan per app (match-link fingerprint carries no
-	// link identity). Per-link thresholds/windows override the global
-	// defaults for clicks on that link; links without one use the global
-	// setting.
-	thresholdByLink, err := st.LinkThresholds(appID)
-	if err != nil {
-		return Result{}, err
-	}
-	windowByLink, err := st.LinkWindows(appID)
+	// Probabilistic: window scan per app (match-link fingerprint carries no link identity). Per-link thresholds/windows override global defaults; links without one use global setting.
+	thresholdByLink, windowByLink, err := st.LinkMatchOverrides(appID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -119,8 +103,7 @@ func Match(st *store.Store, appID string, req Request, windowMinutes, threshold 
 	return Result{}, nil
 }
 
-// thresholdFor returns the per-link threshold when the matched click's link
-// sets one, else the global default.
+// thresholdFor: per-link threshold when matched click's link sets one, else global default.
 func thresholdFor(c store.Click, byLink map[string]int, global int) int {
 	if t, ok := byLink[c.LinkID]; ok && t > 0 {
 		return t

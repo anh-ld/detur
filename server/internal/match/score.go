@@ -9,11 +9,7 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// Documented scoring weights (detour.swmansion.com/docs/platform/
-// architecture/matching/). Only ONE device signal scored per candidate:
-// Android model+system version (450) when the click supplies both, else iOS
-// system version (350), else UA device signature (350), never two. Keeps
-// documented maxima at 1700 iOS / 1450 Android.
+// Documented scoring weights (detour.swmansion.com/docs/platform/architecture/matching/). Only ONE device signal scored per candidate: Android model+system version (450) when click supplies both, else iOS system version (350), else UA device signature (350), never two. Keeps documented maxima 1700 iOS / 1450 Android.
 const (
 	weightIPExact           = 500
 	weightModelSystemVer    = 450
@@ -26,11 +22,7 @@ const (
 	weightLanguage          = 100
 )
 
-// Score computes the probabilistic score of one candidate click against the
-// first-launch fingerprint fp and the request connection IP. Unavailable
-// click-side signals skip their weight; nothing fabricated. A chosen
-// device-signal branch that doesn't match scores 0; UA fallback never
-// stacks on top of it.
+// Score: probabilistic score of one candidate click vs first-launch fingerprint fp and request connection IP. Unavailable click-side signals skip weight; nothing fabricated. Chosen device-signal branch mismatch scores 0; UA fallback never stacks on top.
 func Score(click store.Click, fp Fingerprint, ip string) int {
 	s := 0
 	if ip != "" && click.Fingerprint.IP != "" && ip == click.Fingerprint.IP {
@@ -48,9 +40,7 @@ func Score(click store.Click, fp Fingerprint, ip string) int {
 	return s
 }
 
-// deviceSignal applies the one-device-signal ladder: Android model+system
-// version when the click supplies both, else iOS system version parsed from
-// the click UA, else UA device signature as fallback.
+// deviceSignal: one-device-signal ladder — Android model+system version when click supplies both, else iOS system version from click UA, else UA device signature fallback.
 func deviceSignal(click store.Click, fp Fingerprint) int {
 	platform, cm, cv := clickSignals(click)
 	fm := fp.Model
@@ -78,8 +68,7 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 	}
 }
 
-// clickSignals derives the click-side device signals. Empty values mean the
-// signal isn't derivable from the click fingerprint (weight skipped).
+// clickSignals: click-side device signals. Empty = not derivable from click fingerprint (weight skipped).
 func clickSignals(click store.Click) (platform, model, sysVer string) {
 	raw := click.Fingerprint.UserAgent
 	if model = click.Fingerprint.Device; model == "" {
@@ -88,9 +77,7 @@ func clickSignals(click store.Click) (platform, model, sysVer string) {
 	switch ua.Platform(raw) {
 	case "android":
 		platform = "android"
-		// Client hint carries the real version. Reduced UA freezes "Android
-		// 10; K" and drops the model: UA version trusted only when the UA
-		// still names the model.
+		// Client hint carries real version. Reduced UA freezes "Android 10; K" and drops model: UA version trusted only when UA still names model.
 		sysVer = click.Fingerprint.OSVersion
 		if sysVer == "" && ua.AndroidModel(raw) != "" {
 			sysVer = ua.AndroidVersion(raw)
@@ -102,9 +89,7 @@ func clickSignals(click store.Click) (platform, model, sysVer string) {
 	return platform, model, sysVer
 }
 
-// pasteboard scores the iOS pasteboard two-tier match: 350 when the
-// short-link token matches AND the first-launch pasted URL starts with the
-// click's pasted URL; 175 for URL prefix alone.
+// pasteboard: iOS pasteboard two-tier match — 350 when short-link token matches AND first-launch pasted URL starts with click's pasted URL; 175 for URL prefix alone.
 func pasteboard(click store.Click, fp Fingerprint) int {
 	cp, pp := click.Fingerprint.PastedLink, fp.PastedLink
 	if cp == "" || pp == "" || !strings.HasPrefix(pp, cp) {
@@ -117,7 +102,7 @@ func pasteboard(click store.Click, fp Fingerprint) int {
 	return weightPasteboardPrefix
 }
 
-// linkToken returns the short-link token (last non-empty path segment).
+// linkToken: short-link token (last non-empty path segment).
 func linkToken(u string) string {
 	if i := strings.IndexAny(u, "?#"); i >= 0 {
 		u = u[:i]
@@ -129,7 +114,7 @@ func linkToken(u string) string {
 	return ""
 }
 
-// screen scores the screen match with tolerance ±1 width/height, ±0.01 scale.
+// screen: screen match, tolerance ±1 width/height, ±0.01 scale.
 func screen(click store.Click, fp Fingerprint) int {
 	cw, ch, cs, ok := parseScreen(click.Fingerprint.Screen)
 	if !ok || fp.ScreenWidth <= 0 || fp.ScreenHeight <= 0 || fp.Scale <= 0 {
@@ -141,9 +126,7 @@ func screen(click store.Click, fp Fingerprint) int {
 	return 0
 }
 
-// langMatch: click's browser language (first tag) shares its primary subtag
-// with any device locale (comma-separated SDK tags), case-insensitive:
-// en-GB matches en-US; browser en matches device vi-VN,en-US.
+// langMatch: click's browser language (first tag) shares primary subtag with any device locale (comma-separated SDK tags), case-insensitive: en-GB matches en-US; browser en matches device vi-VN,en-US.
 func langMatch(click, device string) bool {
 	c := primaryLang(click)
 	if c == "" {
@@ -165,8 +148,7 @@ func primaryLang(tag string) string {
 	return tag
 }
 
-// parseScreen parses the clicks-table screen string "WxH@scale"
-// (e.g. "393x852@3").
+// parseScreen: clicks-table screen string "WxH@scale" (e.g. "393x852@3").
 func parseScreen(s string) (w, h int, scale float64, ok bool) {
 	parts := strings.Split(s, "@")
 	if len(parts) != 2 {
@@ -185,8 +167,7 @@ func parseScreen(s string) (w, h int, scale float64, ok bool) {
 	return w, h, scale, true
 }
 
-// normVersion: system version for comparison — underscores -> dots, trailing
-// ".0" dropped ("14.0.0" client hint == "14" SDK).
+// normVersion: system version for comparison — underscores -> dots, trailing ".0" dropped ("14.0.0" client hint == "14" SDK).
 func normVersion(v string) string {
 	v = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), "_", "."))
 	for strings.HasSuffix(v, ".0") {
@@ -195,7 +176,7 @@ func normVersion(v string) string {
 	return v
 }
 
-// normModel normalizes a device model for comparison (case + whitespace).
+// normModel: device model for comparison (case + whitespace).
 func normModel(m string) string {
 	return strings.ToLower(strings.Join(strings.Fields(m), " "))
 }

@@ -1,8 +1,6 @@
 package ua
 
-// Real-world UA strings: modern Android (Chrome), reduced UA (Chrome's
-// "Android 10; K"), legacy Android, Android WebView, iPhone Safari, and
-// Instagram's Pixel webview (the "Google/google" false positive).
+// Real-world UA strings: modern Android (Chrome), reduced UA (Chrome's "Android 10; K"), legacy Android, Android WebView, iPhone Safari, Instagram's Pixel webview ("Google/google" false positive).
 import (
 	"net/http/httptest"
 	"testing"
@@ -47,8 +45,7 @@ func TestIsBotUADubList(t *testing.T) {
 			t.Errorf("IsBotUA(%q) = false; want true", ua)
 		}
 	}
-	// Dub's UA_FALSE_POSITIVES: Instagram's Pixel webview appends
-	// "Google/google", which must not trip the "google" entry.
+	// Dub's UA_FALSE_POSITIVES: Instagram's Pixel webview appends "Google/google", must not trip "google" entry.
 	if IsBotUA(instagramPixel) {
 		t.Errorf("IsBotUA(instagram Pixel webview) = true; want false (Google/google exception)")
 	}

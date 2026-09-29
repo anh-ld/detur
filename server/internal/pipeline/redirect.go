@@ -7,17 +7,15 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// internalParams: detur's own query params — consumed here, never forwarded
-// to the destination (Dub skips dub-no-track and redir_url).
+// internalParams: detur's own query params — consumed here, never forwarded to destination (Dub skips dub-no-track and redir_url)
 var internalParams = map[string]bool{
 	paramDone: true, paramScreen: true, paramTimezone: true, paramPasted: true, paramNoTrack: true,
 }
 
-// redirectTarget: 302 destination by platform, fallback link.URL:
-// iOS -> link.IOS, Android -> link.Android, desktop -> link.FallbackURL.
-// Every incoming query param except detur's own forwarded, overriding
-// same-name keys (Dub get-final-url.ts). Play Store targets: clickId merged
-// into install referrer.
+// redirectTarget: 302 destination by platform, fallback link.URL: iOS -> link.IOS,
+// Android -> link.Android, desktop -> link.FallbackURL. Every incoming query param
+// except detur's own forwarded, overriding same-name keys (Dub get-final-url.ts);
+// Play Store targets: clickId merged into install referrer.
 func redirectTarget(link store.Link, agent string, clickID string, q url.Values) string {
 	target := link.URL
 	switch {
@@ -45,9 +43,7 @@ func redirectTarget(link store.Link, agent string, clickID string, q url.Values)
 		}
 	}
 	if clickID != "" && isPlayStore(u) {
-		// Merge into operator's referrer (utm_* etc.), like Dub. SDK reads
-		// click_id= from decoded referrer via /(?:^|&)click_id=([^&]+)/,
-		// so it stays its own key=value pair.
+		// Merge into operator's referrer (utm_* etc.), like Dub; SDK reads click_id= from decoded referrer via /(?:^|&)click_id=([^&]+)/, stays its own key=value pair
 		ref, _ := url.ParseQuery(p.Get("referrer"))
 		ref.Set("click_id", clickID)
 		p.Set("referrer", ref.Encode())
@@ -56,8 +52,7 @@ func redirectTarget(link store.Link, agent string, clickID string, q url.Values)
 	return u.String()
 }
 
-// isPlayStore: Play Store URL — the only target passing an install referrer
-// to the app (Dub is-google-play-store-url.ts, plus market://).
+// isPlayStore: Play Store URL — only target passing install referrer to app (Dub is-google-play-store-url.ts, plus market://)
 func isPlayStore(u *url.URL) bool {
 	return u.Hostname() == "play.google.com" || u.Scheme == "market"
 }

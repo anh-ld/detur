@@ -133,9 +133,7 @@ func TestClickExpiryRespectsWindowAndFloor(t *testing.T) {
 	}
 }
 
-// RecordClick: reuses previous hour's click for the same link + device
-// (IP + user agent), like Dub's click cache; different device records a
-// new row.
+// RecordClick: reuses previous hour's click for same link + device (IP + user agent), like Dub's click cache; different device records new row.
 func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -192,7 +190,7 @@ func TestPurgeExpired(t *testing.T) {
 	if _, err := s.rawExec(`UPDATE clicks SET expires_at = ? WHERE id = ?`, rfc3339(time.Now().Add(-time.Hour)), c.ID); err != nil {
 		t.Fatalf("force expiry: %v", err)
 	}
-	// a recent event (kept) and an old event past the retention floor (purged)
+	// recent event (kept) + old event past retention floor (purged)
 	if err := s.RecordEvent(app.ID, "install", `{}`); err != nil {
 		t.Fatalf("RecordEvent: %v", err)
 	}
@@ -304,8 +302,7 @@ func TestRecordEventAndSettings(t *testing.T) {
 	}
 }
 
-// TestGetLinkByKeyGlobal rejects cross-app duplicates rather than resolving
-// public traffic to an arbitrary app.
+// TestGetLinkByKeyGlobal rejects cross-app duplicates rather than resolving public traffic to arbitrary app.
 func TestGetLinkByKeyGlobal(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)

@@ -11,9 +11,7 @@ COPY server/cmd ./cmd
 COPY server/internal ./internal
 ENV CGO_ENABLED=0
 RUN go build -trimpath -ldflags="-s -w" -o /out/detur ./cmd/detur
-# Pre-create the data dir owned by the runtime uid: a fresh named volume
-# inherits writable ownership (Docker copies image dir metadata into new
-# volumes).
+# Pre-create data dir owned by runtime uid: fresh named volume inherits writable ownership (Docker copies image dir metadata into new volumes).
 RUN mkdir -p /out/data && chown -R 1000:1000 /out/data
 
 # --- Stage 2: portal (kinu, vite) ---
@@ -37,5 +35,5 @@ EXPOSE 8080 8081
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -q -O /dev/null http://localhost:8080/health || exit 1
-# Portal on 0.0.0.0 inside the container; publish it on host loopback only.
+# Portal on 0.0.0.0 inside container; publish on host loopback only.
 ENTRYPOINT ["/app/detur", "-portal-addr=0.0.0.0:8081"]

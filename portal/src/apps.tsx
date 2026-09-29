@@ -17,7 +17,7 @@ export function AppsPage() {
   };
   useEffect(load, []);
 
-  // Runs when the trigger is clicked, before the dialog opens.
+  // Runs when trigger clicked, before dialog opens.
   const resetCreate = () => {
     setCreated(null);
     setName('');

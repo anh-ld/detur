@@ -13,7 +13,7 @@ export function parseHash(h: string = location.hash): Route {
     try {
       return { name: 'detail', id: decodeURIComponent(m[1]) };
     } catch {
-      // malformed %-encoding in the id: treat as unknown route
+      // malformed %-encoding in id: treat as unknown route
     }
   }
   if (h.startsWith('#/settings')) return { name: 'settings' };

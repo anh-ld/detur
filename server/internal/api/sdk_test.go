@@ -56,8 +56,7 @@ func setup(t *testing.T, s *store.Store) (store.App, store.Link) {
 	return app, link
 }
 
-// recordAndroidClick persists a click carrying every Android-scorable signal
-// so a matching fingerprint scores 1450 >= 850.
+// recordAndroidClick persists click carrying every Android-scorable signal, matching fingerprint scores 1450 >= 850.
 func recordAndroidClick(t *testing.T, s *store.Store, app store.App, link store.Link) store.Click {
 	t.Helper()
 	c, err := s.RecordClick(store.Click{
@@ -74,8 +73,7 @@ func recordAndroidClick(t *testing.T, s *store.Store, app store.App, link store.
 	return c
 }
 
-// androidFingerprintJSON is the verbatim probabilistic fingerprint payload the
-// SDK sends on first launch (fingerprint.ts): locale is [{languageTag}].
+// androidFingerprintJSON: verbatim probabilistic fingerprint payload SDK sends on first launch (fingerprint.ts): locale = [{languageTag}].
 func androidFingerprintJSON() string {
 	return `{"platform":"android","model":"Pixel 7","manufacturer":"Google",` +
 		`"systemVersion":"14","screenWidth":393,"screenHeight":852,"scale":3,` +
@@ -121,8 +119,7 @@ func doPost(t *testing.T, ts *httptest.Server, path, body string, hdr map[string
 	return resp, b
 }
 
-// dropTable deletes a table through a second connection (WAL allows it),
-// injecting a backend failure that leaves the rest of the store intact.
+// dropTable deletes table via second connection (WAL allows it), injecting backend failure leaving rest of store intact.
 func dropTable(t *testing.T, path, table string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
@@ -176,8 +173,7 @@ func TestMatchLinkFingerprintAboveThreshold(t *testing.T) {
 	}
 }
 
-// Scenario 1b: failed install write must not deny the link — match-link
-// still returns 200 (backend errors never deny a link).
+// Scenario 1b: failed install write must not deny link — match-link still returns 200 (backend errors never deny link).
 func TestMatchLinkInstallFailureStillReturnsLink(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, link := setup(t, s)
@@ -223,13 +219,11 @@ func mustLink(t *testing.T, s *store.Store, app store.App) store.Link {
 	return l
 }
 
-// Scenario 3: backend error mid-request -> 404 + unknown attribution row
-// recorded, logged distinctly.
+// Scenario 3: backend error mid-request -> 404 + unknown attribution row recorded, logged distinctly.
 func TestMatchLinkBackendErrorFailOpen404Unknown(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
-	// Matching reads the clicks table; drop it. installs stays intact so the
-	// unknown-attribution row can persist.
+	// matching reads clicks table; drop it. installs stays intact, unknown-attribution row persists.
 	dropTable(t, path, "clicks")
 	hdr := authHeaders(app.ID)
 	resp, b := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), hdr)
@@ -263,7 +257,7 @@ func TestMatchLinkDuplicateIdempotent(t *testing.T) {
 	}
 }
 
-// Scenario 5: invalid apiKey -> 401 with the SDK-visible error shape.
+// Scenario 5: invalid apiKey -> 401 with SDK-visible error shape.
 func TestMatchLinkInvalidAPIKey401(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -295,8 +289,7 @@ func TestMatchLinkMissingAppID401(t *testing.T) {
 	}
 }
 
-// Scenario 7: clickId present but unknown -> 404, no probabilistic fallback
-// even with a strongly matching click inside the window.
+// Scenario 7: clickId present but unknown -> 404, no probabilistic fallback even with strongly matching click inside window.
 func TestMatchLinkUnknownClickIDNoProbabilisticFallback(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -346,8 +339,7 @@ func TestResolveShortUnknown404(t *testing.T) {
 	}
 }
 
-// Scenario 10: universal-link-click fails open on DB error -> allowed:true
-// with the no-limit fields present.
+// Scenario 10: universal-link-click fails open on DB error -> allowed:true with no-limit fields present.
 func TestUniversalLinkClickFailOpenOnDBError(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -372,8 +364,7 @@ func TestUniversalLinkClickFailOpenOnDBError(t *testing.T) {
 	}
 }
 
-// Scenario 11: universal-link-click normal -> allowed:true, effectiveLimit -1,
-// clickId returned, click recorded.
+// Scenario 11: universal-link-click normal -> allowed:true, effectiveLimit -1, clickId returned, click recorded.
 func TestUniversalLinkClickNormal(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -400,8 +391,7 @@ func TestUniversalLinkClickNormal(t *testing.T) {
 	}
 }
 
-// SDK deep-link clicks not bot-filtered: caller is the app (Dub skips bot
-// checks for deeplink opens), so bot-ish UA still records.
+// SDK deep-link clicks not bot-filtered: caller is app (Dub skips bot checks for deeplink opens), bot-ish UA still records.
 func TestUniversalLinkClickBotUARecorded(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -423,8 +413,7 @@ func TestUniversalLinkClickBotUARecorded(t *testing.T) {
 	}
 }
 
-// Scenario 12: analytics event accepted + persisted (event_name verbatim,
-// and the task-spec "event" key as fallback).
+// Scenario 12: analytics event accepted + persisted (event_name verbatim, task-spec "event" key as fallback).
 func TestAnalyticsEventPersisted(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -444,8 +433,7 @@ func TestAnalyticsEventPersisted(t *testing.T) {
 	}
 }
 
-// Scenario 13: analytics retention accepted + persisted (task-spec body
-// {days: N} persists as event "retention").
+// Scenario 13: analytics retention accepted + persisted (task-spec body {days: N} persists as event "retention").
 func TestAnalyticsRetentionPersisted(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -471,7 +459,7 @@ func TestAnalyticsRetentionPersisted(t *testing.T) {
 	}
 }
 
-// The auth wrapper applies to all five endpoints.
+// auth wrapper applies to all five endpoints.
 func TestAllSDKEndpointsRequireAuth(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	_, _ = setup(t, s)
@@ -489,8 +477,7 @@ func TestAllSDKEndpointsRequireAuth(t *testing.T) {
 	}
 }
 
-// universal-link-click fails open even when the auth check itself cannot
-// query the store: a closed DB must still yield the allow shape.
+// universal-link-click fails open even when auth check cannot query store: closed DB must still yield allow shape.
 func TestUniversalLinkClickAuthFailOpenOnClosedDB(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)

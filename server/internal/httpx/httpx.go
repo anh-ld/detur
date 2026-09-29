@@ -1,5 +1,4 @@
-// Package httpx shares small HTTP helpers across the API and pipeline
-// packages (remote IP extraction, JSON responses).
+// Package httpx: small HTTP helpers shared across API and pipeline packages (remote IP extraction, JSON responses).
 package httpx
 
 import (
@@ -9,15 +8,10 @@ import (
 	"strings"
 )
 
-// TrustProxy gates the X-Forwarded-For path: only set when TLS terminates
-// at a trusted reverse proxy (TRUST_PROXY). Off by default so a
-// client-supplied header cannot spoof the IP match signal.
+// TrustProxy gates X-Forwarded-For path: only set when TLS terminates at trusted reverse proxy (TRUST_PROXY). Off by default, client-supplied header cannot spoof IP match signal.
 var TrustProxy bool
 
-// RemoteIP: client IP. Trusted proxy (TrustProxy) prefers X-Real-IP
-// (proxy-set, the edge header Dub's ipAddress reads), else the LAST
-// X-Forwarded-For entry — proxies append the peer they saw, earlier entries
-// are client-controlled.
+// RemoteIP: client IP. Trusted proxy (TrustProxy) prefers X-Real-IP (proxy-set, edge header Dub's ipAddress reads), else LAST X-Forwarded-For entry — proxies append peer they saw, earlier entries client-controlled.
 func RemoteIP(r *http.Request) string {
 	if TrustProxy {
 		if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
@@ -40,7 +34,7 @@ func RemoteIP(r *http.Request) string {
 	return host
 }
 
-// WriteJSON writes v as a JSON response with the given status.
+// WriteJSON: v as JSON response with given status.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

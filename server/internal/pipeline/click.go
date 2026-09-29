@@ -1,7 +1,6 @@
-// Package pipeline serves the browser side of the deferred deep-link funnel:
-// GET /{key} short links resolve globally, record a click + fingerprint, and
-// 302 to the platform store or fallback, cloning Dub's link.ts middleware
-// semantics.
+// Package pipeline serves browser side of deferred deep-link funnel: GET
+// /{key} short links resolve globally, record click + fingerprint, 302 to
+// platform store or fallback, cloning Dub's link.ts middleware semantics.
 package pipeline
 
 import (
@@ -34,18 +33,15 @@ type pipelineServer struct {
 	retentionHours int // click retention floor, threaded from config
 }
 
-// Register attaches the browser pipeline to mux: GET /{key} short-link
-// serving. /health and /api/* are more specific patterns and keep winning
-// (stdlib routing).
+// Register attaches browser pipeline to mux: GET /{key} short-link serving; /health and /api/* more specific, keep winning (stdlib routing).
 func Register(mux *http.ServeMux, st *store.Store, retentionHours int) {
 	p := &pipelineServer{st: st, log: log.Default(), retentionHours: retentionHours}
 	mux.HandleFunc("GET /{key}", p.handleShort)
 }
 
-// handleShort: short link — resolve key globally, record click
-// (bot-filtered), 302 to store or fallback. Mobile browsers first get a
-// one-hop interstitial reading screen + timezone (Dub's deeplink preview
-// does the same). Record failure logged, never blocks the redirect.
+// handleShort: short link — resolve key globally, record click (bot-filtered),
+// 302 to store or fallback. Mobile browsers first get one-hop interstitial
+// reading screen + timezone (Dub's deeplink preview does same). Record failure logged, never blocks redirect.
 func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	link, err := p.st.GetLinkByKeyGlobal(key)
@@ -75,9 +71,7 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 		serveInterstitial(w, q)
 		return
 	}
-	// Dub mints clickId first, embeds in final URL: click's destination IS
-	// the redirect target (link.ts getFinalUrl). Dedup hit hands back an
-	// earlier click with its own id.
+	// Dub mints clickId first, embeds in final URL: click destination IS redirect target (link.ts getFinalUrl); dedup hit hands back earlier click with its own id
 	clickID := ""
 	if track {
 		clickID = store.Nanoid(16)
@@ -98,9 +92,7 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, dest, http.StatusFound)
 }
 
-// interstitialTmpl: reloads the short link once with screen + timezone
-// appended (no-JS browsers fall through with neither). Accept-CH: Chromium
-// sends device model + OS version on the reload.
+// interstitialTmpl: reloads short link once with screen + timezone appended (no-JS browsers fall through with neither); Accept-CH: Chromium sends device model + OS version on reload
 var interstitialTmpl = template.Must(template.New("i").Parse(`<!doctype html>
 <meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width">
 <noscript><meta http-equiv="refresh" content="0;url={{.}}"></noscript>
@@ -125,9 +117,7 @@ func serveInterstitial(w http.ResponseWriter, q url.Values) {
 	_ = interstitialTmpl.Execute(w, "?"+next.Encode())
 }
 
-// fingerprint: click-time device signals — IP, device model (client hint,
-// else UA), OS version hint, first Accept-Language tag, user-agent,
-// screen/timezone/pasted_link from the interstitial.
+// fingerprint: click-time device signals — IP, device model (client hint, else UA), OS version hint, first Accept-Language tag, user-agent, screen/timezone/pasted_link from interstitial
 func fingerprint(r *http.Request, q url.Values) store.Fingerprint {
 	locale := ""
 	if al := r.Header.Get("Accept-Language"); al != "" {

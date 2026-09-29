@@ -5,11 +5,7 @@ import {
 } from "@swmansion/react-native-detour";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-// Home screen. Exercises the patched endpoints:
-// - match-link: DetourProvider -> getDeferredLink on first launch (below).
-// - analytics/event + retention: DetourAnalytics buttons (below).
-// - resolve-short + universal-link-click: handled in +native-intent.tsx when a
-//   self-host link opens the app.
+// Home screen. Exercises patched endpoints: match-link (DetourProvider -> getDeferredLink, first launch), analytics/event + retention (DetourAnalytics buttons), resolve-short + universal-link-click (+native-intent.tsx, self-host link opens app).
 export default function Home() {
   const { isLinkProcessed, link, clearLink } = useDetourContext();
 

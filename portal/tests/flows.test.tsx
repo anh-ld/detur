@@ -90,7 +90,7 @@ describe('portal client flows', () => {
     const appId = (within(dlg).getByDisplayValue(/^[A-Za-z0-9]{21}$/) as HTMLInputElement).value;
     within(dlg).getByRole('button', { name: 'Copy API key' });
 
-    // copy feedback: the ghost button flashes "Copied"
+    // copy feedback: ghost button flashes "Copied"
     fireEvent.click(within(dlg).getByRole('button', { name: 'Copy API key' }));
     await waitFor(() => within(dlg).getByRole('button', { name: 'Copied' }));
 
@@ -205,7 +205,7 @@ describe('portal client flows', () => {
     });
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Save', exact: true }));
 
-    // list reloads; the fresh card carries the badge
+    // list reloads; fresh card carries badge
     await waitFor(() => screen.getByText('iOS', { exact: true }));
     expect((await api.getApp(app.id)).iosAppId).toBe('ABCDE12345.com.example.app');
     await api.deleteApp(app.id);

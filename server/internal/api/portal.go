@@ -1,12 +1,10 @@
 package api
 
-// Portal: apps/links CRUD, matching settings, click/install readout, and
-// static hosting of the kinu-built portal UI. No identity checks; every
-// route is wrapped in the origin/host guard instead (DNS-rebinding + CSRF
-// protection; the portal listener is loopback by default).
+// Portal: apps/links CRUD, matching settings, click/install readout, static
+// hosting of kinu-built portal UI. No identity checks; every route wrapped in
+// origin/host guard (DNS-rebinding + CSRF; portal listener loopback by default).
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -24,22 +22,17 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// Portal matching defaults come from the store's exported defaults; the
-// settings table overrides them at runtime.
+// portal matching defaults come from store's exported defaults; settings table overrides at runtime.
 type portalServer struct {
 	st  *store.Store
 	log *log.Logger
 	dir string // portal static dir (built UI)
 }
 
-// RegisterPortal builds the portal handler: apps/links CRUD, settings, and
-// readout routes, plus the static UI served from staticDir (missing files or
-// a missing dir 404 plain text, never a crash). The whole mux is wrapped in
-// the origin/host guard. allowedHosts holds the portal listener's own
-// listen address;
-// loopback is always accepted. A Host or Origin outside those is rejected
-// with 403. No auth: access control is delegated to a zero-trust boundary
-// in front of this listener.
+// RegisterPortal builds portal handler: apps/links CRUD, settings, readout routes, plus static UI
+// from staticDir (missing files/dir 404 plain text, never crash). Mux wrapped in origin/host guard;
+// allowedHosts = listener's own address, loopback always accepted, others 403. No auth: access control
+// delegated to zero-trust boundary in front of listener.
 func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) http.Handler {
 	p := &portalServer{st: st, log: log.Default(), dir: staticDir}
 	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
@@ -64,10 +57,7 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) ht
 	return guard(mux, allowedHosts)
 }
 
-// guard wraps the portal mux with the origin/host check: requests whose
-// Host is not loopback or an allowed host, and requests carrying an Origin
-// header that names a different host, get 403. This is the DNS-rebinding +
-// CSRF guard; there are no identity checks.
+// guard wraps portal mux with origin/host check: non-loopback/unallowed Host, or Origin naming different host, 403. DNS-rebinding + CSRF guard; no identity checks.
 func guard(next http.Handler, allowedHosts []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !hostAllowed(r.Host, allowedHosts) {
@@ -82,10 +72,7 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 	})
 }
 
-// hostAllowed reports whether the request Host is loopback or one of the
-// allowed hosts (the portal listener's own address + configured tunnel
-// hosts). Hostnames are compared without the port so a published/zero-trust
-// port in front of the portal still passes.
+// hostAllowed: request Host loopback or one of allowed hosts (listener's own address + tunnel hosts). Hostnames compared without port: published/zero-trust port in front still passes.
 func hostAllowed(host string, allowedHosts []string) bool {
 	h := hostnameOf(host)
 	if h == "127.0.0.1" || h == "::1" || h == "localhost" {
@@ -99,9 +86,7 @@ func hostAllowed(host string, allowedHosts []string) bool {
 	return false
 }
 
-// originAllowed reports whether an Origin header (scheme://host[:port])
-// names loopback or an allowed host. Missing Origins (curl, same-origin GETs
-// without CORS preflight) pass the guard untouched.
+// originAllowed: Origin header (scheme://host[:port]) names loopback or allowed host. Missing Origins (curl, same-origin GETs without CORS preflight) pass guard untouched.
 func originAllowed(origin string, allowedHosts []string) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
@@ -110,8 +95,7 @@ func originAllowed(origin string, allowedHosts []string) bool {
 	return hostAllowed(u.Host, allowedHosts)
 }
 
-// hostnameOf extracts the lowercase hostname from "host[:port]" (bracket-
-// tolerant for IPv6; a bare IPv6 like "::1" has no port to strip).
+// hostnameOf: lowercase hostname from "host[:port]" (bracket-tolerant for IPv6; bare IPv6 like "::1" has no port to strip).
 func hostnameOf(host string) string {
 	h := strings.ToLower(strings.TrimSpace(host))
 	if host, _, err := net.SplitHostPort(h); err == nil {
@@ -120,9 +104,7 @@ func hostnameOf(host string) string {
 	return strings.Trim(h, "[]")
 }
 
-// appJSON is the wire shape for apps. API keys are never included, only the
-// hash; the plaintext key appears in exactly one response: the create call
-// (show-once semantics).
+// appJSON: wire shape for apps. API keys never included, only hash; plaintext key appears in exactly one response: create call (show-once semantics).
 type appJSON struct {
 	ID                     string `json:"id"`
 	Name                   string `json:"name"`
@@ -137,7 +119,7 @@ func toAppJSON(a store.App) appJSON {
 		IOSAppID: a.IOSAppID, AndroidPackage: a.AndroidPackage, AndroidCertFingerprint: a.AndroidCertFingerprint}
 }
 
-// linkJSON is the wire shape for links.
+// linkJSON: wire shape for links.
 type linkJSON struct {
 	ID            string `json:"id"`
 	AppID         string `json:"appId"`
@@ -162,8 +144,7 @@ func toLinkJSON(l store.Link) linkJSON {
 	return j
 }
 
-// linkBody is the portal link payload (create and update share it). Omitted
-// update fields stay unchanged; zero numeric values restore global matching.
+// linkBody: portal link payload (create + update share it). Omitted update fields unchanged; zero numeric values restore global matching.
 type linkBody struct {
 	Key           string  `json:"key"`
 	URL           string  `json:"url"`
@@ -214,7 +195,7 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -230,15 +211,13 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 		p.internal(w, err)
 		return
 	}
-	// Show-once semantics: the plaintext key rides this one response; every
-	// later read returns only the hash.
+	// show-once semantics: plaintext key rides this one response; later reads return only hash
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{
 		"id": a.ID, "name": a.Name, "apiKey": apiKey, "apiKeyHash": a.APIKeyHash,
 	})
 }
 
-// rotateAppKey mints a new key and swaps the stored hash; the old key dies
-// immediately. The plaintext rides this one response, like create.
+// rotateAppKey mints new key, swaps stored hash; old key dies immediately. Plaintext rides this one response, like create.
 func (p *portalServer) rotateAppKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	apiKey := "dk_" + store.Nanoid(21)
@@ -260,7 +239,7 @@ func (p *portalServer) rotateAppKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// revokeAppKey clears the stored hash: the SDK stops accepting the key.
+// revokeAppKey clears stored hash: SDK stops accepting key.
 func (p *portalServer) revokeAppKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := p.st.ClearAppKey(id); err != nil {
@@ -280,7 +259,7 @@ func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 		AndroidPackage         string `json:"androidPackage"`
 		AndroidCertFingerprint string `json:"androidCertFingerprint"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -321,7 +300,7 @@ func (p *portalServer) listLinks(w http.ResponseWriter, r *http.Request) {
 func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	var body linkBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -331,8 +310,7 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key and url are required", http.StatusBadRequest)
 		return
 	}
-	// Short keys live in the URL path: restrict to path-safe characters so
-	// a key can never shadow a registered route or break the pipeline.
+	// short keys live in URL path: restrict to path-safe characters, key never shadows registered route or breaks pipeline
 	if !linkKeyRe.MatchString(body.Key) || isReservedKey(body.Key) {
 		http.Error(w, "key must be 1-64 chars of [A-Za-z0-9_-], not starting with _", http.StatusBadRequest)
 		return
@@ -364,9 +342,7 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		// The links.app_id FK rejects unknown apps; an absent app reads as
-		// not-found so the portal can tell the difference (no pre-check: the
-		// FK is the single source of truth).
+		// links.app_id FK rejects unknown apps; absent app reads as not-found, portal tells difference (no pre-check: FK is single source of truth)
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -385,7 +361,7 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body linkBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -436,8 +412,7 @@ func (p *portalServer) deleteLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// getSettings reads the matching defaults from the settings table, falling
-// back to the store defaults.
+// getSettings: matching defaults from settings table, falling back to store defaults.
 func (p *portalServer) getSettings(w http.ResponseWriter, r *http.Request) {
 	threshold, err := p.st.IntSetting(settingThreshold, store.DefaultThreshold)
 	if err != nil {
@@ -452,14 +427,13 @@ func (p *portalServer) getSettings(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]int{"threshold": threshold, "windowMinutes": window})
 }
 
-// updateSettings persists the matching defaults; absent/zero fields keep the
-// stored value. The response reflects the effective (stored) settings.
+// updateSettings persists matching defaults; absent/zero fields keep stored value. Response reflects effective (stored) settings.
 func (p *portalServer) updateSettings(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Threshold     int `json:"threshold"`
 		WindowMinutes int `json:"windowMinutes"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -485,9 +459,7 @@ func (p *portalServer) updateSettings(w http.ResponseWriter, r *http.Request) {
 	p.getSettings(w, r)
 }
 
-// readout serves the app-level click/install counts: clicks, organic and
-// non-organic installs. Unknown-attribution rows (backend errors) are
-// excluded by the store's counts.
+// readout serves app-level click/install counts: clicks, organic + non-organic installs. Unknown-attribution rows (backend errors) excluded by store's counts.
 func (p *portalServer) readout(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	if _, err := p.st.GetApp(appID); err != nil {
@@ -509,14 +481,12 @@ func (p *portalServer) readout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// static serves the built portal from the configured directory. A missing
-// dir or file 404s as plain text (FileServer); the server keeps running.
+// static serves built portal from configured directory. Missing dir/file 404s plain text (FileServer); server keeps running.
 func (p *portalServer) static(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.Dir(p.dir)).ServeHTTP(w, r)
 }
 
-// validateMatch rejects out-of-range matching settings; zero values mean
-// "use the default/stored value" and pass.
+// validateMatch rejects out-of-range matching settings; zero values mean "use the default/stored value" and pass.
 func validateMatch(threshold, windowMinutes int) error {
 	if threshold != 0 && (threshold < match.MinThreshold || threshold > match.MaxThreshold) {
 		return fmt.Errorf("threshold out of range %d..%d", match.MinThreshold, match.MaxThreshold)
@@ -552,11 +522,10 @@ func (p *portalServer) internal(w http.ResponseWriter, err error) {
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
-// linkKeyRe is the short-link key charset (URL-path-safe, single segment).
+// linkKeyRe: short-link key charset (URL-path-safe, single segment).
 var linkKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// isReservedKey: reject keys shadowing registered routes (keys match
-// case-insensitively) or the "_" prefix Dub reserves (_root).
+// isReservedKey: reject keys shadowing registered routes (case-insensitive match) or "_" prefix Dub reserves (_root).
 func isReservedKey(key string) bool {
 	key = strings.ToLower(key)
 	switch key {

@@ -1,9 +1,8 @@
 package pipeline
 
-// Well-known hosting: the platform association files per app, Apple App
-// Site Association (iOS Universal Links) and assetlinks.json (Android App
-// Links), served under the operator's configured domains. Hosts outside the
-// domain set get 404.
+// Well-known hosting: platform association files per app — Apple App Site
+// Association (iOS Universal Links), assetlinks.json (Android App Links),
+// served under operator's configured domains. Hosts outside domain set get 404.
 
 import (
 	"net"
@@ -14,25 +13,22 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// wellKnownServer serves the .well-known routes.
+// wellKnownServer serves .well-known routes.
 type wellKnownServer struct {
 	st      *store.Store
 	domains []string
 }
 
-// RegisterWellKnown attaches the well-known routes to mux. Their literal
-// patterns are more specific than the pipeline's GET /{key}, so they win for
-// these paths. domains is the configured domain set (config.DomainSet);
-// hosts outside it get 404 so one instance never serves another operator's
-// configured domain.
+// RegisterWellKnown attaches well-known routes to mux; literal patterns more specific
+// than pipeline's GET /{key}, win for these paths. domains = configured domain set
+// (config.DomainSet); hosts outside get 404, one instance never serves another operator's configured domain.
 func RegisterWellKnown(mux *http.ServeMux, st *store.Store, domains []string) {
 	w := &wellKnownServer{st: st, domains: domains}
 	mux.HandleFunc("GET /.well-known/apple-app-site-association", w.handleAASA)
 	mux.HandleFunc("GET /.well-known/assetlinks.json", w.handleAssetLinks)
 }
 
-// aasaPayload is the Apple App Site Association shape: one details entry
-// per app with an ios_app_id; apps always stays an empty array.
+// aasaPayload: Apple App Site Association shape — one details entry per app with an ios_app_id; apps always stays empty array
 type aasaPayload struct {
 	AppLinks aasaAppLinks `json:"applinks"`
 }
@@ -42,8 +38,7 @@ type aasaAppLinks struct {
 	Details []aasaDetails `json:"details"`
 }
 
-// aasaDetails: both AASA formats — appID+paths for iOS 12 and earlier,
-// appIDs+components for iOS 13+.
+// aasaDetails: both AASA formats — appID+paths for iOS 12 and earlier, appIDs+components for iOS 13+
 type aasaDetails struct {
 	AppID      string              `json:"appID"`
 	Paths      []string            `json:"paths"`
@@ -51,7 +46,7 @@ type aasaDetails struct {
 	Components []map[string]string `json:"components"`
 }
 
-// assetlinkEntry is one Android assetlinks.json entry.
+// assetlinkEntry: one Android assetlinks.json entry.
 type assetlinkEntry struct {
 	Relation []string        `json:"relation"`
 	Target   assetlinkTarget `json:"target"`
@@ -63,9 +58,8 @@ type assetlinkTarget struct {
 	SHA256CertFingerprints []string `json:"sha256_cert_fingerprints"`
 }
 
-// handleAASA: iOS association file — one details entry per app carrying an
-// ios_app_id. Single iOS app claims every path; with several, each claims
-// only its own link keys — iOS routes a URL to the first entry that matches.
+// handleAASA: iOS association file — one details entry per app carrying ios_app_id.
+// Single iOS app claims every path; several: each claims own link keys — iOS routes URL to first matching entry.
 func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 	if !w.allowedHost(r) {
 		http.NotFound(rw, r)
@@ -105,10 +99,9 @@ func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(rw, http.StatusOK, payload)
 }
 
-// handleAssetLinks serves the Android association file: one entry per app
-// that carries an android_package AND a cert fingerprint. fingerprint field
-// may list several comma-separated values (upload key + Play app signing
-// key).
+// handleAssetLinks serves Android association file: one entry per app carrying
+// android_package AND cert fingerprint; fingerprint field may list several
+// comma-separated values (upload key + Play app signing key)
 func (w *wellKnownServer) handleAssetLinks(rw http.ResponseWriter, r *http.Request) {
 	if !w.allowedHost(r) {
 		http.NotFound(rw, r)
@@ -147,9 +140,7 @@ func splitList(s string) []string {
 	return out
 }
 
-// allowedHost reports whether the request Host is in the configured domain
-// set. Ports and leading "www." stripped (Dub parse.ts); comparison
-// case-insensitive.
+// allowedHost: request Host in configured domain set? Ports and leading "www." stripped (Dub parse.ts); comparison case-insensitive
 func (w *wellKnownServer) allowedHost(r *http.Request) bool {
 	host := strings.TrimPrefix(strings.ToLower(hostnameOnly(r.Host)), "www.")
 	for _, d := range w.domains {

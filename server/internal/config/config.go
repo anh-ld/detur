@@ -7,8 +7,7 @@ import (
 	"strconv"
 )
 
-// Config holds runtime configuration, read from exactly four env vars:
-// DOMAIN, DB_PATH, RETENTION_HOURS, TRUST_PROXY.
+// Config: runtime configuration from exactly four env vars: DOMAIN, DB_PATH, RETENTION_HOURS, TRUST_PROXY.
 type Config struct {
 	Domain         string // public domain for links, well-known, redirects
 	DBPath         string
@@ -16,7 +15,7 @@ type Config struct {
 	TrustProxy     bool // honor X-Forwarded-For (only behind a trusted proxy)
 }
 
-// Load reads configuration from the environment with sensible defaults.
+// Load: configuration from environment, sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
 		Domain:         envOr("DOMAIN", "localhost"),
@@ -38,8 +37,7 @@ func envOr(key, def string) string {
 	return def
 }
 
-// envIntRange parses an int env var; out-of-range or malformed values fail
-// fast with a clear error so a misconfigured deploy never runs silently.
+// envIntRange: int env var; out-of-range or malformed values fail fast with clear error, misconfigured deploy never runs silently.
 func envIntRange(key string, def, min, max int) (int, error) {
 	v := os.Getenv(key)
 	if v == "" {

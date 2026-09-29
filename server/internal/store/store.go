@@ -1,9 +1,8 @@
 // Package store persists detur state in SQLite (WAL mode).
 //
-// Attribution values: organic | non_organic | unknown (backend-error path).
-// Clicks carry expires_at = max(configured window, retention floor);
-// deterministic clickId lookups skip the window filter (deterministic match
-// has no window).
+// Attribution: organic | non_organic | unknown (backend-error path). Clicks carry
+// expires_at = max(configured window, retention floor); deterministic clickId
+// lookups skip the window filter (deterministic match has no window).
 package store
 
 import (
@@ -25,25 +24,24 @@ import (
 var schemaSQL string
 
 const (
-	// AttributionOrganic marks an install with no matched click.
+	// AttributionOrganic: install with no matched click.
 	AttributionOrganic = "organic"
-	// AttributionNonOrganic marks an install matched to a click.
+	// AttributionNonOrganic: install matched to a click.
 	AttributionNonOrganic = "non_organic"
-	// AttributionUnknown marks a backend-error path: logged, not surfaced in readout.
+	// AttributionUnknown: backend-error path (logged, not surfaced in readout).
 	AttributionUnknown = "unknown"
 )
 
-// ErrNotFound is returned when a requested row does not exist.
+// ErrNotFound: requested row does not exist.
 var ErrNotFound = errors.New("not found")
 var ErrKeyConflict = errors.New("short key already exists")
 var ErrAmbiguousKey = errors.New("short key is ambiguous")
 
-// Store wraps a SQLite database.
 type Store struct {
 	db *sql.DB
 }
 
-// Open opens (creating if needed) the SQLite database at path.
+// Open: open SQLite database at path, creating if needed.
 func Open(path string) (*Store, error) {
 	sep := "?"
 	if strings.Contains(path, "?") {
@@ -73,32 +71,28 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// Close closes the underlying database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// Ping verifies the database answers a trivial query (healthcheck probe).
+// Ping: database answers trivial query (healthcheck probe).
 func (s *Store) Ping() error {
 	var one int
 	return s.db.QueryRow(`SELECT 1`).Scan(&one)
 }
 
-// Matching defaults, applied when no settings are stored; the portal edits
-// threshold/window through the settings table.
+// Matching defaults when no settings stored; portal edits threshold/window via settings table.
 const (
 	DefaultThreshold     = 850
 	DefaultWindowMinutes = 15
 	RetentionFloorHours  = 24
 )
 
-// HashKey returns the SHA-256 hex digest of an API key (hash-at-rest).
+// HashKey: SHA-256 hex digest of API key (hash-at-rest).
 func HashKey(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:])
 }
 
-// App is a registered application holding links and API keys. Trailing
-// fields carry the well-known hosting details: iOS appID
-// (TEAMID.BUNDLEID), Android package + SHA-256 cert fingerprint.
+// App: registered app holding links + API keys; trailing fields carry well-known hosting details: iOS appID (TEAMID.BUNDLEID), Android package + SHA-256 cert fingerprint.
 type App struct {
 	ID                     string
 	Name                   string
@@ -108,8 +102,7 @@ type App struct {
 	AndroidCertFingerprint string
 }
 
-// CreateApp inserts an app and returns it. apiKey returns to the caller
-// only once, from the portal; only its hash is stored.
+// CreateApp: insert app; apiKey returned once from portal, only hash stored.
 func (s *Store) CreateApp(name, apiKey string) (App, error) {
 	id := Nanoid(21)
 	hash := HashKey(apiKey)
@@ -121,7 +114,7 @@ func (s *Store) CreateApp(name, apiKey string) (App, error) {
 	return App{ID: id, Name: name, APIKeyHash: hash}, nil
 }
 
-// GetApp returns the app by id, including the well-known hosting details.
+// GetApp: app by id incl. well-known hosting details.
 func (s *Store) GetApp(id string) (App, error) {
 	var a App
 	err := s.db.QueryRow(
@@ -137,9 +130,7 @@ func (s *Store) GetApp(id string) (App, error) {
 	return a, nil
 }
 
-// UpdateAppDetails sets the app's well-known hosting details. Empty strings
-// clear the corresponding field (nullable columns). ErrNotFound when the app
-// is unknown.
+// UpdateAppDetails: set hosting details; empty string clears field (nullable columns); ErrNotFound if app unknown.
 func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint string) error {
 	res, err := s.db.Exec(
 		`UPDATE apps SET ios_app_id = ?, android_package = ?, android_cert_fingerprint = ? WHERE id = ?`,
@@ -154,7 +145,7 @@ func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint s
 	return nil
 }
 
-// DeleteApp removes an app; its links cascade (schema ON DELETE CASCADE).
+// DeleteApp: remove app; links cascade (schema ON DELETE CASCADE).
 func (s *Store) DeleteApp(id string) error {
 	res, err := s.db.Exec(`DELETE FROM apps WHERE id = ?`, id)
 	if err != nil {
@@ -166,7 +157,6 @@ func (s *Store) DeleteApp(id string) error {
 	return nil
 }
 
-// ListApps returns all apps.
 func (s *Store) ListApps() ([]App, error) {
 	rows, err := s.db.Query(
 		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, '')
@@ -186,8 +176,7 @@ func (s *Store) ListApps() ([]App, error) {
 	return apps, rows.Err()
 }
 
-// UpdateAppKey replaces the app's API key hash (rotation); the previous key
-// stops working immediately.
+// UpdateAppKey: replace API key hash (rotation); previous key stops working immediately.
 func (s *Store) UpdateAppKey(id, apiKey string) error {
 	res, err := s.db.Exec(`UPDATE apps SET api_key_hash = ? WHERE id = ?`, HashKey(apiKey), id)
 	if err != nil {
@@ -199,7 +188,7 @@ func (s *Store) UpdateAppKey(id, apiKey string) error {
 	return nil
 }
 
-// ClearAppKey removes the app's API key (revocation): SDK auth then fails.
+// ClearAppKey: remove API key (revocation); SDK auth fails.
 func (s *Store) ClearAppKey(id string) error {
 	res, err := s.db.Exec(`UPDATE apps SET api_key_hash = '' WHERE id = ?`, id)
 	if err != nil {
@@ -211,7 +200,7 @@ func (s *Store) ClearAppKey(id string) error {
 	return nil
 }
 
-// ValidateAPIKey reports whether the key matches the app's stored hash.
+// ValidateAPIKey: key matches app's stored hash.
 func (s *Store) ValidateAPIKey(appID, apiKey string) (bool, error) {
 	var hash string
 	err := s.db.QueryRow(`SELECT api_key_hash FROM apps WHERE id = ?`, appID).Scan(&hash)
@@ -224,7 +213,7 @@ func (s *Store) ValidateAPIKey(appID, apiKey string) (bool, error) {
 	return hash == HashKey(apiKey), nil
 }
 
-// Link is a short link under an app.
+// Link: short link under an app.
 type Link struct {
 	ID            string
 	AppID         string
@@ -239,14 +228,12 @@ type Link struct {
 	ExpiredURL    string     // redirect target once expired; empty = 410
 }
 
-// Expired: link past its expiry.
+// Expired: link past expiry.
 func (l Link) Expired(now time.Time) bool {
 	return l.ExpiresAt != nil && now.After(*l.ExpiresAt)
 }
 
-// CreateLink inserts a link. Threshold/window 0 = "unset": the matching
-// engine and click expiry then fall back to the global settings; a link
-// overrides only when explicitly set.
+// CreateLink: insert link. Threshold/window 0 = "unset": matching engine + click expiry fall back to global settings; link overrides only when explicitly set.
 func (s *Store) CreateLink(l Link) (Link, error) {
 	if l.ID == "" {
 		l.ID = Nanoid(16)
@@ -269,7 +256,7 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 		l.Threshold, l.WindowMinutes, nullTime(l.ExpiresAt), nullStr(l.ExpiredURL),
 	)
 	if err != nil {
-		// An unknown app_id hits the FK; the portal treats it as 404.
+		// Unknown app_id hits FK; portal treats it as 404.
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
 			return Link{}, ErrNotFound
 		}
@@ -281,7 +268,6 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 	return l, nil
 }
 
-// GetLinkByKey returns the link with the given key under the app.
 func (s *Store) GetLinkByKey(appID, key string) (Link, error) {
 	return scanLink(s.db.QueryRow(
 		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes, COALESCE(expires_at, ''), COALESCE(expired_url, '')
@@ -289,8 +275,7 @@ func (s *Store) GetLinkByKey(appID, key string) (Link, error) {
 	))
 }
 
-// GetLinkByKeyGlobal resolves a short key across all apps. Historic duplicates
-// fail closed rather than silently sending traffic to the wrong app.
+// GetLinkByKeyGlobal: resolve short key across all apps; historic duplicates fail closed, no silent traffic to wrong app.
 func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
 	rows, err := s.db.Query(
 		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes, COALESCE(expires_at, ''), COALESCE(expired_url, '')
@@ -316,7 +301,6 @@ func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
 	return l, rows.Err()
 }
 
-// GetLink returns the link by id.
 func (s *Store) GetLink(id string) (Link, error) {
 	return scanLink(s.db.QueryRow(
 		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes, COALESCE(expires_at, ''), COALESCE(expired_url, '')
@@ -324,7 +308,6 @@ func (s *Store) GetLink(id string) (Link, error) {
 	))
 }
 
-// ListLinks returns all links under the app.
 func (s *Store) ListLinks(appID string) ([]Link, error) {
 	rows, err := s.db.Query(
 		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), threshold, window_minutes, COALESCE(expires_at, ''), COALESCE(expired_url, '')
@@ -345,7 +328,7 @@ func (s *Store) ListLinks(appID string) ([]Link, error) {
 	return links, rows.Err()
 }
 
-// UpdateLink updates mutable link fields.
+// UpdateLink: update mutable link fields.
 func (s *Store) UpdateLink(l Link) error {
 	res, err := s.db.Exec(
 		`UPDATE links SET url = ?, ios = ?, android = ?, fallback_url = ?, threshold = ?, window_minutes = ?, expires_at = ?, expired_url = ?
@@ -362,7 +345,6 @@ func (s *Store) UpdateLink(l Link) error {
 	return nil
 }
 
-// DeleteLink removes a link.
 func (s *Store) DeleteLink(id string) error {
 	res, err := s.db.Exec(`DELETE FROM links WHERE id = ?`, id)
 	if err != nil {
@@ -402,9 +384,7 @@ func nullTime(t *time.Time) any {
 	return rfc3339(*t)
 }
 
-// Fingerprint is the device signal set captured at click time (IP, device,
-// locale, timezone, screen, user-agent, pasted link) and matched against the
-// first-launch fingerprint.
+// Fingerprint: device signal set captured at click time (IP, device, locale, timezone, screen, user-agent, pasted link), matched against first-launch fingerprint.
 type Fingerprint struct {
 	IP         string
 	Device     string
@@ -416,7 +396,6 @@ type Fingerprint struct {
 	PastedLink string
 }
 
-// Click is a recorded click on a short link.
 type Click struct {
 	ID          string
 	AppID       string
@@ -429,15 +408,10 @@ type Click struct {
 	ExpiresAt   time.Time
 }
 
-// clickDedupWindow: mirrors Dub's recordClickCache — one click per link and
-// device (IP + user agent) per hour.
+// clickDedupWindow: mirrors Dub's recordClickCache — one click per link + device (IP + user agent) per hour.
 const clickDedupWindow = time.Hour
 
-// RecordClick: persist a click, or return the existing click when the same
-// device (IP + user agent) clicked the same link within the last hour (Dub
-// record-click-cache) — repeat taps keep one clickId. Expiry = max(configured
-// window, retention floor), so deterministic lookups survive beyond the
-// probabilistic window.
+// RecordClick: persist click, or existing click when same device (IP + user agent) clicked same link within last hour (Dub record-click-cache); repeat taps keep one clickId. Expiry = max(configured window, retention floor), deterministic lookups survive beyond probabilistic window.
 func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, error) {
 	window := time.Duration(windowMinutes) * time.Minute
 	floor := time.Duration(retentionHours) * time.Hour
@@ -465,9 +439,7 @@ func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, 
 	if c.ID == "" {
 		c.ID = Nanoid(16)
 	}
-	// The id handed to clients (rec.ID, Android Play referrer, universal-link
-	// clickId) is the deterministic match key: default click_id to it so
-	// ClickByClickID can resolve what the SDK sends back.
+	// id handed to clients (rec.ID, Android Play referrer, universal-link clickId) is the deterministic match key: default click_id to it so ClickByClickID resolves SDK echo.
 	if c.ClickID == "" {
 		c.ClickID = c.ID
 	}
@@ -494,23 +466,20 @@ func (s *Store) RecordClick(c Click, windowMinutes, retentionHours int) (Click, 
 
 const clickCols = `id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(os_version, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at`
 
-// GetClick returns a click by id.
 func (s *Store) GetClick(id string) (Click, error) {
 	return scanClick(s.db.QueryRow(
 		`SELECT `+clickCols+` FROM clicks WHERE id = ?`, id,
 	))
 }
 
-// ClickByClickID finds a click by deterministic clickId (no window filter:
-// deterministic matching has no window; the retention floor governs expiry,
-// so expired-but-unpurged rows no longer resolve).
+// ClickByClickID: click by deterministic clickId (no window filter — deterministic match has no window; retention floor governs expiry, so expired-but-unpurged rows no longer resolve).
 func (s *Store) ClickByClickID(appID, clickID string) (Click, error) {
 	return scanClick(s.db.QueryRow(
 		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND click_id = ? AND expires_at >= ?`, appID, clickID, rfc3339(time.Now()),
 	))
 }
 
-// ClicksSince returns non-bot clicks created at or after since (window scan).
+// ClicksSince: non-bot clicks created at or after since (window scan).
 func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	rows, err := s.db.Query(
 		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND is_bot = 0 AND created_at >= ? ORDER BY created_at DESC`,
@@ -531,48 +500,28 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	return clicks, rows.Err()
 }
 
-// LinkThresholds returns per-link matching thresholds as a map from link id
-// to threshold; links without an explicit threshold are absent.
-func (s *Store) LinkThresholds(appID string) (map[string]int, error) {
-	rows, err := s.db.Query(`SELECT id, threshold FROM links WHERE app_id = ?`, appID)
+// LinkMatchOverrides: per-link match overrides in one query; thresholds + windows keyed by link id; zero/absent = global setting.
+func (s *Store) LinkMatchOverrides(appID string) (thresholds, windows map[string]int, err error) {
+	rows, err := s.db.Query(`SELECT id, threshold, window_minutes FROM links WHERE app_id = ?`, appID)
 	if err != nil {
-		return nil, fmt.Errorf("link thresholds: %w", err)
+		return nil, nil, fmt.Errorf("link match overrides: %w", err)
 	}
 	defer rows.Close()
-	byLink := map[string]int{}
+	thresholds = map[string]int{}
+	windows = map[string]int{}
 	for rows.Next() {
 		var id string
-		var t int
-		if err := rows.Scan(&id, &t); err != nil {
-			return nil, err
+		var threshold, window int
+		if err := rows.Scan(&id, &threshold, &window); err != nil {
+			return nil, nil, err
 		}
-		byLink[id] = t
+		thresholds[id] = threshold
+		windows[id] = window
 	}
-	return byLink, rows.Err()
+	return thresholds, windows, rows.Err()
 }
 
-// LinkWindows returns per-link match windows; zero means use the global value.
-func (s *Store) LinkWindows(appID string) (map[string]int, error) {
-	rows, err := s.db.Query(`SELECT id, window_minutes FROM links WHERE app_id = ?`, appID)
-	if err != nil {
-		return nil, fmt.Errorf("link windows: %w", err)
-	}
-	defer rows.Close()
-	byLink := map[string]int{}
-	for rows.Next() {
-		var id string
-		var minutes int
-		if err := rows.Scan(&id, &minutes); err != nil {
-			return nil, err
-		}
-		byLink[id] = minutes
-	}
-	return byLink, rows.Err()
-}
-
-// PurgeExpired deletes clicks past their expiry and events older than the
-// retention floor, returning the total rows removed. Retention governs both
-// tables; events get the same treatment.
+// PurgeExpired: delete clicks past expiry + events older than retention floor; return total rows removed; retention governs both tables.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
 	res, err := s.db.Exec(`DELETE FROM clicks WHERE expires_at < ?`, rfc3339(now))
@@ -623,7 +572,6 @@ func scanClickRows(row rowScanner) (Click, error) {
 	return c, nil
 }
 
-// Install is an install attribution record.
 type Install struct {
 	ID          string
 	AppID       string
@@ -633,9 +581,7 @@ type Install struct {
 	CreatedAt   time.Time
 }
 
-// RecordInstall upserts an install attribution idempotently per app, device,
-// and click. Empty click_id marks organic/unknown installs and is deduped per
-// app and device too.
+// RecordInstall: upsert install attribution idempotently per app, device, click; empty click_id marks organic/unknown installs, deduped per app + device too.
 func (s *Store) RecordInstall(i Install) (Install, error) {
 	if i.ID == "" {
 		i.ID = Nanoid(16)
@@ -651,7 +597,7 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	if err != nil {
 		return Install{}, fmt.Errorf("record install: %w", err)
 	}
-	// Return the stored row (the surviving row on conflict).
+	// Return stored row (surviving row on conflict).
 	var (
 		got       Install
 		createdAt string
@@ -668,7 +614,7 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	return got, nil
 }
 
-// SetSettings persists both matching defaults in one transaction.
+// SetSettings: persist both matching defaults in one transaction.
 func (s *Store) SetSettings(threshold, windowMinutes *string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -686,8 +632,7 @@ func (s *Store) SetSettings(threshold, windowMinutes *string) error {
 	return tx.Commit()
 }
 
-// addMissingColumns: columns introduced after v0.1, added to existing
-// databases (CREATE TABLE IF NOT EXISTS leaves old tables untouched).
+// addMissingColumns: columns introduced after v0.1, added to existing databases (CREATE TABLE IF NOT EXISTS leaves old tables untouched).
 func addMissingColumns(db *sql.DB) error {
 	for _, c := range []struct{ table, column, decl string }{
 		{"links", "expires_at", "TEXT"},
@@ -777,8 +722,7 @@ func migrateInstallUniqueness(db *sql.DB) error {
 	return err
 }
 
-// CountInstalls returns organic and non-organic install counts for an app
-// (readout; unknown excluded).
+// CountInstalls: organic + non-organic install counts for app (readout; unknown excluded).
 func (s *Store) CountInstalls(appID string) (organic, nonOrganic int64, err error) {
 	err = s.db.QueryRow(
 		`SELECT
@@ -790,14 +734,13 @@ func (s *Store) CountInstalls(appID string) (organic, nonOrganic int64, err erro
 	return organic, nonOrganic, err
 }
 
-// CountClicks returns the click count for an app (readout).
+// CountClicks: click count for app (readout).
 func (s *Store) CountClicks(appID string) (int64, error) {
 	var n int64
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE app_id = ?`, appID).Scan(&n)
 	return n, err
 }
 
-// RecordEvent persists an analytics event.
 func (s *Store) RecordEvent(appID, event, metadata string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO events (id, app_id, event, metadata) VALUES (?, ?, ?, ?)`,
@@ -809,14 +752,12 @@ func (s *Store) RecordEvent(appID, event, metadata string) error {
 	return nil
 }
 
-// CountEvents returns the analytics event count for an app.
 func (s *Store) CountEvents(appID string) (int64, error) {
 	var n int64
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE app_id = ?`, appID).Scan(&n)
 	return n, err
 }
 
-// GetSetting returns a stored setting value.
 func (s *Store) GetSetting(key string) (string, bool, error) {
 	var v string
 	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
@@ -829,7 +770,6 @@ func (s *Store) GetSetting(key string) (string, bool, error) {
 	return v, true, nil
 }
 
-// SetSetting stores a setting value.
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO settings (key, value) VALUES (?, ?)
@@ -842,9 +782,7 @@ func (s *Store) SetSetting(key, value string) error {
 	return nil
 }
 
-// IntSetting returns a settings value parsed as an int, falling back to def
-// when the key is missing or unparsable. Only a store read error is
-// returned.
+// IntSetting: settings value parsed as int, falling back to def when key missing or unparsable; only store read error returned.
 func (s *Store) IntSetting(key string, def int) (int, error) {
 	v, ok, err := s.GetSetting(key)
 	if err != nil {
@@ -860,12 +798,12 @@ func (s *Store) IntSetting(key string, def int) (int, error) {
 	return n, nil
 }
 
-// rawExec executes a statement directly (test-only hook for expiry/purge setup).
+// rawExec: execute statement directly (test-only hook for expiry/purge setup).
 func (s *Store) rawExec(q string, args ...any) (sql.Result, error) {
 	return s.db.Exec(q, args...)
 }
 
-// Nanoid returns a crypto-random base62 string of length n (ids, not secrets).
+// Nanoid: crypto-random base62 string of length n (ids, not secrets).
 func Nanoid(n int) string {
 	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 	b := make([]byte, n)
@@ -892,8 +830,7 @@ func boolInt(b bool) int {
 	return 0
 }
 
-// timeLayout: matches SQLite strftime('%Y-%m-%dT%H:%M:%fZ') column defaults
-// — fixed width, stored timestamps compare correctly as text.
+// timeLayout: matches SQLite strftime('%Y-%m-%dT%H:%M:%fZ') column defaults — fixed width, stored timestamps compare correctly as text.
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
 func rfc3339(t time.Time) string {

@@ -1,6 +1,4 @@
-// Package ua shares the user-agent parsing used by matching and the browser
-// pipeline so the two cannot drift: one feeds click-time fingerprint
-// capture, the other scoring.
+// Package ua: user-agent parsing shared by matching and browser pipeline so the two cannot drift: one feeds click-time fingerprint capture, the other scoring.
 package ua
 
 import (
@@ -14,8 +12,7 @@ var (
 	reIOSVersion     = regexp.MustCompile(`(?:iPhone OS|CPU OS) ([\d_.]+)`)
 )
 
-// uaBots: Dub's UA_BOTS list (apps/web/lib/middleware/utils/bots-list.ts),
-// matched case-insensitively as substrings.
+// uaBots: Dub's UA_BOTS list (apps/web/lib/middleware/utils/bots-list.ts), matched case-insensitively as substrings.
 var uaBots = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	"bot", "crawler", "spider", "http", "scraper", "fetch", "curl", "wget", "python", "node", "ruby",
 	"chatgpt", "bluesky", "facebookexternalhit", "meta-externalagent", "meta-externalads",
@@ -32,8 +29,7 @@ var uaBots = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	"deadlinkchecker", "brokenlinkcheck", "xenu", "scrutiny", "powermapper", "siteimprove", "monsido",
 }, "|"))
 
-// uaFalsePositive: Dub's UA_FALSE_POSITIVES — Instagram's webview on Pixel
-// appends "Google/google", which would otherwise trip "google".
+// uaFalsePositive: Dub's UA_FALSE_POSITIVES — Instagram's webview on Pixel appends "Google/google", would otherwise trip "google".
 var uaFalsePositive = regexp.MustCompile(`Google/google\b`)
 
 // IsBotUA: UA matches Dub's bot list.
@@ -41,15 +37,12 @@ func IsBotUA(ua string) bool {
 	return uaBots.MatchString(uaFalsePositive.ReplaceAllString(ua, ""))
 }
 
-// IsBot: Dub's detectBot for browser clicks — ?bot= param, any HEAD
-// request, or a bot UA.
+// IsBot: Dub's detectBot for browser clicks — ?bot= param, any HEAD request, or bot UA.
 func IsBot(r *http.Request) bool {
 	return r.URL.Query().Get("bot") != "" || r.Method == http.MethodHead || IsBotUA(r.UserAgent())
 }
 
-// Platform classifies the browser UA for scoring: "android"/"ios"/"".
-// The Android check is case-sensitive (documented contract); redirect
-// routing uses the case-insensitive IsAndroid instead.
+// Platform: browser UA class for scoring, "android"/"ios"/"". Android check case-sensitive (documented contract); redirect routing uses case-insensitive IsAndroid.
 func Platform(ua string) string {
 	switch {
 	case strings.Contains(ua, "Android"):
@@ -60,7 +53,7 @@ func Platform(ua string) string {
 	return ""
 }
 
-// IsAndroid reports an Android browser UA (case-insensitive; redirect routing).
+// IsAndroid: Android browser UA (case-insensitive; redirect routing).
 func IsAndroid(ua string) bool {
 	return strings.Contains(strings.ToLower(ua), "android")
 }
@@ -71,7 +64,7 @@ func IsIOS(ua string) bool {
 	return strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad") || strings.Contains(ua, "ipod")
 }
 
-// AndroidVersion extracts the Android OS version from a browser UA.
+// AndroidVersion: Android OS version from browser UA.
 func AndroidVersion(ua string) string {
 	m := reAndroidVersion.FindStringSubmatch(ua)
 	if m == nil {
@@ -80,8 +73,7 @@ func AndroidVersion(ua string) string {
 	return m[1]
 }
 
-// IOSVersion extracts the iOS system version from a click UA, normalizing
-// "17_2" to "17.2".
+// IOSVersion: iOS system version from click UA, normalizing "17_2" to "17.2".
 func IOSVersion(ua string) string {
 	m := reIOSVersion.FindStringSubmatch(ua)
 	if m == nil {
@@ -90,11 +82,7 @@ func IOSVersion(ua string) string {
 	return strings.ReplaceAll(m[1], "_", ".")
 }
 
-// AndroidModel extracts the device model token from an Android browser UA:
-// modern "(Linux; Android 14; Pixel 7 Build/...)" -> "Pixel 7"; legacy
-// "(Linux; U; Android 4.4; en-us; GT-I9300 Build/...)" -> "GT-I9300";
-// WebView "(Linux; Android 14; Pixel 7 Build/UP1A; wv)" -> "Pixel 7".
-// Reduced UA "(Linux; Android 10; K)" carries no model -> "".
+// AndroidModel: device model token from Android browser UA: modern "(Linux; Android 14; Pixel 7 Build/...)" -> "Pixel 7"; legacy "(Linux; U; Android 4.4; en-us; GT-I9300 Build/...)" -> "GT-I9300"; WebView "(Linux; Android 14; Pixel 7 Build/UP1A; wv)" -> "Pixel 7"; reduced UA "(Linux; Android 10; K)" carries no model -> "".
 func AndroidModel(ua string) string {
 	i := strings.Index(ua, "Android ")
 	if i < 0 {
@@ -125,8 +113,7 @@ func AndroidModel(ua string) string {
 
 var reLocale = regexp.MustCompile(`^[a-z]{2}(?:[-_][a-zA-Z]{2})?$`)
 
-// DeviceLabel derives the click-time device label (pipeline fingerprint):
-// Android model, else iPhone/iPad/iPod.
+// DeviceLabel: click-time device label (pipeline fingerprint): Android model, else iPhone/iPad/iPod.
 func DeviceLabel(ua string) string {
 	switch {
 	case strings.Contains(ua, "Android"):

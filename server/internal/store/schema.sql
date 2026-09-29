@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS links (
     UNIQUE (app_id, key)
 );
 
+-- Global key resolution (GET /{key} pipeline) and the create-time conflict
+-- check look up links by bare key; the UNIQUE(app_id, key) index cannot serve
+-- a key-only lookup, and the NOCASE comparison needs a matching collation.
+CREATE INDEX IF NOT EXISTS idx_links_key ON links (key COLLATE NOCASE);
+
 CREATE TABLE IF NOT EXISTS clicks (
     id          TEXT PRIMARY KEY,
     app_id      TEXT NOT NULL,
