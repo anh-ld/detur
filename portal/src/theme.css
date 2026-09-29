@@ -18,6 +18,8 @@
   --k-background: 216 40% 98%;
   --k-card: 0 0% 100%;
   --k-popover: 0 0% 100%;
+  --k-destructive: 0 72% 51%;
+  --k-destructive-foreground: 0 0% 100%;
   --k-radius: 0.625rem;
 }
 
@@ -34,25 +36,8 @@ h1, h2, h3 {
 }
 
 main h1 {
-  font-size: 1.75rem !important;
-  letter-spacing: -0.03em;
-}
-
-/* Header: sticky with a blur, full-width hairline */
-header {
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  background: hsl(var(--k-background) / 0.85);
-  backdrop-filter: blur(10px) saturate(1.4);
-  border-bottom: 1px solid hsl(var(--k-border));
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  header {
-    background: hsl(var(--k-background));
-    backdrop-filter: none;
-  }
+  font-size: 2.5rem !important;
+  letter-spacing: -0.035em;
 }
 
 /* Brand mark */
@@ -94,12 +79,9 @@ header [k="button"][variant="secondary"],
   background: hsl(var(--k-muted));
 }
 
-[k="button"][variant="destructive"] {
-  color: hsl(0 68% 45%);
-}
-
-[k="button"][variant="destructive"]:hover {
-  background: hsl(0 75% 95%);
+[k="button"][variant="destructive"]:hover,
+[k="button"][variant="destructive"]:focus-visible {
+  background-color: hsl(0 66% 46%);
 }
 
 [k="button"]:focus-visible {

@@ -33,7 +33,7 @@ export interface Settings {
   windowMinutes: number;
 }
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
@@ -55,6 +55,7 @@ export interface CreatedApp {
 
 export const api = {
   listApps: () => req<App[]>('GET', '/api/apps'),
+  getApp: (id: string) => req<App>('GET', `/api/apps/${id}`),
   createApp: (name: string) => req<CreatedApp>('POST', '/api/apps', { name }),
   rotateKey: (id: string) => req<CreatedApp>('POST', `/api/apps/${id}/rotate-key`),
   revokeKey: (id: string) => req<void>('DELETE', `/api/apps/${id}/key`),

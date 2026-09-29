@@ -411,3 +411,27 @@ func TestPortalCreateLinkDuplicateKey409(t *testing.T) {
 		}
 	}
 }
+
+// Scenario: GET /api/apps/{id} serves one app; unknown ids 404.
+func TestPortalGetApp(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"single"}`, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create app: %d %s", resp.StatusCode, b)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &created)
+
+	resp, b = portalReq(t, portal, "GET", "/api/apps/"+created.ID, "", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"name":"single"`) {
+		t.Fatalf("get app: %d %s", resp.StatusCode, b)
+	}
+
+	resp, _ = portalReq(t, portal, "GET", "/api/apps/nope", "", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("get missing app: %d, want 404", resp.StatusCode)
+	}
+}

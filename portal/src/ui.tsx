@@ -1,10 +1,37 @@
 import { ComponentChildren } from 'preact';
+import { useEffect, useState } from 'preact/hooks';
 import { Button, Dialog } from 'kinu';
 
 // Shared layout bits. Colors are kinu tokens; kinu has no layout primitives.
 export const muted = { color: 'hsl(var(--k-muted-foreground))', fontSize: 14, margin: 0 };
 export const mono = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13 };
 export const row = { display: 'flex', gap: 8, alignItems: 'center' };
+
+export const copyText = async (v: string) => {
+  await navigator.clipboard.writeText(v);
+};
+
+// Copy button: ghost text button, flashes "Copied" for 1.5s after copying.
+export function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      onClick={async () => {
+        await copyText(value);
+        setCopied(true);
+      }}
+    >
+      {copied ? 'Copied' : label}
+    </Button>
+  );
+}
 
 export function closeDialog(id: string) {
   (document.getElementById(id) as HTMLDialogElement | null)?.close();

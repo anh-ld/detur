@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Alert, Button, Card, Field, Input, Label } from 'kinu';
 import { PageHeader, row } from './ui';
 import { api } from './api';
+import { inRange, THRESHOLD, WINDOW } from './matching';
 
 export function SettingsPage() {
   const [threshold, setThreshold] = useState('');
@@ -22,14 +23,24 @@ export function SettingsPage() {
   const save = async () => {
     setError('');
     setSaved(false);
+    if (threshold.trim() === '' || windowMinutes.trim() === '') {
+      setError('threshold and window are required');
+      return;
+    }
     const th = Number(threshold);
     const win = Number(windowMinutes);
     if (!Number.isFinite(th) || !Number.isFinite(win)) {
       setError('threshold and window must be numbers');
       return;
     }
+    if (!inRange(th, THRESHOLD) || !inRange(win, WINDOW)) {
+      setError(`threshold must be ${THRESHOLD.min}–${THRESHOLD.max}, window ${WINDOW.min}–${WINDOW.max} minutes`);
+      return;
+    }
     try {
-      await api.saveSettings({ threshold: th, windowMinutes: win });
+      const s = await api.saveSettings({ threshold: th, windowMinutes: win });
+      setThreshold(String(s.threshold));
+      setWindowMinutes(String(s.windowMinutes));
       setSaved(true);
     } catch (e) {
       setError(String(e));

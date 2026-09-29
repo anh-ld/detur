@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button } from 'kinu';
+import { Button, Separator } from 'kinu';
 import { row } from './ui';
 import { AppsPage } from './apps';
 import { DetailPage } from './detail';
@@ -7,10 +7,15 @@ import { SettingsPage } from './settings';
 
 type Route = { name: 'apps' } | { name: 'detail'; id: string } | { name: 'settings' };
 
-function parseHash(): Route {
-  const h = location.hash;
+export function parseHash(h: string = location.hash): Route {
   const m = h.match(/^#\/apps\/([^/?#]+)/);
-  if (m) return { name: 'detail', id: decodeURIComponent(m[1]) };
+  if (m) {
+    try {
+      return { name: 'detail', id: decodeURIComponent(m[1]) };
+    } catch {
+      // malformed %-encoding in the id: treat as unknown route
+    }
+  }
   if (h.startsWith('#/settings')) return { name: 'settings' };
   return { name: 'apps' };
 }
@@ -28,26 +33,30 @@ export function App() {
   }, []);
 
   const nav = (href: string, label: string, active: boolean) => (
-    <Button size="sm" variant={active ? 'secondary' : 'ghost'} href={href}>
+    <Button
+      size="sm"
+      variant={active ? 'secondary' : 'ghost'}
+      href={href}
+      aria-current={active ? 'page' : undefined}
+    >
       {label}
     </Button>
   );
 
   return (
     <>
-      <header>
-        <div style={{ maxWidth: 1040, margin: '0 auto', padding: '12px 24px', ...row, justifyContent: 'space-between' }}>
-          <div style={{ ...row, gap: 24 }}>
-            <a href="#/" style={{ fontWeight: 700, fontSize: 18, color: 'inherit', textDecoration: 'none' }}>
-              detur
-            </a>
-            <nav style={row}>
-              {nav('#/', 'Apps', route.name !== 'settings')}
-              {nav('#/settings', 'Settings', route.name === 'settings')}
-            </nav>
-          </div>
+      <header style={{ maxWidth: 1040, margin: '0 auto', padding: '12px 24px', ...row, justifyContent: 'space-between' }}>
+        <div style={{ ...row, gap: 24 }}>
+          <a href="#/" style={{ fontWeight: 700, fontSize: 18, color: 'inherit', textDecoration: 'none' }}>
+            detur
+          </a>
+          <nav style={row}>
+            {nav('#/', 'Apps', route.name !== 'settings')}
+            {nav('#/settings', 'Settings', route.name === 'settings')}
+          </nav>
         </div>
       </header>
+      <Separator />
       <main style={{ maxWidth: 1040, margin: '0 auto', padding: '0 24px 64px' }}>
         {route.name === 'apps' && <AppsPage />}
         {route.name === 'detail' && <DetailPage id={route.id} />}

@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Spinner } from 'kinu';
 import { api, App, CreatedApp } from './api';
-import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
+import { closeDialog, ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
 
 export function AppsPage() {
   const [apps, setApps] = useState<App[] | null>(null);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [created, setCreated] = useState<CreatedApp | null>(null);
-  const [copied, setCopied] = useState(''); // '' | 'id' | 'key'
 
   const load = () => {
     api
@@ -21,7 +20,6 @@ export function AppsPage() {
   // Runs when the trigger is clicked, before the dialog opens.
   const resetCreate = () => {
     setCreated(null);
-    setCopied('');
     setName('');
   };
 
@@ -34,15 +32,6 @@ export function AppsPage() {
     } catch (e) {
       setError(String(e));
     }
-  };
-
-  const copy = async (field: 'id' | 'key', v: string) => {
-    await navigator.clipboard.writeText(v);
-    setCopied(field);
-  };
-
-  const copyText = async (v: string) => {
-    await navigator.clipboard.writeText(v);
   };
 
   const del = async (a: App) => {
@@ -81,8 +70,8 @@ export function AppsPage() {
               <Dialog.Close>
                 <Button variant="outline">Done</Button>
               </Dialog.Close>
-              <Button onClick={() => copy('id', created.id)}>{copied === 'id' ? 'Copied' : 'Copy app ID'}</Button>
-              <Button onClick={() => copy('key', created.apiKey)}>{copied === 'key' ? 'Copied' : 'Copy key'}</Button>
+              <CopyButton value={created.id} label="Copy app ID" />
+              <CopyButton value={created.apiKey} label="Copy API key" />
             </div>
           </div>
         ) : (
@@ -143,28 +132,14 @@ export function AppsPage() {
                   {!a.iosAppId && !a.androidPackage && <Badge variant="outline">Not set up</Badge>}
                 </div>
               </div>
-              <div style={row}>
-                <span style={{ ...muted, ...mono }}>id {a.id}</span>
-                <Button size="sm" variant="outline" onClick={() => copyText(a.id)}>
-                  Copy
-                </Button>
-              </div>
-              <div style={{ ...row, justifyContent: 'space-between' }}>
-                <span style={{ ...muted, ...mono }}>
-                  key {a.apiKeyHash ? a.apiKeyHash.slice(0, 12) + '…' : 'revoked'}
-                </span>
-                <div style={row}>
-                  <EditDialog
-                    key={a.id + '|' + a.iosAppId + '|' + a.androidPackage + '|' + a.androidCertFingerprint}
-                    app={a}
-                    onSaved={load}
-                  />
-                  <ConfirmDelete
-                    title={`Delete ${a.name}?`}
-                    body="Its links are deleted too, and the SDK stops accepting this API key."
-                    onConfirm={() => del(a)}
-                  />
-                </div>
+              <span style={{ ...muted, ...mono }}>{a.id}</span>
+              <div style={{ ...row, justifyContent: 'flex-end' }}>
+                <EditDialog app={a} onSaved={load} />
+                <ConfirmDelete
+                  title={`Delete ${a.name}?`}
+                  body="Its links are deleted too, and the SDK stops accepting this API key."
+                  onConfirm={() => del(a)}
+                />
               </div>
             </Card>
           ))}
@@ -197,7 +172,17 @@ function EditDialog({ app, onSaved }: { app: App; onSaved: () => void }) {
   return (
     <Dialog id={id}>
       <Dialog.Trigger>
-        <Button size="sm" variant="outline">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            setDraft({
+              iosAppId: app.iosAppId,
+              androidPackage: app.androidPackage,
+              androidCertFingerprint: app.androidCertFingerprint,
+            })
+          }
+        >
           Edit
         </Button>
       </Dialog.Trigger>

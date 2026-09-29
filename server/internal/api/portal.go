@@ -51,6 +51,7 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) ht
 	mux.HandleFunc("POST /api/apps/{id}/rotate-key", p.rotateAppKey)
 	mux.HandleFunc("DELETE /api/apps/{id}/key", p.revokeAppKey)
 	mux.HandleFunc("PATCH /api/apps/{id}", p.updateApp)
+	mux.HandleFunc("GET /api/apps/{id}", p.getApp)
 	mux.HandleFunc("DELETE /api/apps/{id}", p.deleteApp)
 	mux.HandleFunc("GET /api/apps/{id}/links", p.listLinks)
 	mux.HandleFunc("POST /api/apps/{id}/links", p.createLink)
@@ -198,6 +199,15 @@ func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {
 		out = append(out, toAppJSON(a))
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+func (p *portalServer) getApp(w http.ResponseWriter, r *http.Request) {
+	a, err := p.st.GetApp(r.PathValue("id"))
+	if err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
 }
 
 func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {

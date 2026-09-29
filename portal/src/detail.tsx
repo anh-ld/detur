@@ -1,4 +1,4 @@
-import { JSX } from 'preact';
+import { cloneElement, JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import {
   Alert,
@@ -19,11 +19,8 @@ import {
   Table,
 } from 'kinu';
 import { api, App, CreatedApp, Link, Readout } from './api';
-import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
-
-const copyText = async (v: string) => {
-  await navigator.clipboard.writeText(v);
-};
+import { closeDialog, ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
+import { inRange, THRESHOLD, WINDOW } from './matching';
 
 interface LinkDraft {
   key: string;
@@ -64,8 +61,8 @@ export function DetailPage({ id }: { id: string }) {
   const loadAll = () => {
     setError('');
     api
-      .listApps()
-      .then((apps) => setApp(apps.find((a) => a.id === id) ?? null))
+      .getApp(id)
+      .then(setApp)
       .catch((e) => setError(String(e)));
     api
       .listLinks(id)
@@ -124,7 +121,6 @@ export function DetailPage({ id }: { id: string }) {
               Refresh
             </Button>
             <LinkDialog
-              key={'create' + app.id}
               appId={app.id}
               link={null}
               onSaved={loadAll}
@@ -155,9 +151,7 @@ export function DetailPage({ id }: { id: string }) {
             <p style={{ ...muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em' }}>App ID</p>
             <span style={mono}>{app.id}</span>
           </div>
-          <Button size="sm" variant="outline" onClick={() => copyText(app.id)}>
-            Copy ID
-          </Button>
+          <CopyButton value={app.id} label="Copy ID" />
         </div>
         <div style={{ ...row, justifyContent: 'space-between', paddingTop: 14 }}>
           <div style={{ display: 'grid', gap: 2 }}>
@@ -232,7 +226,6 @@ export function DetailPage({ id }: { id: string }) {
                 <td>
                   <div style={{ ...row, justifyContent: 'flex-end' }}>
                     <LinkDialog
-                      key={'edit' + l.id}
                       appId={app.id}
                       link={l}
                       onSaved={loadAll}
@@ -281,8 +274,17 @@ function LinkDialog({
       setErr('key and url are required');
       return;
     }
-    if ((draft.threshold !== '' && !Number.isFinite(threshold)) || (draft.windowMinutes !== '' && !Number.isFinite(windowMinutes))) {
+    const badThreshold = draft.threshold !== '' && !Number.isFinite(threshold);
+    const badWindow = draft.windowMinutes !== '' && !Number.isFinite(windowMinutes);
+    if (badThreshold || badWindow) {
       setErr('threshold and window must be numbers');
+      return;
+    }
+    if (
+      (draft.threshold !== '' && !inRange(threshold, THRESHOLD)) ||
+      (draft.windowMinutes !== '' && !inRange(windowMinutes, WINDOW))
+    ) {
+      setErr(`threshold must be ${THRESHOLD.min}–${THRESHOLD.max}, window ${WINDOW.min}–${WINDOW.max} minutes`);
       return;
     }
     const payload = {
@@ -308,7 +310,14 @@ function LinkDialog({
 
   return (
     <Dialog id={id}>
-      <Dialog.Trigger>{trigger}</Dialog.Trigger>
+      <Dialog.Trigger>
+        {cloneElement(trigger, {
+          onClick: () => {
+            setDraft(link ? draftFrom(link) : emptyDraft());
+            setErr('');
+          },
+        })}
+      </Dialog.Trigger>
       <Dialog.Content>
         <form
           style={{ display: 'grid', gap: 16 }}
@@ -414,7 +423,6 @@ function LinkDialog({
 // the plaintext once, like the create flow.
 function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }) {
   const [rotated, setRotated] = useState<CreatedApp | null>(null);
-  const [copied, setCopied] = useState(false);
   const [err, setErr] = useState('');
   const id = `dlg-rotate-${app.id}`;
 
@@ -422,7 +430,6 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
     setErr('');
     try {
       setRotated(await api.rotateKey(app.id));
-      setCopied(false);
       onChanged();
     } catch (e) {
       setErr(String(e));
@@ -452,14 +459,7 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
                   Done
                 </Button>
               </Dialog.Close>
-              <Button
-                onClick={async () => {
-                  await navigator.clipboard.writeText(rotated.apiKey);
-                  setCopied(true);
-                }}
-              >
-                {copied ? 'Copied' : 'Copy key'}
-              </Button>
+              <CopyButton value={rotated.apiKey} label="Copy API key" />
             </div>
           </div>
         ) : (
