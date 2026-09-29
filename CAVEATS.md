@@ -1,62 +1,73 @@
 # Caveats
 
-Known limits and trust boundaries. Read them before running detur in
-production.
+Decisions and their sources: [DECISIONS.md](DECISIONS.md).
+
+Known limits and trust boundaries. Read before running in production.
 
 ## Security
 
-- The portal has no authentication. Anyone who reaches it controls every app
-  and link. Only protection: loopback or a zero-trust gateway.
-- No TLS enforcement. Over plain http, the SDK's bearer key and the device
+- Portal has no authentication. Whoever reaches it controls every app and
+  link. Only protection: loopback or a zero-trust gateway.
+- No TLS enforcement. Over plain http, the SDK's bearer key and device
   fingerprints travel in the clear. HTTPS is the operator's job.
-- API keys are hashed with plain, unsalted SHA-256, not a slow KDF. Safe only
-  because the keys are 128-bit random values.
-- `TRUST_PROXY=1`: trusts `X-Real-IP`, else the rightmost `X-Forwarded-For`
-  entry (the peer the proxy saw). Set only with a real proxy in front — a
-  direct client can still spoof the IP match signal (500 points).
+- API keys hashed with plain, unsalted SHA-256, not a slow KDF. Safe only
+  because keys are ~131-bit random values.
+- `TRUST_PROXY=1`: trusts rightmost `X-Forwarded-For` entry (the peer the
+  proxy saw), else `X-Real-IP`. Set only behind a real proxy; otherwise a
+  direct client spoofs the IP match signal (500 points).
 
 ## Matching and attribution
 
-- Identical devices share a fingerprint. A group of identical devices
-  collapses its organic installs into one row, so organic installs are
-  undercounted.
-- Deterministic matches are limited to the 24h retention. An install more than
-  24h after the tap loses the deferred link.
+- Identical devices share a fingerprint. Their organic installs collapse into
+  one row, so organic installs are undercounted.
+- Deterministic matches limited to `RETENTION_HOURS` (default 24h). Install
+  later than that loses the deferred link.
+- Threshold and window are per app (Detour). Upgrade copies the old global
+  values into every app; per-link overrides are dropped.
+- A matched click is used up (Detour). Two devices behind one IP can't both
+  claim one click; the second counts organic.
+- Same device reinstalling within `RETENTION_HOURS` gets its earlier matched
+  link back, even after tapping a newer link.
+- Window measured from the SDK's capture timestamp when it is within 180 min
+  of server time.
 - One-hop interstitial captures screen, timezone, device model + OS version
-  (client hints): iOS matching reaches 1350 (IP, OS, timezone, screen,
-  language). No iOS copy-link page yet — pasteboard signal (350/175) rarely
-  fires.
+  (client hints). iOS matching reaches 1350 (IP, OS, timezone, screen,
+  language).
+- iOS links with an App Store target get a tap-to-copy page (one extra tap).
+  Copies the short link so the pasteboard signal (350/175) can fire. Lost if
+  the user denies iOS's paste prompt. Unverified on device that the SDK sends
+  `pastedLink`.
 - Bot filter: Dub's UA_BOTS list (HEAD + `?bot=` count as bots), with the
-  "Google/google" webview exception. Clicks deduped per link + device (IP +
-  user agent) within an hour, like Dub's click cache.
-- Stored click's destination = final redirect target (platform URL +
-  forwarded params; Play targets add the clickId referrer), not the link's
-  base URL. Short-link keys case-insensitive.
+  "Google/google" webview exception.
+- Clicks deduped per link + device (IP + user agent) within an hour, like
+  Dub's click cache. Re-tap refreshes the click (time, signals) and re-enters
+  the match window.
+- Stored click destination = link URL + forwarded params (what match-link
+  returns), not the store URL it redirected to. Same as Dub.
+- Short-link keys case-insensitive.
 
 ## Operations and scale
 
-- SQLite allows one writer at a time. Fine for personal or team use, not for
-  high concurrency.
-- No graceful shutdown. A hard exit kills in-flight requests; WAL keeps the
-  stored data safe.
+- SQLite: one writer at a time. Fine for personal or team use, not high
+  concurrency.
+- No graceful shutdown. Hard exit kills in-flight requests; WAL keeps stored
+  data safe.
 - Schema not versioned in v1; `Open()` adds new columns in place. Back up
   before upgrading.
-- No rate limiting. A flood of unauthenticated clicks grows the clicks table;
-  the hourly purge keeps it to the retention period.
-- The installs table is never purged. Attribution history grows without
-  limit. By design.
+- No rate limiting. A click flood grows the clicks table; hourly purge trims
+  it to the retention period.
+- Installs table never purged. Attribution history grows without limit, by
+  design.
 - Single operator, no organizations or teams. All apps share one instance.
-- The Docker image is not published yet — build from source.
 
 ## Compatibility
 
-- Platform API, webhooks, billing: not implemented. godetour users who depend
-  on them get nothing here.
-- Only single-segment short links work. The multi-segment `/app-hash/slug`
-  form returns 404, and universal-link-click records no click for it.
-- `effectiveLimit: -1` is this server's own encoding for "no limit". Checked
-  against SDK 2.3.1, harmless there, but not a documented godetour value.
-- The SDK contract has no stability guarantee. The client patch is
-  per-version.
-- The example app has never run on a real device. The patch was verified to
-  apply, not exercised on a device.
+- Platform API, webhooks, billing: not implemented. godetour users who need
+  them get nothing here.
+- Single-segment short links only. Multi-segment `/app-hash/slug` returns
+  404; universal-link-click records no click for it.
+- `effectiveLimit: -1`: this server's own encoding for "no limit". Harmless
+  with SDK 2.3.1, not a documented godetour value.
+- SDK contract has no stability guarantee. Client patch is per-version.
+- Example app never run on a real device. Patch verified to apply, not
+  exercised on a device.
