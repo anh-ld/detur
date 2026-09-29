@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"net/url"
+	"regexp"
 
 	"detur.dev/server/internal/store"
 	"detur.dev/server/internal/ua"
@@ -13,9 +14,8 @@ var internalParams = map[string]bool{
 }
 
 // redirectTarget: 302 destination by platform, fallback link.URL: iOS -> link.IOS,
-// Android -> link.Android, desktop -> link.FallbackURL. Every incoming query param
-// except detur's own forwarded, overriding same-name keys (Dub get-final-url.ts);
-// Play Store targets: clickId merged into install referrer.
+// Android -> link.Android, desktop -> link.FallbackURL. Incoming query params
+// forwarded per target type (see withParams); Play Store targets: clickId merged into install referrer.
 func redirectTarget(link store.Link, agent string, clickID string, q url.Values) string {
 	target := link.URL
 	switch {
@@ -32,24 +32,93 @@ func redirectTarget(link store.Link, agent string, clickID string, q url.Values)
 			target = link.FallbackURL
 		}
 	}
+	return withParams(target, clickID, q)
+}
+
+// deepLinkURL: link.URL + forwarded params (add-only), returned by match-link. Dub redirects to store, caches main url (link.ts cacheDeepLinkClickData).
+func deepLinkURL(link store.Link, q url.Values) string {
+	return withParams(link.URL, "", q)
+}
+
+// uuidRe: App Store Connect custom product page id; malformed ppid dropped (Detour click-handling)
+var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// playUTM: UTM keys Detour forwards inside the Play Store referrer
+var playUTM = []string{"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}
+
+// withParams: each store URL carries only its own keys, never empty values (Detour); forwarded keys only add, never overwrite operator's.
+func withParams(target string, clickID string, q url.Values) string {
+	u, err := url.Parse(target)
+	if err != nil {
+		return target
+	}
+	switch {
+	case isAppStore(u):
+		return addParams(target, q, func(k, v string) bool {
+			return v != "" && (k == "pt" || k == "ct" || k == "mt" || (k == "ppid" && uuidRe.MatchString(v)))
+		})
+	case isPlayStore(u):
+		return playReferrer(target, q, clickID)
+	}
+	return addParams(target, q, func(k, v string) bool { return v != "" && !internalParams[k] })
+}
+
+// addParams: appends allowed q keys missing from target's query; operator's query bytes untouched, nothing added -> target unchanged.
+func addParams(target string, q url.Values, allow func(k, v string) bool) string {
+	u, err := url.Parse(target)
+	if err != nil {
+		return target
+	}
+	have := u.Query()
+	add := url.Values{}
+	for k, vs := range q {
+		if len(vs) == 0 || have.Has(k) || !allow(k, vs[len(vs)-1]) {
+			continue
+		}
+		add.Set(k, vs[len(vs)-1])
+	}
+	if len(add) == 0 {
+		return target
+	}
+	if u.RawQuery != "" {
+		u.RawQuery += "&"
+	}
+	u.RawQuery += add.Encode()
+	return u.String()
+}
+
+// playReferrer: operator referrer pairs + add-only q utm_* + click_id (SDK reads click_id= from decoded referrer via /(?:^|&)click_id=([^&]+)/); merged like Dub.
+// Re-encodes the whole query (referrer value must be rebuilt) — Play URLs only.
+func playReferrer(target string, q url.Values, clickID string) string {
 	u, err := url.Parse(target)
 	if err != nil {
 		return target
 	}
 	p := u.Query()
-	for k, vs := range q {
-		if !internalParams[k] && len(vs) > 0 {
-			p.Set(k, vs[len(vs)-1])
+	ref, _ := url.ParseQuery(p.Get("referrer"))
+	changed := false
+	for _, k := range playUTM {
+		if v := q.Get(k); v != "" && !ref.Has(k) {
+			ref.Set(k, v)
+			changed = true
 		}
 	}
-	if clickID != "" && isPlayStore(u) {
-		// Merge into operator's referrer (utm_* etc.), like Dub; SDK reads click_id= from decoded referrer via /(?:^|&)click_id=([^&]+)/, stays its own key=value pair
-		ref, _ := url.ParseQuery(p.Get("referrer"))
+	if clickID != "" {
 		ref.Set("click_id", clickID)
-		p.Set("referrer", ref.Encode())
+		changed = true
 	}
+	if !changed {
+		return target
+	}
+	p.Set("referrer", ref.Encode())
 	u.RawQuery = p.Encode()
 	return u.String()
+}
+
+// isAppStore: App Store URL (itms-apps schemes included)
+func isAppStore(u *url.URL) bool {
+	h := u.Hostname()
+	return h == "apps.apple.com" || h == "itunes.apple.com" || u.Scheme == "itms-apps" || u.Scheme == "itms-appss"
 }
 
 // isPlayStore: Play Store URL — only target passing install referrer to app (Dub is-google-play-store-url.ts, plus market://)

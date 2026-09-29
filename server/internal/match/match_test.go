@@ -100,7 +100,7 @@ func setupApp(t *testing.T, s *store.Store) (store.App, store.Link) {
 // recordClick: persist click, created_at = now.
 func recordClick(t *testing.T, s *store.Store, c store.Click) store.Click {
 	t.Helper()
-	got, err := s.RecordClick(c, 15, 24)
+	got, err := s.RecordClick(c, 24)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestDeterministicClickIDWinsRegardlessOfScore(t *testing.T) {
 	// A fingerprint that would score 0 (no IP match, every signal mismatched).
 	fp := Fingerprint{Model: "Pixel 9", SystemVersion: "99", Locale: "fr",
 		Timezone: "UTC", UserAgent: "Mozilla/5.0 (X11; Linux x86_64)"}
-	res, err := Match(s, link.AppID, Request{ClickID: "play-click-1", IP: otherIP, Fingerprint: &fp}, 15, 850)
+	res, err := Match(s, link.AppID, Request{ClickID: "play-click-1", IP: otherIP, Fingerprint: &fp})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestUnknownClickIDNoProbabilisticFallback(t *testing.T) {
 	// A recent, strongly matching click sits inside the window...
 	recordClick(t, s, androidClick(link))
 	// ...but the request carries an unknown clickId: deterministic path only.
-	res, err := Match(s, link.AppID, Request{ClickID: "unknown-click", IP: testIP, Fingerprint: fpPtr(androidFP())}, 15, 850)
+	res, err := Match(s, link.AppID, Request{ClickID: "unknown-click", IP: testIP, Fingerprint: fpPtr(androidFP())})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestScoreAboveThresholdMatches(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
 	recordClick(t, s, androidClick(link))
-	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 15, 850)
+	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestScoreBelowThresholdNoMatch(t *testing.T) {
 	recordClick(t, s, androidClick(link))
 	fp := Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US",
 		ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
-	res, err := Match(s, link.AppID, Request{IP: otherIP, Fingerprint: &fp}, 15, 850)
+	res, err := Match(s, link.AppID, Request{IP: otherIP, Fingerprint: &fp})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestScoreAtThresholdMatches(t *testing.T) {
 	_, link := setupApp(t, s)
 	recordClick(t, s, iosClick(link))
 	fp := Fingerprint{PastedLink: "https://lnk.example/abc123"}
-	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fp}, 15, 850)
+	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fp})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestWindowEdgeInsideMatches(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
 	recordClickBackdated(t, s, path, androidClick(link), 14*time.Minute+59*time.Second)
-	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 15, 850)
+	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestWindowEdgeOutsideNoMatch(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
 	recordClickBackdated(t, s, path, androidClick(link), 15*time.Minute+1*time.Second)
-	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 15, 850)
+	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -231,14 +231,20 @@ func TestWindowEdgeOutsideNoMatch(t *testing.T) {
 	}
 }
 
-// Scenario 7: window bounds, 5..180 minutes enforced; out of range errors.
+// Scenario 7: stored out-of-range window errors at read time; deterministic path never reads settings.
 func TestWindowRangeValidation(t *testing.T) {
 	s, _ := newTestStore(t)
-	_, link := setupApp(t, s)
+	app, link := setupApp(t, s)
 	for _, w := range []int{4, 181} {
-		_, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, w, 850)
+		if err := s.UpdateAppMatchSettings(app.ID, 850, w); err != nil {
+			t.Fatalf("UpdateAppMatchSettings: %v", err)
+		}
+		_, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
 		if !errors.Is(err, ErrWindowOutOfRange) {
 			t.Errorf("window %d: err = %v; want ErrWindowOutOfRange", w, err)
+		}
+		if _, err := Match(s, link.AppID, Request{ClickID: "nope"}); err != nil {
+			t.Errorf("window %d: clickId path err = %v; want nil", w, err)
 		}
 	}
 }
@@ -250,7 +256,7 @@ func TestDeterministicClickIDBeyondWindow(t *testing.T) {
 	c := androidClick(link)
 	c.ClickID = "play-old-1"
 	recordClickBackdated(t, s, path, c, 30*time.Minute) // beyond the 15-min window
-	res, err := Match(s, link.AppID, Request{ClickID: "play-old-1"}, 15, 850)
+	res, err := Match(s, link.AppID, Request{ClickID: "play-old-1"})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -265,7 +271,7 @@ func TestTieBreaksToNewerClick(t *testing.T) {
 	_, link := setupApp(t, s)
 	old := recordClickBackdated(t, s, path, androidClick(link), 2*time.Minute)
 	rec := recordClick(t, s, androidClick(link)) // identical fingerprint, newer
-	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 15, 850)
+	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
@@ -394,7 +400,7 @@ func TestMissingSignalsNoPanic(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
 	recordClick(t, s, androidClick(link))
-	res, err := Match(s, link.AppID, Request{IP: testIP}, 15, 850)
+	res, err := Match(s, link.AppID, Request{IP: testIP})
 	if err != nil {
 		t.Fatalf("Match(nil fingerprint): %v", err)
 	}
@@ -414,74 +420,187 @@ func TestMaxTotalsSanity(t *testing.T) {
 	}
 }
 
-// Scenario 20: threshold clamp 700..1200, out-of-range errors, bounds inclusive, respected even on deterministic path.
-func TestThresholdClamp(t *testing.T) {
-	s, _ := newTestStore(t)
-	_, link := setupApp(t, s)
-	recordClick(t, s, androidClick(link))
-	for _, th := range []int{699, 1201} {
-		_, err := Match(s, link.AppID, Request{ClickID: "nope", IP: testIP, Fingerprint: fpPtr(androidFP())}, 15, th)
-		if !errors.Is(err, ErrThresholdOutOfRange) {
-			t.Errorf("threshold %d: err = %v; want ErrThresholdOutOfRange", th, err)
+// Scenario 20: settings bounds 700..1200 / 5..180 inclusive, out-of-range errors.
+func TestValidateSettings(t *testing.T) {
+	for _, tc := range []struct {
+		threshold, window int
+		want              error
+	}{
+		{699, 15, ErrThresholdOutOfRange}, {1201, 15, ErrThresholdOutOfRange},
+		{700, 5, nil}, {1200, 180, nil},
+		{850, 4, ErrWindowOutOfRange}, {850, 181, ErrWindowOutOfRange},
+	} {
+		if err := ValidateSettings(tc.threshold, tc.window); !errors.Is(err, tc.want) {
+			t.Errorf("ValidateSettings(%d, %d) = %v; want %v", tc.threshold, tc.window, err, tc.want)
 		}
 	}
-	// Bounds are inclusive: 700/1200 with windows 5/180 are accepted.
-	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 5, 700)
-	if err != nil || !res.Matched {
-		t.Errorf("threshold 700 / window 5: res = %+v, err = %v; want matched", res, err)
-	}
-	if _, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 180, 1200); err != nil {
-		t.Errorf("threshold 1200 / window 180 rejected: %v", err)
-	}
 }
 
-// linkWith: second link on app with per-link overrides.
-func linkWith(t *testing.T, s *store.Store, appID string, threshold, window int) store.Link {
-	t.Helper()
-	l, err := s.CreateLink(store.Link{AppID: appID, Key: "override", URL: "https://example.com/override",
-		Threshold: threshold, WindowMinutes: window})
-	if err != nil {
-		t.Fatalf("CreateLink: %v", err)
-	}
-	return l
-}
-
-func TestPerLinkThresholdOverridesGlobal(t *testing.T) {
-	// IP 500 + timezone 200 + screen 200 = 900: passes global 850, fails 1000.
+// TestAppThresholdApplies: IP 500 + timezone 200 + screen 200 = 900 passes app threshold 850, fails 1000.
+func TestAppThresholdApplies(t *testing.T) {
 	fp := Fingerprint{Timezone: "Europe/Warsaw", ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
 	for _, tc := range []struct {
 		threshold int
 		want      bool
-	}{{0, true}, {1000, false}} {
+	}{{850, true}, {1000, false}} {
 		s, _ := newTestStore(t)
-		app, _ := setupApp(t, s)
-		recordClick(t, s, androidClick(linkWith(t, s, app.ID, tc.threshold, 0)))
-		res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: &fp}, 15, 850)
+		app, link := setupApp(t, s)
+		if err := s.UpdateAppMatchSettings(app.ID, tc.threshold, 15); err != nil {
+			t.Fatalf("UpdateAppMatchSettings: %v", err)
+		}
+		recordClick(t, s, androidClick(link))
+		res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: &fp})
 		if err != nil {
 			t.Fatalf("Match: %v", err)
 		}
 		if res.Matched != tc.want {
-			t.Errorf("link threshold %d: matched = %v; want %v", tc.threshold, res.Matched, tc.want)
+			t.Errorf("app threshold %d: matched = %v; want %v", tc.threshold, res.Matched, tc.want)
 		}
 	}
 }
 
-func TestPerLinkWindowOverridesGlobal(t *testing.T) {
-	// Click 60 min old outside global 15-min window; 90-min link window must still reach it (lookback covers widest window), 5-min link window must reject click global window would accept.
+// TestAppWindowApplies: app window, not a default, decides which clicks are candidates.
+func TestAppWindowApplies(t *testing.T) {
 	for _, tc := range []struct {
 		window int
 		age    time.Duration
 		want   bool
-	}{{0, 60 * time.Minute, false}, {90, 60 * time.Minute, true}, {5, 10 * time.Minute, false}} {
+	}{{15, 60 * time.Minute, false}, {90, 60 * time.Minute, true}, {5, 10 * time.Minute, false}} {
 		s, path := newTestStore(t)
-		app, _ := setupApp(t, s)
-		recordClickBackdated(t, s, path, androidClick(linkWith(t, s, app.ID, 0, tc.window)), tc.age)
-		res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())}, 15, 850)
+		app, link := setupApp(t, s)
+		if err := s.UpdateAppMatchSettings(app.ID, 850, tc.window); err != nil {
+			t.Fatalf("UpdateAppMatchSettings: %v", err)
+		}
+		recordClickBackdated(t, s, path, androidClick(link), tc.age)
+		res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
 		if err != nil {
 			t.Fatalf("Match: %v", err)
 		}
 		if res.Matched != tc.want {
-			t.Errorf("link window %d, click age %v: matched = %v; want %v", tc.window, tc.age, res.Matched, tc.want)
+			t.Errorf("app window %d, click age %v: matched = %v; want %v", tc.window, tc.age, res.Matched, tc.want)
 		}
+	}
+}
+
+func TestClickConsumedByFirstDevice(t *testing.T) {
+	s, _ := newTestStore(t)
+	_, link := setupApp(t, s)
+	recordClick(t, s, androidClick(link))
+	res, err := Match(s, link.AppID, Request{IP: testIP, DeviceHash: "d1", Fingerprint: fpPtr(androidFP())})
+	if err != nil || !res.Matched {
+		t.Fatalf("d1 Match = %+v, %v; want matched", res, err)
+	}
+	res, err = Match(s, link.AppID, Request{IP: testIP, DeviceHash: "d2", Fingerprint: fpPtr(androidFP())})
+	if err != nil || res.Matched {
+		t.Errorf("d2 Match = %+v, %v; want no match (click consumed)", res, err)
+	}
+}
+
+func TestSameDeviceRetryStillMatches(t *testing.T) {
+	s, _ := newTestStore(t)
+	_, link := setupApp(t, s)
+	recordClick(t, s, androidClick(link))
+	req := Request{IP: testIP, DeviceHash: "d1", Fingerprint: fpPtr(androidFP())}
+	first, err := Match(s, link.AppID, req)
+	if err != nil || !first.Matched {
+		t.Fatalf("first Match = %+v, %v; want matched", first, err)
+	}
+	// sdk handler records the install after a match
+	if _, err := s.RecordInstall(store.Install{AppID: link.AppID, DeviceHash: "d1", ClickID: first.Click.ID, Attribution: store.AttributionNonOrganic}); err != nil {
+		t.Fatalf("RecordInstall: %v", err)
+	}
+	again, err := Match(s, link.AppID, req)
+	if err != nil || !again.Matched || again.Click.ID != first.Click.ID {
+		t.Errorf("retry Match = %+v, %v; want matched click %s", again, err, first.Click.ID)
+	}
+}
+
+func TestDeterministicAfterProbabilisticConsumed(t *testing.T) {
+	s, _ := newTestStore(t)
+	_, link := setupApp(t, s)
+	c := recordClick(t, s, androidClick(link))
+	res, err := Match(s, link.AppID, Request{IP: testIP, DeviceHash: "d1", Fingerprint: fpPtr(androidFP())})
+	if err != nil || !res.Matched {
+		t.Fatalf("probabilistic Match = %+v, %v; want matched", res, err)
+	}
+	res, err = Match(s, link.AppID, Request{ClickID: c.ClickID, DeviceHash: "clickhash"})
+	if err != nil || res.Matched {
+		t.Errorf("deterministic Match = %+v, %v; want no match (click consumed)", res, err)
+	}
+}
+
+func TestNewerUnmatchedClickStillCandidate(t *testing.T) {
+	s, path := newTestStore(t)
+	_, link := setupApp(t, s)
+	old := recordClickBackdated(t, s, path, androidClick(link), 2*time.Minute)
+	newer := androidClick(link)
+	newer.Fingerprint.UserAgent += " v2" // distinct UA: same-signal clicks otherwise dedup into one row
+	rec := recordClick(t, s, newer)
+	if rec.ID == old.ID {
+		t.Fatal("clicks deduped into one row")
+	}
+	req := Request{IP: testIP, DeviceHash: "d1", Fingerprint: fpPtr(androidFP())}
+	r1, err := Match(s, link.AppID, req)
+	if err != nil || !r1.Matched || r1.Click.ID != rec.ID {
+		t.Fatalf("d1 Match = %+v, %v; want newer click %s", r1, err, rec.ID)
+	}
+	req.DeviceHash = "d2"
+	r2, err := Match(s, link.AppID, req)
+	if err != nil || !r2.Matched || r2.Click.ID != old.ID {
+		t.Errorf("d2 Match = %+v, %v; want older click %s", r2, err, old.ID)
+	}
+}
+
+// Window measured from SDK capture time: click 20 min old, window 15.
+func TestWindowFromCaptureTime(t *testing.T) {
+	cases := []struct {
+		name string
+		at   time.Time
+		want bool
+	}{
+		{"capture 10m ago", time.Now().Add(-10 * time.Minute), true},
+		{"zero uses server now", time.Time{}, false},
+		{"stale 2024 ignored", time.Date(2024, 7, 3, 0, 0, 0, 0, time.UTC), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, path := newTestStore(t)
+			_, link := setupApp(t, s)
+			recordClickBackdated(t, s, path, androidClick(link), 20*time.Minute)
+			fp := androidFP()
+			fp.CapturedAt = tc.at
+			res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(fp)})
+			if err != nil {
+				t.Fatalf("Match: %v", err)
+			}
+			if res.Matched != tc.want {
+				t.Errorf("matched = %v; want %v", res.Matched, tc.want)
+			}
+		})
+	}
+}
+
+// iOS 26 Safari freezes the OS token at 18_6; Version/ token carries the real version.
+func TestIOS26SafariScoresDeviceSignal(t *testing.T) {
+	c := iosClick(testLink())
+	c.Fingerprint.UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"
+	fp := iosFP()
+	fp.SystemVersion = "26.0"
+	got := Score(c, fp, testIP)
+	fp.SystemVersion = "25.0"
+	if diff := got - Score(c, fp, testIP); diff != 350 {
+		t.Errorf("device signal diff = %d; want 350", diff)
+	}
+}
+
+// UA device signature fallback is Android-only.
+func TestUADeviceSignatureAndroidOnly(t *testing.T) {
+	ios := store.Click{Fingerprint: store.Fingerprint{Device: "iPhone", UserAgent: "Mozilla/5.0 (iPhone)"}}
+	if s := Score(ios, Fingerprint{Model: "iPhone"}, ""); s != 0 {
+		t.Errorf("iOS UA signature = %d; want 0", s)
+	}
+	and := store.Click{Fingerprint: store.Fingerprint{Device: "Pixel 7", UserAgent: "Mozilla/5.0 (Linux; Android 10; K)"}}
+	if s := Score(and, Fingerprint{Model: "Pixel 7"}, ""); s != 350 {
+		t.Errorf("Android UA signature = %d; want 350", s)
 	}
 }

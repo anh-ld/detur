@@ -7,6 +7,8 @@ export interface App {
   iosAppId: string;
   androidPackage: string;
   androidCertFingerprint: string;
+  matchThreshold: number;
+  matchWindowMinutes: number;
 }
 
 export interface Link {
@@ -17,19 +19,12 @@ export interface Link {
   ios: string;
   android: string;
   fallbackUrl: string;
-  threshold: number;
-  windowMinutes: number;
 }
 
 export interface Readout {
   clicks: number;
   organic: number;
   nonOrganic: number;
-}
-
-export interface Settings {
-  threshold: number;
-  windowMinutes: number;
 }
 
 // Base URL override: '' = same origin; integration tests point client at live server.
@@ -73,7 +68,7 @@ export const api = {
   updateLink: (id: string, l: Partial<Omit<Link, 'id' | 'appId' | 'key'>>) =>
     req<Link>('PATCH', `/api/links/${id}`, l),
   deleteLink: (id: string) => req<void>('DELETE', `/api/links/${id}`),
-  getSettings: () => req<Settings>('GET', '/api/settings'),
-  saveSettings: (s: Settings) => req<Settings>('PATCH', '/api/settings', s),
+  saveMatching: (id: string, m: { threshold: number; windowMinutes: number }) =>
+    req<App>('PATCH', `/api/apps/${id}/matching`, m),
   getReadout: (appId: string) => req<Readout>('GET', `/api/apps/${appId}/readout`),
 };

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -167,8 +168,8 @@ func TestIOSClickRedirectsAppStoreAndRecordsClick(t *testing.T) {
 	if len(clicks) != 1 {
 		t.Fatalf("clicks = %d; want 1 recorded", len(clicks))
 	}
-	if clicks[0].Destination != link.IOS || clicks[0].LinkID != link.ID {
-		t.Errorf("click destination/link = %q/%q; want %q/%q (the redirect target)", clicks[0].Destination, clicks[0].LinkID, link.IOS, link.ID)
+	if clicks[0].Destination != link.URL || clicks[0].LinkID != link.ID {
+		t.Errorf("click destination/link = %q/%q; want %q/%q (deep link, not the store URL)", clicks[0].Destination, clicks[0].LinkID, link.URL, link.ID)
 	}
 	if clicks[0].Fingerprint.Screen != "393x852@3" {
 		t.Errorf("click screen = %q; want 393x852@3", clicks[0].Fingerprint.Screen)
@@ -242,14 +243,9 @@ func TestAndroidDeterministicChainEndToEnd(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		t.Fatalf("match-link body: %v", err)
 	}
-	// Click recorded actual redirect target: Play URL carrying same clickId SDK just used
-	ul, err := url.Parse(out.Link)
-	if err != nil || ul.Host != "play.google.com" {
-		t.Fatalf("match-link link = %q (%v); want Play host", out.Link, err)
-	}
-	ref, _ := url.ParseQuery(ul.Query().Get("referrer"))
-	if ref.Get("click_id") != values.Get("click_id") {
-		t.Fatalf("returned link referrer click_id = %q; want %q", ref.Get("click_id"), values.Get("click_id"))
+	// match-link returns link.URL, not Play URL (Dub caches main url)
+	if out.Link != link.URL {
+		t.Fatalf("match-link link = %q; want %q (deep link)", out.Link, link.URL)
 	}
 	organic, nonOrganic, err := s.CountInstalls(app.ID)
 	if err != nil || organic != 0 || nonOrganic != 1 {
@@ -435,12 +431,159 @@ func TestIntegrationBrowserClickThenMatchLinkNonOrganic(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatalf("match-link body %s: %v", b, err)
 	}
-	ul, err := url.Parse(out.Link)
-	if err != nil || ul.Host != "play.google.com" {
-		t.Fatalf("match-link link = %q (%v); want the click's redirect target (Play host)", out.Link, err)
+	if out.Link != link.URL {
+		t.Fatalf("match-link link = %q; want %q (deep link, not the store URL)", out.Link, link.URL)
 	}
 	organic, nonOrganic, err := s.CountInstalls(app.ID)
 	if err != nil || organic != 0 || nonOrganic != 1 {
 		t.Fatalf("installs = organic %d non-organic %d (%v); want 0/1 (F1)", organic, nonOrganic, err)
+	}
+}
+
+// Valueless detur-no-track (query or header) skips tracking (Dub record-click.ts has())
+func TestNoTrackPresenceSkipsClick(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, link := setupPipeline(t, s)
+	for _, tc := range []struct {
+		path string
+		hdr  map[string]string
+	}{
+		{"/" + link.Key + "?detur-no-track", map[string]string{"User-Agent": androidUA}},
+		{"/" + link.Key, map[string]string{"User-Agent": androidUA, "detur-no-track": ""}},
+	} {
+		resp, _ := doGET(t, ts, tc.path, tc.hdr)
+		if resp.StatusCode != http.StatusFound {
+			t.Errorf("%s: status = %d; want 302 straight to store (no interstitial)", tc.path, resp.StatusCode)
+		}
+	}
+	if clicks := latestClicks(t, s, app.ID); len(clicks) != 0 {
+		t.Errorf("clicks = %d; want 0 (no-track)", len(clicks))
+	}
+}
+
+// iOS + App Store target: first hop is tap-to-copy page; reload carries pasted_link onto the click. Android keeps auto reload.
+func TestIOSCopyLinkPageRecordsPastedLink(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, link := setupPipeline(t, s)
+	_, body := doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": iosUA})
+	if !strings.Contains(string(body), "Open in App Store") {
+		t.Fatalf("iOS first hop: want tap-to-copy page, got %s", body)
+	}
+	_, body = doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA})
+	if strings.Contains(string(body), "Open in App Store") {
+		t.Fatal("Android first hop: want auto reload, got copy page")
+	}
+	pasted := ts.URL + "/" + link.Key
+	resp, _ := doGET(t, ts, "/"+link.Key+"?_dt=1&pasted_link="+url.QueryEscape(pasted), map[string]string{"User-Agent": iosUA})
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("reload status = %d; want 302", resp.StatusCode)
+	}
+	clicks := latestClicks(t, s, app.ID)
+	if len(clicks) != 1 || clicks[0].Fingerprint.PastedLink != pasted {
+		t.Fatalf("clicks = %+v; want 1 with pasted_link %q", clicks, pasted)
+	}
+}
+
+// iOS target that is not the App Store -> auto reload, no copy page
+func TestCopyPageOnlyForAppStore(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, _ := setupPipeline(t, s)
+	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "web", URL: "https://example.com/x", IOS: "https://example.com/ios-web"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	_, body := doGET(t, ts, "/web", map[string]string{"User-Agent": iosUA})
+	if strings.Contains(string(body), "Open in App Store") {
+		t.Fatalf("non-App Store iOS target: want auto reload, got copy page")
+	}
+	_, body = doGET(t, ts, "/abc", map[string]string{"User-Agent": iosUA})
+	if !strings.Contains(string(body), "Open in App Store") {
+		t.Fatalf("App Store iOS target: want copy page, got %s", body)
+	}
+}
+
+// expired link without expiredUrl -> 410, no click recorded
+func TestExpiredLinkGone(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, _ := setupPipeline(t, s)
+	past := time.Now().Add(-time.Hour)
+	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "old", URL: "https://example.com/x", ExpiresAt: &past}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	resp, _ := doGET(t, ts, "/old", map[string]string{"User-Agent": desktopUA})
+	if resp.StatusCode != http.StatusGone {
+		t.Errorf("status = %d; want 410", resp.StatusCode)
+	}
+	if n := len(latestClicks(t, s, app.ID)); n != 0 {
+		t.Errorf("clicks = %d; want 0", n)
+	}
+}
+
+// expired link with expiredUrl -> 302 there, no click recorded
+func TestExpiredLinkRedirectsExpiredURL(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, _ := setupPipeline(t, s)
+	past := time.Now().Add(-time.Hour)
+	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "old", URL: "https://example.com/x", ExpiresAt: &past, ExpiredURL: "https://example.com/gone"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	resp, _ := doGET(t, ts, "/old", map[string]string{"User-Agent": desktopUA})
+	if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "https://example.com/gone" {
+		t.Errorf("got %d -> %q; want 302 -> https://example.com/gone", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if n := len(latestClicks(t, s, app.ID)); n != 0 {
+		t.Errorf("clicks = %d; want 0", n)
+	}
+}
+
+// future expiry still redirects normally
+func TestFutureExpiryStillRedirects(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, _ := setupPipeline(t, s)
+	future := time.Now().Add(time.Hour)
+	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "live", URL: "https://example.com/x", ExpiresAt: &future}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	resp, _ := doGET(t, ts, "/live", map[string]string{"User-Agent": desktopUA})
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("status = %d; want 302", resp.StatusCode)
+	}
+}
+
+// pasted_link counts only when it is the clicked short link; distinct UA per request avoids click dedup
+func TestPastedLinkMustBeClickedLink(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, link := setupPipeline(t, s)
+	cases := []struct{ name, pasted, want string }{
+		{"own link", ts.URL + "/" + link.Key, ts.URL + "/" + link.Key},
+		{"short junk", "h", ""},
+		{"other key", ts.URL + "/otherkey", ""},
+	}
+	for i, c := range cases {
+		resp, _ := doGET(t, ts, "/"+link.Key+"?_dt=1&pasted_link="+url.QueryEscape(c.pasted), map[string]string{"User-Agent": iosUA + " v" + strconv.Itoa(i)})
+		if resp.StatusCode != http.StatusFound {
+			t.Fatalf("%s: status = %d; want 302", c.name, resp.StatusCode)
+		}
+		clicks := latestClicks(t, s, app.ID)
+		if len(clicks) != i+1 || clicks[0].Fingerprint.PastedLink != c.want {
+			t.Fatalf("%s: clicks = %+v; want newest PastedLink %q", c.name, clicks, c.want)
+		}
+	}
+}
+
+// tz and screen kept only when well-formed
+func TestTimezoneScreenValidated(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, link := setupPipeline(t, s)
+	q := url.Values{"_dt": {"1"}, "tz": {"Europe/Warsaw"}, "screen": {"393x852@3"}}
+	doGET(t, ts, "/"+link.Key+"?"+q.Encode(), map[string]string{"User-Agent": iosUA + " a"})
+	f := latestClicks(t, s, app.ID)[0].Fingerprint
+	if f.Timezone != "Europe/Warsaw" || f.Screen != "393x852@3" {
+		t.Fatalf("valid: tz=%q screen=%q; want kept", f.Timezone, f.Screen)
+	}
+	q = url.Values{"_dt": {"1"}, "tz": {strings.Repeat("x", 100)}, "screen": {"junk"}}
+	doGET(t, ts, "/"+link.Key+"?"+q.Encode(), map[string]string{"User-Agent": iosUA + " b"})
+	f = latestClicks(t, s, app.ID)[0].Fingerprint
+	if f.Timezone != "" || f.Screen != "" {
+		t.Fatalf("invalid: tz=%q screen=%q; want dropped", f.Timezone, f.Screen)
 	}
 }

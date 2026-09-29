@@ -8,7 +8,6 @@ import { api, setApiBase } from '../src/api';
 import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { DetailPage } from '../src/detail';
-import { SettingsPage } from '../src/settings';
 
 // Client-flow integration: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal on :8091.
 const PORT = 8091;
@@ -86,7 +85,7 @@ describe('portal client flows', () => {
     await screen.findByText('App created');
     const dlg = openDialog();
     const keyInput = within(dlg).getByDisplayValue(/^dk_/) as HTMLInputElement;
-    expect(keyInput.value).toMatch(/^dk_[A-Za-z0-9]{21}$/);
+    expect(keyInput.value).toMatch(/^dk_[A-Za-z0-9]{22}$/);
     const appId = (within(dlg).getByDisplayValue(/^[A-Za-z0-9]{21}$/) as HTMLInputElement).value;
     within(dlg).getByRole('button', { name: 'Copy API key' });
 
@@ -139,14 +138,15 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
-  it('settings flow: save persists to the server, empty fields are rejected', async () => {
-    render(<SettingsPage />);
+  it('matching flow: save persists to the server, empty fields are rejected', async () => {
+    const app = await api.createApp(uniq('m'));
+    render(<DetailPage id={app.id} />);
     await screen.findByDisplayValue('850');
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '900' } });
     fireEvent.input(screen.getByLabelText('Match window (minutes)'), { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
     await screen.findByText('Saved.');
-    expect(await api.getSettings()).toEqual({ threshold: 900, windowMinutes: 30 });
+    expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 900, matchWindowMinutes: 30 });
 
     // empty fields: honest error, no false "Saved."
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '' } });
@@ -165,7 +165,8 @@ describe('portal client flows', () => {
     fireEvent.input(screen.getByLabelText('Match window (minutes)'), { target: { value: '15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
     await screen.findByText('Saved.');
-    expect(await api.getSettings()).toEqual({ threshold: 850, windowMinutes: 15 });
+    expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 850, matchWindowMinutes: 15 });
+    await api.deleteApp(app.id);
   });
 
   it('rotate key flow: new key is shown once', async () => {
@@ -176,7 +177,7 @@ describe('portal client flows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Rotate', exact: true }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Rotate key' }));
     await screen.findByText('Key rotated');
-    expect((within(openDialog()).getByDisplayValue(/^dk_/) as HTMLInputElement).value).toMatch(/^dk_[A-Za-z0-9]{21}$/);
+    expect((within(openDialog()).getByDisplayValue(/^dk_/) as HTMLInputElement).value).toMatch(/^dk_[A-Za-z0-9]{22}$/);
     expect((await api.getApp(app.id)).apiKeyHash).not.toBe(app.apiKeyHash);
     await api.deleteApp(app.id);
   });
@@ -233,8 +234,6 @@ describe('portal client flows', () => {
       ios: '',
       android: '',
       fallbackUrl: '',
-      threshold: 0,
-      windowMinutes: 0,
     });
     render(<DetailPage id={app.id} />);
     const row = (await screen.findByText('summer-sale')).closest('tr')!;
@@ -250,7 +249,7 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
-  it('link validation flow: empty fields and out-of-range matching rejected', async () => {
+  it('link validation flow: empty fields rejected', async () => {
     const app = await api.createApp(uniq('link-val-app'));
     render(<DetailPage id={app.id} />);
     await screen.findByRole('heading', { name: app.name });
@@ -259,13 +258,6 @@ describe('portal client flows', () => {
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
     await screen.findByText('key and url are required');
 
-    fireEvent.input(within(openDialog()).getByLabelText('Key'), { target: { value: 'sale' } });
-    fireEvent.input(within(openDialog()).getByLabelText('Destination URL'), {
-      target: { value: 'https://example.com/promo' },
-    });
-    fireEvent.input(within(openDialog()).getByLabelText('Threshold'), { target: { value: '1300' } });
-    fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
-    await screen.findByText(/threshold must be 700–1200/);
     expect(await api.listLinks(app.id)).toHaveLength(0);
 
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Cancel' }));
@@ -282,11 +274,6 @@ describe('portal client flows', () => {
     render(<App />);
     await screen.findByRole('heading', { name: 'Apps' });
     expect(document.querySelector('header a[aria-current="page"]')!.textContent?.trim()).toBe('Apps');
-
-    location.hash = '#/settings';
-    window.dispatchEvent(new Event('hashchange'));
-    await screen.findByRole('heading', { name: 'Settings' });
-    expect(document.querySelector('header a[aria-current="page"]')!.textContent?.trim()).toBe('Settings');
 
     // malformed percent-encoding: crash-safe fallback to the apps page
     location.hash = '#/apps/%zz';

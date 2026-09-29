@@ -1,6 +1,6 @@
 package api
 
-// Portal tests: portal API CRUD, settings driving matching engine, readout,
+// Portal tests: portal API CRUD, app matching settings driving matching engine, readout,
 // no-auth contract, origin/host guard, static serving, show-once API-key semantics.
 // Real store + real mux via httptest; SDK endpoints on second listener sharing store (separate listeners, one store).
 
@@ -110,45 +110,37 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 
 	resp, b = portalReq(t, portal, "POST", "/api/apps/"+created.ID+"/links",
 		`{"key":"c1","url":"https://example.com/p","ios":"https://apps.apple.com/app/id1",`+
-			`"android":"https://play.google.com/store/apps/details?id=com.example","fallbackUrl":"https://example.com/fb0",`+
-			`"threshold":1000,"windowMinutes":30}`, nil)
+			`"android":"https://play.google.com/store/apps/details?id=com.example","fallbackUrl":"https://example.com/fb0"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create link: %d %s", resp.StatusCode, b)
 	}
 	var link struct {
-		ID            string `json:"id"`
-		Key           string `json:"key"`
-		Threshold     int    `json:"threshold"`
-		WindowMinutes int    `json:"windowMinutes"`
+		ID  string `json:"id"`
+		Key string `json:"key"`
 	}
 	mustJSON(t, b, &link)
-	if link.Threshold != 1000 || link.WindowMinutes != 30 {
-		t.Fatalf("link settings not persisted: %+v", link)
-	}
 
 	resp, b = portalReq(t, portal, "GET", "/api/apps/"+created.ID+"/links", "", nil)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"key":"c1"`) {
 		t.Fatalf("list links: %d %s", resp.StatusCode, b)
 	}
 
-	// omitted destinations stay unchanged, explicit empty clears, zero matching overrides restore inheritance from global settings
+	// omitted destinations stay unchanged, explicit empty clears
 	resp, b = portalReq(t, portal, "PATCH", "/api/links/"+link.ID,
-		`{"url":"https://example.com/p2","ios":"","threshold":0,"windowMinutes":0}`, nil)
+		`{"url":"https://example.com/p2","ios":""}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update link: %d %s", resp.StatusCode, b)
 	}
 	var updated struct {
-		URL           string `json:"url"`
-		IOS           string `json:"ios"`
-		Android       string `json:"android"`
-		FallbackURL   string `json:"fallbackUrl"`
-		Threshold     int    `json:"threshold"`
-		WindowMinutes int    `json:"windowMinutes"`
+		URL         string `json:"url"`
+		IOS         string `json:"ios"`
+		Android     string `json:"android"`
+		FallbackURL string `json:"fallbackUrl"`
 	}
 	mustJSON(t, b, &updated)
 	if updated.URL != "https://example.com/p2" || updated.IOS != "" ||
 		updated.Android != "https://play.google.com/store/apps/details?id=com.example" ||
-		updated.FallbackURL != "https://example.com/fb0" || updated.Threshold != 0 || updated.WindowMinutes != 0 {
+		updated.FallbackURL != "https://example.com/fb0" {
 		t.Fatalf("link update not applied as expected: %+v", updated)
 	}
 
@@ -173,13 +165,13 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 	}
 }
 
-// Scenario 2: settings persisted via PATCH /api/settings drive matching engine: same fingerprint matches or 404s purely per configured threshold (950-score candidate: matches at 850, not 1200).
-func TestPortalSettingsDriveMatching(t *testing.T) {
+// Scenario 2: app matching settings persisted via PATCH /api/apps/{id}/matching drive matching engine: same fingerprint matches or 404s purely per configured threshold (950-score candidate: matches at 850, not 1200).
+func TestPortalAppMatchingDrivesMatching(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
 	app, link := setup(t, st)
 	recordAndroidClick(t, st, app, link)
 
-	resp, b := portalReq(t, portal, "PATCH", "/api/settings", `{"threshold":1200,"windowMinutes":15}`, nil)
+	resp, b := portalReq(t, portal, "PATCH", "/api/apps/"+app.ID+"/matching", `{"threshold":1200,"windowMinutes":15}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("set settings: %d %s", resp.StatusCode, b)
 	}
@@ -198,7 +190,7 @@ func TestPortalSettingsDriveMatching(t *testing.T) {
 	}
 
 	// lower threshold back to default: 950-score candidate now matches.
-	resp, b = portalReq(t, portal, "PATCH", "/api/settings", `{"threshold":850,"windowMinutes":15}`, nil)
+	resp, b = portalReq(t, portal, "PATCH", "/api/apps/"+app.ID+"/matching", `{"threshold":850,"windowMinutes":15}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("reset settings: %d %s", resp.StatusCode, b)
 	}
@@ -207,10 +199,27 @@ func TestPortalSettingsDriveMatching(t *testing.T) {
 		t.Fatalf("at threshold 850 the 950-score match must match, got %d %s", resp.StatusCode, b)
 	}
 
-	resp, b = portalReq(t, portal, "GET", "/api/settings", "", nil)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"threshold":850`) ||
-		!strings.Contains(string(b), `"windowMinutes":15`) {
-		t.Fatalf("get settings: %d %s", resp.StatusCode, b)
+	resp, b = portalReq(t, portal, "GET", "/api/apps/"+app.ID, "", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"matchThreshold":850`) ||
+		!strings.Contains(string(b), `"matchWindowMinutes":15`) {
+		t.Fatalf("get app: %d %s", resp.StatusCode, b)
+	}
+
+	for _, tc := range []struct {
+		path, body string
+		want       int
+	}{
+		{app.ID, `{"threshold":900}`, http.StatusBadRequest},
+		{app.ID, `{"windowMinutes":15}`, http.StatusBadRequest},
+		{app.ID, `{"threshold":699,"windowMinutes":15}`, http.StatusBadRequest},
+		{app.ID, `{"threshold":850,"windowMinutes":181}`, http.StatusBadRequest},
+		{app.ID, `not json`, http.StatusBadRequest},
+		{"nope", `{"threshold":850,"windowMinutes":15}`, http.StatusNotFound},
+	} {
+		resp, b = portalReq(t, portal, "PATCH", "/api/apps/"+tc.path+"/matching", tc.body, nil)
+		if resp.StatusCode != tc.want {
+			t.Errorf("PATCH matching %s %s: %d %s; want %d", tc.path, tc.body, resp.StatusCode, b, tc.want)
+		}
 	}
 }
 
@@ -398,6 +407,46 @@ func TestPortalCreateLinkDuplicateKey409(t *testing.T) {
 		if resp.StatusCode != want {
 			t.Fatalf("create link #%d: %d %s; want %d", i+1, resp.StatusCode, b, want)
 		}
+	}
+}
+
+// unknown app on link create is 404, not 500
+func TestPortalCreateLinkUnknownApp404(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	resp, b := portalReq(t, portal, "POST", "/api/apps/nope/links", `{"key":"k1","url":"https://example.com"}`, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown app: %d %s; want 404", resp.StatusCode, b)
+	}
+}
+
+func TestPortalLinkURLValidation(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"urls"}`, nil)
+	var app struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &app)
+	path := "/api/apps/" + app.ID + "/links"
+	for i, c := range []struct {
+		body string
+		want int
+	}{
+		{`{"key":"v1","url":"example.com/x"}`, http.StatusBadRequest},
+		{`{"key":"v2","url":"javascript:alert(1)"}`, http.StatusBadRequest},
+		{`{"key":"v3","url":"https://"}`, http.StatusBadRequest},
+		{`{"key":"v4","url":"https://example.com","ios":"myapp://open"}`, http.StatusCreated},
+		{`{"key":"v5","url":"https://example.com","android":"market://details?id=x"}`, http.StatusCreated},
+	} {
+		if resp, b = portalReq(t, portal, "POST", path, c.body, nil); resp.StatusCode != c.want {
+			t.Errorf("case %d %s: %d %s; want %d", i, c.body, resp.StatusCode, b, c.want)
+		}
+	}
+	var link struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &link)
+	if resp, b = portalReq(t, portal, "PATCH", "/api/links/"+link.ID, `{"fallbackUrl":"nope"}`, nil); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("update bad fallbackUrl: %d %s; want 400", resp.StatusCode, b)
 	}
 }
 

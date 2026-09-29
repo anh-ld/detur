@@ -20,7 +20,7 @@ import {
 } from 'kinu';
 import { api, App, CreatedApp, Link, Readout } from './api';
 import { closeDialog, ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
-import { inRange, THRESHOLD, WINDOW } from './matching';
+import { MatchingCard } from './settings';
 
 interface LinkDraft {
   key: string;
@@ -28,8 +28,6 @@ interface LinkDraft {
   ios: string;
   android: string;
   fallbackUrl: string;
-  threshold: string;
-  windowMinutes: string;
 }
 
 const emptyDraft = (): LinkDraft => ({
@@ -38,8 +36,6 @@ const emptyDraft = (): LinkDraft => ({
   ios: '',
   android: '',
   fallbackUrl: '',
-  threshold: '',
-  windowMinutes: '',
 });
 
 const draftFrom = (l: Link): LinkDraft => ({
@@ -48,8 +44,6 @@ const draftFrom = (l: Link): LinkDraft => ({
   ios: l.ios,
   android: l.android,
   fallbackUrl: l.fallbackUrl,
-  threshold: l.threshold ? String(l.threshold) : '',
-  windowMinutes: l.windowMinutes ? String(l.windowMinutes) : '',
 });
 
 export function DetailPage({ id }: { id: string }) {
@@ -179,6 +173,10 @@ export function DetailPage({ id }: { id: string }) {
         </div>
       </Card>
 
+      <h2 style={{ margin: '40px 0 16px', fontSize: 20 }}>Matching</h2>
+      <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
+      <MatchingCard app={app} onSaved={setApp} />
+
       <h2 style={{ margin: '40px 0 16px', fontSize: 20 }}>Links</h2>
       {links === null ? (
         <Spinner />
@@ -195,7 +193,6 @@ export function DetailPage({ id }: { id: string }) {
             <tr>
               <th>Link</th>
               <th>Platforms</th>
-              <th>Matching</th>
               <th />
             </tr>
           </thead>
@@ -217,11 +214,6 @@ export function DetailPage({ id }: { id: string }) {
                     {l.fallbackUrl && <Badge variant="secondary">Web</Badge>}
                     {!l.ios && !l.android && !l.fallbackUrl && <Badge variant="outline">URL only</Badge>}
                   </div>
-                </td>
-                <td style={muted}>
-                  {l.threshold || l.windowMinutes
-                    ? `${l.threshold || 'global'} · ${l.windowMinutes ? l.windowMinutes + ' min' : 'global'}`
-                    : 'Global'}
                 </td>
                 <td>
                   <div style={{ ...row, justifyContent: 'flex-end' }}>
@@ -268,23 +260,8 @@ function LinkDialog({
 
   const save = async () => {
     setErr('');
-    const threshold = draft.threshold === '' ? 0 : Number(draft.threshold);
-    const windowMinutes = draft.windowMinutes === '' ? 0 : Number(draft.windowMinutes);
     if (!draft.key.trim() || !draft.url.trim()) {
       setErr('key and url are required');
-      return;
-    }
-    const badThreshold = draft.threshold !== '' && !Number.isFinite(threshold);
-    const badWindow = draft.windowMinutes !== '' && !Number.isFinite(windowMinutes);
-    if (badThreshold || badWindow) {
-      setErr('threshold and window must be numbers');
-      return;
-    }
-    if (
-      (draft.threshold !== '' && !inRange(threshold, THRESHOLD)) ||
-      (draft.windowMinutes !== '' && !inRange(windowMinutes, WINDOW))
-    ) {
-      setErr(`threshold must be ${THRESHOLD.min}–${THRESHOLD.max}, window ${WINDOW.min}–${WINDOW.max} minutes`);
       return;
     }
     const payload = {
@@ -292,8 +269,6 @@ function LinkDialog({
       ios: draft.ios,
       android: draft.android,
       fallbackUrl: draft.fallbackUrl,
-      threshold,
-      windowMinutes,
     };
     try {
       if (link) {
@@ -380,32 +355,6 @@ function LinkDialog({
             />
           </Field>
 
-          <Separator />
-          <p style={muted}>Matching (optional, empty = global setting)</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field>
-              <Label htmlFor={`${id}-th`}>Threshold</Label>
-              <Input
-                id={`${id}-th`}
-                type="number"
-                value={draft.threshold}
-                onInput={(e) => setDraft({ ...draft, threshold: e.currentTarget.value })}
-                placeholder="850"
-              />
-              <Field.Description>700–1200</Field.Description>
-            </Field>
-            <Field>
-              <Label htmlFor={`${id}-win`}>Window (minutes)</Label>
-              <Input
-                id={`${id}-win`}
-                type="number"
-                value={draft.windowMinutes}
-                onInput={(e) => setDraft({ ...draft, windowMinutes: e.currentTarget.value })}
-                placeholder="15"
-              />
-              <Field.Description>5–180</Field.Description>
-            </Field>
-          </div>
           {err && <Alert variant="destructive">{err}</Alert>}
           <div style={{ ...row, justifyContent: 'flex-end' }}>
             <Dialog.Close>

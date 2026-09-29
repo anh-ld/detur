@@ -4,12 +4,14 @@ package ua
 import (
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 var (
 	reAndroidVersion = regexp.MustCompile(`Android ([\d.]+)`)
 	reIOSVersion     = regexp.MustCompile(`(?:iPhone OS|CPU OS) ([\d_.]+)`)
+	reSafariVersion  = regexp.MustCompile(`Version/([\d.]+)`)
 )
 
 // uaBots: Dub's UA_BOTS list (apps/web/lib/middleware/utils/bots-list.ts), matched case-insensitively as substrings.
@@ -73,13 +75,22 @@ func AndroidVersion(ua string) string {
 	return m[1]
 }
 
-// IOSVersion: iOS system version from click UA, normalizing "17_2" to "17.2".
+// IOSVersion: iOS system version from click UA, normalizing "17_2" to "17.2". iOS 26 WebKit freezes the OS token at 18_6; Safari's Version/ token carries the real version (Detour reads it too). Version/ wins only when its major is above the OS token's major: on older iOS the OS token is more precise (17_2_1 vs Version/17.2).
 func IOSVersion(ua string) string {
-	m := reIOSVersion.FindStringSubmatch(ua)
-	if m == nil {
-		return ""
+	v := ""
+	if m := reIOSVersion.FindStringSubmatch(ua); m != nil {
+		v = strings.ReplaceAll(m[1], "_", ".")
 	}
-	return strings.ReplaceAll(m[1], "_", ".")
+	if m := reSafariVersion.FindStringSubmatch(ua); m != nil && major(m[1]) > major(v) {
+		return m[1]
+	}
+	return v
+}
+
+// major: integer before first ".", non-numeric = 0.
+func major(v string) int {
+	n, _ := strconv.Atoi(strings.SplitN(v, ".", 2)[0])
+	return n
 }
 
 // AndroidModel: device model token from Android browser UA: modern "(Linux; Android 14; Pixel 7 Build/...)" -> "Pixel 7"; legacy "(Linux; U; Android 4.4; en-us; GT-I9300 Build/...)" -> "GT-I9300"; WebView "(Linux; Android 14; Pixel 7 Build/UP1A; wv)" -> "Pixel 7"; reduced UA "(Linux; Android 10; K)" carries no model -> "".

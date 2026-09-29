@@ -19,12 +19,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// settings keys: matching defaults live in settings table, edited through portal.
-const (
-	settingWindow    = "window_minutes"
-	settingThreshold = "threshold"
-)
-
 // RegisterSDK attaches five SDK endpoints to mux (stdlib method patterns). Auth wrapper validates
 // Bearer key + X-App-ID + X-SDK presence; universal-link-click fails open when auth uncheckable,
 // backend failure never blocks link. retentionHours: click retention floor threaded from config.
@@ -55,7 +49,7 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 		if err != nil {
 			if failOpen {
 				s.log.Printf("auth check failed, failing open: %v", err)
-				next(w, r)
+				writeAllow(w, store.Nanoid(16)) // app id unverified: answer, never write
 				return
 			}
 			if r.URL.Path == "/api/link/match-link" {
@@ -76,7 +70,7 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 	}
 }
 
-// matchLinkBody: union of deterministic (clickId) + probabilistic (fingerprint) match-link payloads (getDeferredLink.ts). locale = SDK's [{languageTag}...] array; timestamp ignored: not device characteristic, would break device-hash stability.
+// matchLinkBody: union of deterministic (clickId) + probabilistic (fingerprint) match-link payloads (getDeferredLink.ts). locale = SDK's [{languageTag}...] array; timestamp (Unix ms) sets the match window reference, excluded from device hash (not a device characteristic, would break its stability).
 type matchLinkBody struct {
 	ClickID       string      `json:"clickId"`
 	Model         string      `json:"model"`
@@ -89,6 +83,7 @@ type matchLinkBody struct {
 	Timezone      *string     `json:"timezone"`
 	UserAgent     string      `json:"userAgent"`
 	PastedLink    string      `json:"pastedLink"`
+	Timestamp     int64       `json:"timestamp"`
 }
 
 type localeTag struct {
@@ -105,17 +100,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	}
 	dh := deviceHash(body)
 
-	// deterministic lookups have no window/threshold: settings read only for fingerprint path, settings read failure never blocks clickId match
-	window, threshold := store.DefaultWindowMinutes, store.DefaultThreshold
-	if body.ClickID == "" {
-		var err error
-		if window, threshold, err = s.matchSettings(); err != nil {
-			s.backendError(appID, dh, err)
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-	}
-	req := match.Request{IP: httpx.RemoteIP(r)}
+	req := match.Request{IP: httpx.RemoteIP(r), DeviceHash: dh}
 	if body.ClickID != "" {
 		req.ClickID = body.ClickID
 	} else {
@@ -125,9 +110,12 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 			Scale: body.Scale, Locale: localeString(body.Locale), Timezone: strOr(body.Timezone),
 			UserAgent: body.UserAgent, PastedLink: body.PastedLink,
 		}
+		if body.Timestamp > 0 {
+			req.Fingerprint.CapturedAt = time.UnixMilli(body.Timestamp)
+		}
 	}
 
-	res, err := match.Match(s.st, appID, req, window, threshold)
+	res, err := match.Match(s.st, appID, req)
 	if err != nil {
 		s.backendError(appID, dh, err)
 		w.WriteHeader(http.StatusNotFound)
@@ -202,7 +190,11 @@ func (s *sdkServer) universalLinkClick(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, errorBody("invalid request body"))
 		return
 	}
-	clickID := s.recordClickID(appID, body.URL, r)
+	writeAllow(w, s.recordClickID(appID, body.URL, r))
+}
+
+// writeAllow: universal-link-click allow shape (v1 has no limit).
+func writeAllow(w http.ResponseWriter, clickID string) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"allowed": true, "clicksInPeriod": 0, "effectiveLimit": -1, "clickId": clickID,
 	})
@@ -216,17 +208,15 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 	}
 	link, err := s.st.GetLinkByKey(appID, key)
 	if err != nil {
-		s.log.Printf("universal-link-click link lookup failed: %v", err)
+		if !errors.Is(err, store.ErrNotFound) {
+			s.log.Printf("universal-link-click link lookup failed: %v", err)
+		}
 		return store.Nanoid(16)
-	}
-	window := link.WindowMinutes
-	if window == 0 {
-		window = s.windowSetting()
 	}
 	rec, err := s.st.RecordClick(store.Click{
 		AppID: appID, LinkID: link.ID, Destination: link.URL,
 		Fingerprint: store.Fingerprint{IP: httpx.RemoteIP(r), UserAgent: r.UserAgent()},
-	}, window, s.retentionHours)
+	}, s.retentionHours)
 	if err != nil {
 		s.log.Printf("universal-link-click backend error (click not recorded): %v", err)
 		return store.Nanoid(16)
@@ -265,29 +255,6 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defa
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
-}
-
-// matchSettings: app defaults from settings table, falling back to store defaults.
-func (s *sdkServer) matchSettings() (window, threshold int, err error) {
-	window, err = s.st.IntSetting(settingWindow, store.DefaultWindowMinutes)
-	if err != nil {
-		return 0, 0, err
-	}
-	threshold, err = s.st.IntSetting(settingThreshold, store.DefaultThreshold)
-	if err != nil {
-		return 0, 0, err
-	}
-	return window, threshold, nil
-}
-
-// windowSetting: configured match window, defaults on missing/invalid settings: bad setting never blocks click.
-func (s *sdkServer) windowSetting() int {
-	v, err := s.st.IntSetting(settingWindow, store.DefaultWindowMinutes)
-	if err != nil {
-		s.log.Printf("window_minutes read failed, using %d: %v", store.DefaultWindowMinutes, err)
-		return store.DefaultWindowMinutes
-	}
-	return v
 }
 
 // backendError logs match-link backend failure, best-effort records unknown-attribution row: logged, never surfaced in readout.

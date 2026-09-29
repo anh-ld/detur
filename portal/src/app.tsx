@@ -3,9 +3,8 @@ import { Button, Separator } from 'kinu';
 import { row } from './ui';
 import { AppsPage } from './apps';
 import { DetailPage } from './detail';
-import { SettingsPage } from './settings';
 
-type Route = { name: 'apps' } | { name: 'detail'; id: string } | { name: 'settings' };
+type Route = { name: 'apps' } | { name: 'detail'; id: string };
 
 export function parseHash(h: string = location.hash): Route {
   const m = h.match(/^#\/apps\/([^/?#]+)/);
@@ -16,7 +15,6 @@ export function parseHash(h: string = location.hash): Route {
       // malformed %-encoding in id: treat as unknown route
     }
   }
-  if (h.startsWith('#/settings')) return { name: 'settings' };
   return { name: 'apps' };
 }
 
@@ -51,8 +49,7 @@ export function App() {
             detur
           </a>
           <nav style={row}>
-            {nav('#/', 'Apps', route.name !== 'settings')}
-            {nav('#/settings', 'Settings', route.name === 'settings')}
+            {nav('#/', 'Apps', true)}
           </nav>
         </div>
       </header>
@@ -60,7 +57,6 @@ export function App() {
       <main style={{ maxWidth: 1040, margin: '0 auto', padding: '0 24px 64px' }}>
         {route.name === 'apps' && <AppsPage />}
         {route.name === 'detail' && <DetailPage id={route.id} />}
-        {route.name === 'settings' && <SettingsPage />}
       </main>
     </>
   );

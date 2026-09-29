@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -29,7 +28,7 @@ type portalServer struct {
 	dir string // portal static dir (built UI)
 }
 
-// RegisterPortal builds portal handler: apps/links CRUD, settings, readout routes, plus static UI
+// RegisterPortal builds portal handler: apps/links CRUD, app matching, readout routes, plus static UI
 // from staticDir (missing files/dir 404 plain text, never crash). Mux wrapped in origin/host guard;
 // allowedHosts = listener's own address, loopback always accepted, others 403. No auth: access control
 // delegated to zero-trust boundary in front of listener.
@@ -44,14 +43,13 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) ht
 	mux.HandleFunc("POST /api/apps/{id}/rotate-key", p.rotateAppKey)
 	mux.HandleFunc("DELETE /api/apps/{id}/key", p.revokeAppKey)
 	mux.HandleFunc("PATCH /api/apps/{id}", p.updateApp)
+	mux.HandleFunc("PATCH /api/apps/{id}/matching", p.updateMatching)
 	mux.HandleFunc("GET /api/apps/{id}", p.getApp)
 	mux.HandleFunc("DELETE /api/apps/{id}", p.deleteApp)
 	mux.HandleFunc("GET /api/apps/{id}/links", p.listLinks)
 	mux.HandleFunc("POST /api/apps/{id}/links", p.createLink)
 	mux.HandleFunc("PATCH /api/links/{id}", p.updateLink)
 	mux.HandleFunc("DELETE /api/links/{id}", p.deleteLink)
-	mux.HandleFunc("GET /api/settings", p.getSettings)
-	mux.HandleFunc("PATCH /api/settings", p.updateSettings)
 	mux.HandleFunc("GET /api/apps/{id}/readout", p.readout)
 	mux.HandleFunc("GET /", p.static) // SPA shell + assets (catch-all)
 	return guard(mux, allowedHosts)
@@ -112,31 +110,32 @@ type appJSON struct {
 	IOSAppID               string `json:"iosAppId"`
 	AndroidPackage         string `json:"androidPackage"`
 	AndroidCertFingerprint string `json:"androidCertFingerprint"`
+	MatchThreshold         int    `json:"matchThreshold"`
+	MatchWindowMinutes     int    `json:"matchWindowMinutes"`
 }
 
 func toAppJSON(a store.App) appJSON {
 	return appJSON{ID: a.ID, Name: a.Name, APIKeyHash: a.APIKeyHash,
-		IOSAppID: a.IOSAppID, AndroidPackage: a.AndroidPackage, AndroidCertFingerprint: a.AndroidCertFingerprint}
+		IOSAppID: a.IOSAppID, AndroidPackage: a.AndroidPackage, AndroidCertFingerprint: a.AndroidCertFingerprint,
+		MatchThreshold: a.MatchThreshold, MatchWindowMinutes: a.MatchWindowMinutes}
 }
 
 // linkJSON: wire shape for links.
 type linkJSON struct {
-	ID            string `json:"id"`
-	AppID         string `json:"appId"`
-	Key           string `json:"key"`
-	URL           string `json:"url"`
-	IOS           string `json:"ios"`
-	Android       string `json:"android"`
-	FallbackURL   string `json:"fallbackUrl"`
-	Threshold     int    `json:"threshold"`
-	WindowMinutes int    `json:"windowMinutes"`
-	ExpiresAt     string `json:"expiresAt"` // RFC3339; empty = never
-	ExpiredURL    string `json:"expiredUrl"`
+	ID          string `json:"id"`
+	AppID       string `json:"appId"`
+	Key         string `json:"key"`
+	URL         string `json:"url"`
+	IOS         string `json:"ios"`
+	Android     string `json:"android"`
+	FallbackURL string `json:"fallbackUrl"`
+	ExpiresAt   string `json:"expiresAt"` // RFC3339; empty = never
+	ExpiredURL  string `json:"expiredUrl"`
 }
 
 func toLinkJSON(l store.Link) linkJSON {
 	j := linkJSON{ID: l.ID, AppID: l.AppID, Key: l.Key, URL: l.URL, IOS: l.IOS,
-		Android: l.Android, FallbackURL: l.FallbackURL, Threshold: l.Threshold, WindowMinutes: l.WindowMinutes,
+		Android: l.Android, FallbackURL: l.FallbackURL,
 		ExpiredURL: l.ExpiredURL}
 	if l.ExpiresAt != nil {
 		j.ExpiresAt = l.ExpiresAt.UTC().Format(time.RFC3339)
@@ -144,17 +143,15 @@ func toLinkJSON(l store.Link) linkJSON {
 	return j
 }
 
-// linkBody: portal link payload (create + update share it). Omitted update fields unchanged; zero numeric values restore global matching.
+// linkBody: portal link payload (create + update share it). Omitted update fields unchanged.
 type linkBody struct {
-	Key           string  `json:"key"`
-	URL           string  `json:"url"`
-	IOS           *string `json:"ios"`
-	Android       *string `json:"android"`
-	FallbackURL   *string `json:"fallbackUrl"`
-	Threshold     *int    `json:"threshold"`
-	WindowMinutes *int    `json:"windowMinutes"`
-	ExpiresAt     *string `json:"expiresAt"` // RFC3339; "" clears
-	ExpiredURL    *string `json:"expiredUrl"`
+	Key         string  `json:"key"`
+	URL         string  `json:"url"`
+	IOS         *string `json:"ios"`
+	Android     *string `json:"android"`
+	FallbackURL *string `json:"fallbackUrl"`
+	ExpiresAt   *string `json:"expiresAt"` // RFC3339; "" clears
+	ExpiredURL  *string `json:"expiredUrl"`
 }
 
 // parseExpiry: optional RFC3339 expiry; nil or "" = never.
@@ -204,8 +201,8 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
-	// Server-minted 128-bit key: 24 chars total ("dk_" + 21 base62).
-	apiKey := "dk_" + store.Nanoid(21)
+	// Server-minted key: "dk_" + 22 base62 (~131 bits), 25 chars total.
+	apiKey := "dk_" + store.Nanoid(22)
 	a, err := p.st.CreateApp(body.Name, apiKey)
 	if err != nil {
 		p.internal(w, err)
@@ -220,7 +217,7 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 // rotateAppKey mints new key, swaps stored hash; old key dies immediately. Plaintext rides this one response, like create.
 func (p *portalServer) rotateAppKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	apiKey := "dk_" + store.Nanoid(21)
+	apiKey := "dk_" + store.Nanoid(22)
 	if err := p.st.UpdateAppKey(id, apiKey); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.NotFound(w, r)
@@ -297,6 +294,38 @@ func (p *portalServer) listLinks(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
+// validTarget: absolute URL with scheme; http(s) needs host. Empty allowed (optional fields). Scripting schemes rejected.
+func validTarget(field, v string) error {
+	if v == "" {
+		return nil
+	}
+	u, err := url.Parse(v)
+	if err != nil || u.Scheme == "" {
+		return fmt.Errorf("%s must be an absolute URL", field)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "javascript", "data", "vbscript", "file":
+		return fmt.Errorf("%s scheme %q not allowed", field, u.Scheme)
+	case "http", "https":
+		if u.Host == "" {
+			return fmt.Errorf("%s must be an absolute URL", field)
+		}
+	}
+	return nil
+}
+
+// validTargets: first bad destination field wins.
+func validTargets(l store.Link) error {
+	for _, f := range []struct{ name, v string }{
+		{"url", l.URL}, {"ios", l.IOS}, {"android", l.Android}, {"fallbackUrl", l.FallbackURL}, {"expiredUrl", l.ExpiredURL},
+	} {
+		if err := validTarget(f.name, f.v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	var body linkBody
@@ -315,39 +344,24 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key must be 1-64 chars of [A-Za-z0-9_-], not starting with _", http.StatusBadRequest)
 		return
 	}
-	threshold, window := 0, 0
-	if body.Threshold != nil {
-		threshold = *body.Threshold
-	}
-	if body.WindowMinutes != nil {
-		window = *body.WindowMinutes
-	}
-	if err := validateMatch(threshold, window); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	expiresAt, err := parseExpiry(body.ExpiresAt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	l, err := p.st.CreateLink(store.Link{
+	nl := store.Link{
 		AppID: appID, Key: body.Key, URL: body.URL,
-		IOS: stringValue(body.IOS), Android: stringValue(body.Android), FallbackURL: stringValue(body.FallbackURL),
-		Threshold: threshold, WindowMinutes: window,
-		ExpiresAt: expiresAt, ExpiredURL: strings.TrimSpace(stringValue(body.ExpiredURL)),
-	})
+		IOS: strings.TrimSpace(stringValue(body.IOS)), Android: strings.TrimSpace(stringValue(body.Android)),
+		FallbackURL: strings.TrimSpace(stringValue(body.FallbackURL)),
+		ExpiresAt:   expiresAt, ExpiredURL: strings.TrimSpace(stringValue(body.ExpiredURL)),
+	}
+	if err := validTargets(nl); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	l, err := p.st.CreateLink(nl)
 	if err != nil {
-		if errors.Is(err, store.ErrKeyConflict) {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		// links.app_id FK rejects unknown apps; absent app reads as not-found, portal tells difference (no pre-check: FK is single source of truth)
-		if strings.Contains(err.Error(), "FOREIGN KEY") {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		p.internal(w, err)
+		p.storeErr(w, err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, toLinkJSON(l))
@@ -370,19 +384,13 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 		l.URL = body.URL
 	}
 	if body.IOS != nil {
-		l.IOS = *body.IOS
+		l.IOS = strings.TrimSpace(*body.IOS)
 	}
 	if body.Android != nil {
-		l.Android = *body.Android
+		l.Android = strings.TrimSpace(*body.Android)
 	}
 	if body.FallbackURL != nil {
-		l.FallbackURL = *body.FallbackURL
-	}
-	if body.Threshold != nil {
-		l.Threshold = *body.Threshold
-	}
-	if body.WindowMinutes != nil {
-		l.WindowMinutes = *body.WindowMinutes
+		l.FallbackURL = strings.TrimSpace(*body.FallbackURL)
 	}
 	if body.ExpiresAt != nil {
 		if l.ExpiresAt, err = parseExpiry(body.ExpiresAt); err != nil {
@@ -393,7 +401,7 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 	if body.ExpiredURL != nil {
 		l.ExpiredURL = strings.TrimSpace(*body.ExpiredURL)
 	}
-	if err := validateMatch(l.Threshold, l.WindowMinutes); err != nil {
+	if err := validTargets(l); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -412,51 +420,35 @@ func (p *portalServer) deleteLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// getSettings: matching defaults from settings table, falling back to store defaults.
-func (p *portalServer) getSettings(w http.ResponseWriter, r *http.Request) {
-	threshold, err := p.st.IntSetting(settingThreshold, store.DefaultThreshold)
-	if err != nil {
-		p.internal(w, err)
-		return
-	}
-	window, err := p.st.IntSetting(settingWindow, store.DefaultWindowMinutes)
-	if err != nil {
-		p.internal(w, err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]int{"threshold": threshold, "windowMinutes": window})
-}
-
-// updateSettings persists matching defaults; absent/zero fields keep stored value. Response reflects effective (stored) settings.
-func (p *portalServer) updateSettings(w http.ResponseWriter, r *http.Request) {
+// updateMatching: app's match threshold + window (Detour: app-level). Both required.
+func (p *portalServer) updateMatching(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
 	var body struct {
-		Threshold     int `json:"threshold"`
-		WindowMinutes int `json:"windowMinutes"`
+		Threshold     *int `json:"threshold"`
+		WindowMinutes *int `json:"windowMinutes"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if err := validateMatch(body.Threshold, body.WindowMinutes); err != nil {
+	if body.Threshold == nil || body.WindowMinutes == nil {
+		http.Error(w, "threshold and windowMinutes are required", http.StatusBadRequest)
+		return
+	}
+	if err := match.ValidateSettings(*body.Threshold, *body.WindowMinutes); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if body.Threshold != 0 || body.WindowMinutes != 0 {
-		var threshold, window *string
-		if body.Threshold != 0 {
-			v := strconv.Itoa(body.Threshold)
-			threshold = &v
-		}
-		if body.WindowMinutes != 0 {
-			v := strconv.Itoa(body.WindowMinutes)
-			window = &v
-		}
-		if err := p.st.SetSettings(threshold, window); err != nil {
-			p.internal(w, err)
-			return
-		}
+	if err := p.st.UpdateAppMatchSettings(id, *body.Threshold, *body.WindowMinutes); err != nil {
+		p.storeErr(w, err)
+		return
 	}
-	p.getSettings(w, r)
+	a, err := p.st.GetApp(id)
+	if err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
 }
 
 // readout serves app-level click/install counts: clicks, organic + non-organic installs. Unknown-attribution rows (backend errors) excluded by store's counts.
@@ -484,17 +476,6 @@ func (p *portalServer) readout(w http.ResponseWriter, r *http.Request) {
 // static serves built portal from configured directory. Missing dir/file 404s plain text (FileServer); server keeps running.
 func (p *portalServer) static(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.Dir(p.dir)).ServeHTTP(w, r)
-}
-
-// validateMatch rejects out-of-range matching settings; zero values mean "use the default/stored value" and pass.
-func validateMatch(threshold, windowMinutes int) error {
-	if threshold != 0 && (threshold < match.MinThreshold || threshold > match.MaxThreshold) {
-		return fmt.Errorf("threshold out of range %d..%d", match.MinThreshold, match.MaxThreshold)
-	}
-	if windowMinutes != 0 && (windowMinutes < match.MinWindow || windowMinutes > match.MaxWindow) {
-		return fmt.Errorf("windowMinutes out of range %d..%d", match.MinWindow, match.MaxWindow)
-	}
-	return nil
 }
 
 // storeErr maps store errors to HTTP responses.

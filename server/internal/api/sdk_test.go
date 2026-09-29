@@ -66,7 +66,7 @@ func recordAndroidClick(t *testing.T, s *store.Store, app store.App, link store.
 			Screen:    "393x852@3",
 			UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/TQ3A.230805.001)",
 		},
-	}, 15, 24)
+	}, 24)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
 	}
@@ -254,6 +254,28 @@ func TestMatchLinkDuplicateIdempotent(t *testing.T) {
 	organic, nonOrganic, err := s.CountInstalls(app.ID)
 	if err != nil || organic != 0 || nonOrganic != 1 {
 		t.Fatalf("installs = organic %d non-organic %d (%v); want single non-organic row", organic, nonOrganic, err)
+	}
+}
+
+// One click attributes at most one install: second device with same signals gets no match.
+func TestMatchLinkTwoDevicesOneClick(t *testing.T) {
+	ts, s, _ := newTestServer(t)
+	app, link := setup(t, s)
+	recordAndroidClick(t, s, app, link)
+	hdr := authHeaders(app.ID)
+	hdr["X-Forwarded-For"] = testIP
+	r1, b1 := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), hdr)
+	if r1.StatusCode != http.StatusOK {
+		t.Fatalf("first device status = %d; want 200 (%s)", r1.StatusCode, b1)
+	}
+	other := strings.Replace(androidFingerprintJSON(), `"manufacturer":"Google"`, `"manufacturer":"Other"`, 1)
+	r2, b2 := doPost(t, ts, "/api/link/match-link", other, hdr)
+	if r2.StatusCode != http.StatusNotFound {
+		t.Fatalf("second device status = %d; want 404 (%s)", r2.StatusCode, b2)
+	}
+	organic, nonOrganic, err := s.CountInstalls(app.ID)
+	if err != nil || organic != 1 || nonOrganic != 1 {
+		t.Errorf("installs = organic %d non-organic %d (%v); want 1/1", organic, nonOrganic, err)
 	}
 }
 
@@ -490,10 +512,14 @@ func TestUniversalLinkClickAuthFailOpenOnClosedDB(t *testing.T) {
 		t.Fatalf("status = %d, body %s; want 200 allow-shape (fail-open R3)", resp.StatusCode, b)
 	}
 	var out struct {
-		Allowed bool `json:"allowed"`
+		Allowed bool   `json:"allowed"`
+		ClickID string `json:"clickId"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil || !out.Allowed {
 		t.Fatalf("body = %s; want allowed true", b)
+	}
+	if len(out.ClickID) != 16 {
+		t.Errorf("clickId = %q; want 16-char fresh id", out.ClickID)
 	}
 }
 

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,9 +65,6 @@ func TestLinkCRUD(t *testing.T) {
 	if err != nil || len(links) != 1 {
 		t.Fatalf("ListLinks = %d links, %v; want 1", len(links), err)
 	}
-	if links[0].Threshold != 0 || links[0].WindowMinutes != 0 {
-		t.Errorf("unset link settings = %d/%d, want 0/0 (global applies)", links[0].Threshold, links[0].WindowMinutes)
-	}
 
 	l, err := s.GetLinkByKey(app.ID, "abc")
 	if err != nil || l.URL != "https://example.com/product" {
@@ -74,12 +72,11 @@ func TestLinkCRUD(t *testing.T) {
 	}
 
 	l.URL = "https://example.com/new"
-	l.Threshold = 1000
 	if err := s.UpdateLink(l); err != nil {
 		t.Fatalf("UpdateLink: %v", err)
 	}
 	got, err := s.GetLink(l.ID)
-	if err != nil || got.URL != "https://example.com/new" || got.Threshold != 1000 {
+	if err != nil || got.URL != "https://example.com/new" {
 		t.Fatalf("updated link = %+v, %v", got, err)
 	}
 
@@ -98,7 +95,7 @@ func TestRecordClickPersistsFingerprint(t *testing.T) {
 		IP: "203.0.113.7", Device: "iPhone 15", Locale: "en-US", Timezone: "Asia/Ho_Chi_Minh",
 		Screen: "393x852@3", UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)", PastedLink: "https://lnk.example/abc",
 	}
-	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 15, 24)
+	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 24)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
 	}
@@ -114,22 +111,16 @@ func TestRecordClickPersistsFingerprint(t *testing.T) {
 	}
 }
 
-func TestClickExpiryRespectsWindowAndFloor(t *testing.T) {
+func TestClickExpiryIsRetention(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
-	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 180, 24)
+	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 48)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
 	}
 	got, _ := s.GetClick(c.ID)
-	if got.ExpiresAt.Sub(got.CreatedAt) < 179*time.Minute {
-		t.Errorf("window 180 not respected: %v", got.ExpiresAt.Sub(got.CreatedAt))
-	}
-	// window smaller than floor → floor wins
-	c2, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 5, 24)
-	got2, _ := s.GetClick(c2.ID)
-	if got2.ExpiresAt.Sub(got2.CreatedAt) < 23*time.Hour {
-		t.Errorf("floor 24h not respected for 5-min window: %v", got2.ExpiresAt.Sub(got2.CreatedAt))
+	if d := got.ExpiresAt.Sub(got.CreatedAt) - 48*time.Hour; d < -time.Minute || d > time.Minute {
+		t.Errorf("expiry = created + %v; want 48h", got.ExpiresAt.Sub(got.CreatedAt))
 	}
 }
 
@@ -138,11 +129,11 @@ func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
 	fp := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"}
-	first, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 15, 24)
+	first, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 24)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
 	}
-	second, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 15, 24)
+	second, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 24)
 	if err != nil {
 		t.Fatalf("second RecordClick: %v", err)
 	}
@@ -154,7 +145,7 @@ func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	}
 	// Different device (different UA), same link: new click.
 	other := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7)"}
-	third, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: other, Destination: link.URL}, 15, 24)
+	third, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: other, Destination: link.URL}, 24)
 	if err != nil {
 		t.Fatalf("third RecordClick: %v", err)
 	}
@@ -166,10 +157,42 @@ func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	}
 }
 
+// Re-tap within dedup hour refreshes click: same id, created_at = now, new signals kept (Dub rewrites deepLinkClickCache per tap).
+func TestRecordClickDedupRefreshesClick(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	fp := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"}
+	first, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	old := time.Now().UTC().Add(-40 * time.Minute)
+	if _, err := s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(old), first.ID); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	fp.Timezone = "Europe/Warsaw"
+	second, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL}, 24)
+	if err != nil {
+		t.Fatalf("second RecordClick: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("re-tap id = %q; want %q (same click)", second.ID, first.ID)
+	}
+	if time.Since(second.CreatedAt) > time.Minute {
+		t.Errorf("created_at = %v; want refreshed to now", second.CreatedAt)
+	}
+	if second.Fingerprint.Timezone != "Europe/Warsaw" {
+		t.Errorf("timezone = %q; want refreshed signal", second.Fingerprint.Timezone)
+	}
+	if !second.ExpiresAt.After(first.ExpiresAt.Add(-time.Second)) {
+		t.Errorf("expires_at shrank: %v < %v", second.ExpiresAt, first.ExpiresAt)
+	}
+}
+
 func TestDeterministicLookupByClickID(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
-	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, ClickID: "play-click-42"}, 15, 24)
+	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, ClickID: "play-click-42"}, 24)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
 	}
@@ -182,10 +205,54 @@ func TestDeterministicLookupByClickID(t *testing.T) {
 	}
 }
 
+func TestMarkClickMatchedOnce(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, ClickID: "k1"}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	if ok, err := s.MarkClickMatched(c.ID); !ok || err != nil {
+		t.Fatalf("first MarkClickMatched = %v, %v; want true", ok, err)
+	}
+	if ok, err := s.MarkClickMatched(c.ID); ok || err != nil {
+		t.Fatalf("second MarkClickMatched = %v, %v; want false", ok, err)
+	}
+	if cs, err := s.ClicksSince(app.ID, time.Now().Add(-time.Hour)); err != nil || len(cs) != 0 {
+		t.Errorf("ClicksSince = %d, %v; want 0 after match", len(cs), err)
+	}
+	if _, err := s.ClickByClickID(app.ID, "k1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("ClickByClickID after match = %v; want ErrNotFound", err)
+	}
+}
+
+func TestPriorMatch(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d1", ClickID: c.ID, Attribution: AttributionNonOrganic}); err != nil {
+		t.Fatalf("RecordInstall d1: %v", err)
+	}
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d3", Attribution: AttributionOrganic}); err != nil {
+		t.Fatalf("RecordInstall d3: %v", err)
+	}
+	if got, err := s.PriorMatch(app.ID, "d1"); err != nil || got.ID != c.ID {
+		t.Errorf("PriorMatch d1 = %+v, %v; want click %s", got, err, c.ID)
+	}
+	for _, d := range []string{"d2", "d3"} {
+		if _, err := s.PriorMatch(app.ID, d); !errors.Is(err, ErrNotFound) {
+			t.Errorf("PriorMatch %s = %v; want ErrNotFound", d, err)
+		}
+	}
+}
+
 func TestPurgeExpired(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
-	c, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 15, 24)
+	c, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 24)
 	// force expiry into the past
 	if _, err := s.rawExec(`UPDATE clicks SET expires_at = ? WHERE id = ?`, rfc3339(time.Now().Add(-time.Hour)), c.ID); err != nil {
 		t.Fatalf("force expiry: %v", err)
@@ -244,6 +311,28 @@ func TestInstallAttributionIdempotent(t *testing.T) {
 	}
 }
 
+// backend-error unknown must not block a later real attribution; real ones stay immutable
+func TestInstallUnknownUpgradedByRealAttribution(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	rec := func(dev, attr string) {
+		t.Helper()
+		if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: dev, Attribution: attr}); err != nil {
+			t.Fatalf("RecordInstall %s/%s: %v", dev, attr, err)
+		}
+	}
+	rec("d1", AttributionUnknown)
+	rec("d1", AttributionOrganic)
+	if o, n, _ := s.CountInstalls(app.ID); o != 1 || n != 0 {
+		t.Fatalf("unknown→organic: organic %d non-organic %d; want 1/0", o, n)
+	}
+	rec("d2", AttributionOrganic)
+	rec("d2", AttributionUnknown)
+	if o, n, _ := s.CountInstalls(app.ID); o != 2 || n != 0 {
+		t.Fatalf("organic→unknown: organic %d non-organic %d; want 2/0", o, n)
+	}
+}
+
 func TestOpenMigratesLegacyInstallUniqueness(t *testing.T) {
 	path := t.TempDir() + "/legacy.db"
 	db, err := sql.Open("sqlite", path)
@@ -285,20 +374,75 @@ func TestOpenMigratesLegacyInstallUniqueness(t *testing.T) {
 	}
 }
 
-func TestRecordEventAndSettings(t *testing.T) {
+func TestRecordEvent(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
 	if err := s.RecordEvent(app.ID, "install", `{"source":"play"}`); err != nil {
 		t.Fatalf("RecordEvent: %v", err)
 	}
-	if v, ok, err := s.GetSetting("threshold"); err != nil || ok {
-		t.Fatalf("GetSetting(unset) = %q, %v, %v", v, ok, err)
+}
+
+func TestUpdateAppMatchSettings(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	if app.MatchThreshold != 850 || app.MatchWindowMinutes != 15 {
+		t.Fatalf("new app match = %d/%d; want 850/15", app.MatchThreshold, app.MatchWindowMinutes)
 	}
-	if err := s.SetSetting("threshold", "950"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
+	if err := s.UpdateAppMatchSettings(app.ID, 950, 30); err != nil {
+		t.Fatalf("UpdateAppMatchSettings: %v", err)
 	}
-	if v, ok, _ := s.GetSetting("threshold"); !ok || v != "950" {
-		t.Errorf("GetSetting = %q, %v; want 950,true", v, ok)
+	got, err := s.GetApp(app.ID)
+	if err != nil || got.MatchThreshold != 950 || got.MatchWindowMinutes != 30 {
+		t.Fatalf("GetApp = %+v, %v; want 950/30", got, err)
+	}
+	if err := s.UpdateAppMatchSettings("nope", 950, 30); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown app: %v; want ErrNotFound", err)
+	}
+}
+
+// legacyMatchDB: pre-upgrade database (apps without match columns, instance-wide settings table) with one app.
+func legacyMatchDB(t *testing.T, threshold, window string) string {
+	t.Helper()
+	path := t.TempDir() + "/legacy.db"
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	_, err = db.Exec(`
+CREATE TABLE apps (id TEXT PRIMARY KEY, name TEXT NOT NULL, api_key_hash TEXT NOT NULL,
+  ios_app_id TEXT, android_package TEXT, android_cert_fingerprint TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')));
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT INTO apps (id, name, api_key_hash) VALUES ('legacy-app', 'old', 'h');
+INSERT INTO settings (key, value) VALUES ('threshold', '` + threshold + `'), ('window_minutes', '` + window + `');`)
+	closeErr := db.Close()
+	if err != nil {
+		t.Fatalf("prepare legacy database: %v", err)
+	}
+	if closeErr != nil {
+		t.Fatalf("close legacy database: %v", closeErr)
+	}
+	return path
+}
+
+func TestOpenSeedsAppMatchFromLegacySettings(t *testing.T) {
+	for _, tc := range []struct {
+		threshold, window string
+		wantT, wantW      int
+	}{
+		{"950", "30", 950, 30},
+		{"9999", "30", 850, 30}, // out of range: default stays
+		{"abc", "1", 850, 15},   // garbage + out of range: defaults stay
+	} {
+		s, err := Open(legacyMatchDB(t, tc.threshold, tc.window))
+		if err != nil {
+			t.Fatalf("Open legacy database: %v", err)
+		}
+		got, err := s.GetApp("legacy-app")
+		s.Close()
+		if err != nil || got.MatchThreshold != tc.wantT || got.MatchWindowMinutes != tc.wantW {
+			t.Errorf("settings %s/%s: app match = %+v, %v; want %d/%d", tc.threshold, tc.window, got, err, tc.wantT, tc.wantW)
+		}
 	}
 }
 
@@ -347,5 +491,240 @@ func TestGetLinkByKeyGlobalAmbiguousFailsClosed(t *testing.T) {
 	}
 	if _, err := s.GetLinkByKeyGlobal("abc"); !errors.Is(err, ErrAmbiguousKey) {
 		t.Errorf("GetLinkByKeyGlobal(dup) = %v; want ErrAmbiguousKey", err)
+	}
+}
+
+// pre-v0.2 DB gains expires_at, expired_url, os_version on Open; re-Open is a no-op
+func TestOpenAddsMissingColumns(t *testing.T) {
+	path := t.TempDir() + "/legacy.db"
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	_, err = db.Exec(`
+CREATE TABLE apps (id TEXT PRIMARY KEY, name TEXT NOT NULL, api_key_hash TEXT NOT NULL,
+  ios_app_id TEXT, android_package TEXT, android_cert_fingerprint TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')));
+CREATE TABLE links (id TEXT PRIMARY KEY, app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+  key TEXT NOT NULL, url TEXT NOT NULL, ios TEXT, android TEXT, fallback_url TEXT,
+  threshold INTEGER NOT NULL DEFAULT 850, window_minutes INTEGER NOT NULL DEFAULT 15,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), UNIQUE (app_id, key));
+CREATE TABLE clicks (id TEXT PRIMARY KEY, app_id TEXT NOT NULL, link_id TEXT NOT NULL, ip TEXT,
+  device TEXT, locale TEXT, timezone TEXT, screen TEXT, user_agent TEXT, pasted_link TEXT,
+  destination TEXT NOT NULL, click_id TEXT, is_bot INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), expires_at TEXT NOT NULL);
+INSERT INTO apps (id, name, api_key_hash) VALUES ('legacy-app', 'old', 'h');
+INSERT INTO links (id, app_id, key, url) VALUES ('legacy-link', 'legacy-app', 'old', 'https://example.com/old');`)
+	closeErr := db.Close()
+	if err != nil {
+		t.Fatalf("prepare legacy database: %v", err)
+	}
+	if closeErr != nil {
+		t.Fatalf("close legacy database: %v", closeErr)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open legacy database: %v", err)
+	}
+	defer s.Close()
+	if !columnExists(s.db, "clicks", "matched_at") {
+		t.Error("clicks.matched_at missing after Open")
+	}
+	l, err := s.GetLink("legacy-link")
+	if err != nil || l.ExpiresAt != nil || l.ExpiredURL != "" {
+		t.Fatalf("GetLink = %+v, %v; want nil ExpiresAt, empty ExpiredURL", l, err)
+	}
+	exp := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	l.ExpiresAt, l.ExpiredURL = &exp, "https://example.com/gone"
+	if err := s.UpdateLink(l); err != nil {
+		t.Fatalf("UpdateLink: %v", err)
+	}
+	got, err := s.GetLink("legacy-link")
+	if err != nil || got.ExpiresAt == nil || !got.ExpiresAt.Equal(exp) || got.ExpiredURL != "https://example.com/gone" {
+		t.Errorf("GetLink after update = %+v, %v; want expiry %v + expired url", got, err, exp)
+	}
+	c, err := s.RecordClick(Click{AppID: "legacy-app", LinkID: "legacy-link", Destination: "x", Fingerprint: Fingerprint{OSVersion: "14.0.0"}}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	if gc, err := s.GetClick(c.ID); err != nil || gc.Fingerprint.OSVersion != "14.0.0" {
+		t.Errorf("GetClick OSVersion = %q, %v; want 14.0.0", gc.Fingerprint.OSVersion, err)
+	}
+	s.Close()
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatalf("second Open: %v", err)
+	}
+	s2.Close()
+}
+
+// dedup window edges: 59m hit, 61m miss, other link miss, NULL IP hit, empty signal keeps old value
+func TestRecordClickDedupBoundaries(t *testing.T) {
+	cases := []struct {
+		name     string
+		first    Fingerprint
+		second   Fingerprint
+		age      time.Duration
+		otherLnk bool
+		wantSame bool
+		wantTZ   string
+	}{
+		{name: "59 min old", first: Fingerprint{IP: "1.1.1.1", UserAgent: "ua"}, second: Fingerprint{IP: "1.1.1.1", UserAgent: "ua"}, age: 59 * time.Minute, wantSame: true},
+		{name: "61 min old", first: Fingerprint{IP: "1.1.1.1", UserAgent: "ua"}, second: Fingerprint{IP: "1.1.1.1", UserAgent: "ua"}, age: 61 * time.Minute},
+		{name: "other link", first: Fingerprint{IP: "1.1.1.1", UserAgent: "ua"}, second: Fingerprint{IP: "1.1.1.1", UserAgent: "ua"}, otherLnk: true},
+		{name: "NULL IP both", first: Fingerprint{UserAgent: "ua"}, second: Fingerprint{UserAgent: "ua"}, wantSame: true},
+		{name: "empty signal keeps old", first: Fingerprint{IP: "1.1.1.1", UserAgent: "ua", Timezone: "Europe/Warsaw"}, second: Fingerprint{IP: "1.1.1.1", UserAgent: "ua"}, wantSame: true, wantTZ: "Europe/Warsaw"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			app, link := setupApp(t, s)
+			first, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: tc.first}, 24)
+			if err != nil {
+				t.Fatalf("RecordClick first: %v", err)
+			}
+			if tc.age > 0 {
+				if _, err := s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(time.Now().UTC().Add(-tc.age)), first.ID); err != nil {
+					t.Fatalf("backdate: %v", err)
+				}
+			}
+			lid := link.ID
+			if tc.otherLnk {
+				l2, err := s.CreateLink(Link{AppID: app.ID, Key: "abc2", URL: "https://example.com/other"})
+				if err != nil {
+					t.Fatalf("CreateLink: %v", err)
+				}
+				lid = l2.ID
+			}
+			second, err := s.RecordClick(Click{AppID: app.ID, LinkID: lid, Destination: link.URL, Fingerprint: tc.second}, 24)
+			if err != nil {
+				t.Fatalf("RecordClick second: %v", err)
+			}
+			if same := second.ID == first.ID; same != tc.wantSame {
+				t.Errorf("same ID = %v; want %v", same, tc.wantSame)
+			}
+			if tc.wantTZ != "" {
+				if got, err := s.GetClick(second.ID); err != nil || got.Fingerprint.Timezone != tc.wantTZ {
+					t.Errorf("timezone = %q, %v; want %q", got.Fingerprint.Timezone, err, tc.wantTZ)
+				}
+			}
+		})
+	}
+}
+
+// purge drops expired click, keeps live click and recent event
+func TestPurgeExpiredKeepsLive(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	a, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: Fingerprint{UserAgent: "ua-a"}}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick A: %v", err)
+	}
+	b, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: Fingerprint{UserAgent: "ua-b"}}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick B: %v", err)
+	}
+	if _, err := s.rawExec(`UPDATE clicks SET expires_at = ? WHERE id = ?`, rfc3339(time.Now().Add(-time.Hour)), a.ID); err != nil {
+		t.Fatalf("force expiry: %v", err)
+	}
+	if err := s.RecordEvent(app.ID, "install", `{}`); err != nil {
+		t.Fatalf("RecordEvent: %v", err)
+	}
+	if _, err := s.PurgeExpired(time.Now(), 24); err != nil {
+		t.Fatalf("PurgeExpired: %v", err)
+	}
+	if _, err := s.GetClick(a.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expired click survived: %v", err)
+	}
+	if _, err := s.GetClick(b.ID); err != nil {
+		t.Errorf("live click purged: %v", err)
+	}
+	if n, err := s.CountEvents(app.ID); err != nil || n != 1 {
+		t.Errorf("CountEvents = %d, %v; want 1", n, err)
+	}
+}
+
+func TestNanoidAlphabetAndLength(t *testing.T) {
+	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	for i := 0; i < 1000; i++ {
+		id := Nanoid(22)
+		if len(id) != 22 || strings.Trim(id, alphabet) != "" {
+			t.Fatalf("Nanoid(22) = %q", id)
+		}
+	}
+}
+
+func TestDeleteLinkRemovesClicks(t *testing.T) {
+	s := newTestStore(t)
+	app, l1 := setupApp(t, s)
+	l2, err := s.CreateLink(Link{AppID: app.ID, Key: "def", URL: "https://example.com/two"})
+	if err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	c1, err := s.RecordClick(Click{AppID: app.ID, LinkID: l1.ID, Destination: l1.URL}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	c2, err := s.RecordClick(Click{AppID: app.ID, LinkID: l2.ID, Destination: l2.URL}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	if err := s.DeleteLink(l1.ID); err != nil {
+		t.Fatalf("DeleteLink: %v", err)
+	}
+	if _, err := s.GetClick(c1.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetClick(deleted link) = %v; want ErrNotFound", err)
+	}
+	if _, err := s.GetClick(c2.ID); err != nil {
+		t.Errorf("GetClick(other link) = %v; want present", err)
+	}
+	if err := s.DeleteLink("missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("DeleteLink(missing) = %v; want ErrNotFound", err)
+	}
+}
+
+func TestDeleteAppRemovesAppData(t *testing.T) {
+	s := newTestStore(t)
+	a, la := setupApp(t, s)
+	b, err := s.CreateApp("other app", "other-key-456")
+	if err != nil {
+		t.Fatalf("CreateApp: %v", err)
+	}
+	lb, err := s.CreateLink(Link{AppID: b.ID, Key: "xyz", URL: "https://example.com/b"})
+	if err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	for _, x := range []struct {
+		app App
+		l   Link
+	}{{a, la}, {b, lb}} {
+		if _, err := s.RecordClick(Click{AppID: x.app.ID, LinkID: x.l.ID, Destination: x.l.URL}, 24); err != nil {
+			t.Fatalf("RecordClick: %v", err)
+		}
+		if _, err := s.RecordInstall(Install{AppID: x.app.ID, DeviceHash: "h", ClickID: "c", Attribution: AttributionNonOrganic}); err != nil {
+			t.Fatalf("RecordInstall: %v", err)
+		}
+		if err := s.RecordEvent(x.app.ID, "install", "{}"); err != nil {
+			t.Fatalf("RecordEvent: %v", err)
+		}
+	}
+	if err := s.DeleteApp(a.ID); err != nil {
+		t.Fatalf("DeleteApp: %v", err)
+	}
+	clicks, _ := s.CountClicks(a.ID)
+	org, non, _ := s.CountInstalls(a.ID)
+	events, _ := s.CountEvents(a.ID)
+	if clicks != 0 || org != 0 || non != 0 || events != 0 {
+		t.Errorf("deleted app data = %d clicks, %d/%d installs, %d events; want all 0", clicks, org, non, events)
+	}
+	clicks, _ = s.CountClicks(b.ID)
+	_, non, _ = s.CountInstalls(b.ID)
+	events, _ = s.CountEvents(b.ID)
+	if clicks != 1 || non != 1 || events != 1 {
+		t.Errorf("other app data = %d clicks, %d non-organic installs, %d events; want 1 each", clicks, non, events)
+	}
+	if err := s.DeleteApp("missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("DeleteApp(missing) = %v; want ErrNotFound", err)
 	}
 }

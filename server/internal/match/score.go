@@ -60,8 +60,8 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 		}
 		return 0
 	default:
-		// Platform device signal unavailable -> UA device signature fallback
-		if cm != "" && fm != "" && normModel(cm) == normModel(fm) {
+		// UA device signature fallback (Android only, per Detour weights table)
+		if platform == "android" && cm != "" && fm != "" && normModel(cm) == normModel(fm) {
 			return weightUADeviceSignature
 		}
 		return 0

@@ -75,3 +75,16 @@ func TestIsBotRequest(t *testing.T) {
 		t.Error("IsBot(real mobile UA) = true; want false")
 	}
 }
+
+func TestIOSVersion(t *testing.T) {
+	cases := []struct{ ua, want string }{
+		{"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1", "26.0"},
+		{"Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1", "17.2.1"},
+		{"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0 Mobile/15E148 Safari/604.1", "18.6"},
+	}
+	for _, c := range cases {
+		if got := IOSVersion(c.ua); got != c.want {
+			t.Errorf("IOSVersion(%q) = %q; want %q", c.ua, got, c.want)
+		}
+	}
+}

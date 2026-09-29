@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS apps (
     ios_app_id              TEXT,
     android_package         TEXT,
     android_cert_fingerprint TEXT,
+    match_threshold         INTEGER NOT NULL DEFAULT 850,
+    match_window_minutes    INTEGER NOT NULL DEFAULT 15,
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
@@ -19,8 +21,6 @@ CREATE TABLE IF NOT EXISTS links (
     ios            TEXT,
     android        TEXT,
     fallback_url   TEXT,
-    threshold      INTEGER NOT NULL DEFAULT 850,
-    window_minutes INTEGER NOT NULL DEFAULT 15,
     expires_at     TEXT,
     expired_url    TEXT,
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS clicks (
     click_id    TEXT,
     is_bot      INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    expires_at  TEXT NOT NULL
+    expires_at  TEXT NOT NULL,
+    matched_at  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
@@ -78,8 +79,3 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_created ON events (created_at);
-
-CREATE TABLE IF NOT EXISTS settings (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
