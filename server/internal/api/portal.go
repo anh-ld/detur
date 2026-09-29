@@ -48,6 +48,8 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) ht
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/apps", p.listApps)
 	mux.HandleFunc("POST /api/apps", p.createApp)
+	mux.HandleFunc("POST /api/apps/{id}/rotate-key", p.rotateAppKey)
+	mux.HandleFunc("DELETE /api/apps/{id}/key", p.revokeAppKey)
 	mux.HandleFunc("PATCH /api/apps/{id}", p.updateApp)
 	mux.HandleFunc("DELETE /api/apps/{id}", p.deleteApp)
 	mux.HandleFunc("GET /api/apps/{id}/links", p.listLinks)
@@ -200,26 +202,20 @@ func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {
 
 func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name   string `json:"name"`
-		APIKey string `json:"apiKey"`
+		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	body.Name = strings.TrimSpace(body.Name)
-	body.APIKey = strings.TrimSpace(body.APIKey)
-	if body.Name == "" || body.APIKey == "" {
-		http.Error(w, "name and apiKey are required", http.StatusBadRequest)
+	if body.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
-	// Entropy floor: keys below this are brute-forceable even hashed at
-	// rest; the UI generates 128-bit keys by default.
-	if len(body.APIKey) < 24 {
-		http.Error(w, "apiKey must be at least 24 characters", http.StatusBadRequest)
-		return
-	}
-	a, err := p.st.CreateApp(body.Name, body.APIKey)
+	// Server-minted 128-bit key: 24 chars total ("dk_" + 21 base62).
+	apiKey := "dk_" + store.Nanoid(21)
+	a, err := p.st.CreateApp(body.Name, apiKey)
 	if err != nil {
 		p.internal(w, err)
 		return
@@ -227,8 +223,45 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 	// Show-once semantics: the plaintext key rides this one response; every
 	// later read returns only the hash.
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{
-		"id": a.ID, "name": a.Name, "apiKey": body.APIKey, "apiKeyHash": a.APIKeyHash,
+		"id": a.ID, "name": a.Name, "apiKey": apiKey, "apiKeyHash": a.APIKeyHash,
 	})
+}
+
+// rotateAppKey mints a new key and swaps the stored hash; the old key dies
+// immediately. The plaintext rides this one response, like create.
+func (p *portalServer) rotateAppKey(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	apiKey := "dk_" + store.Nanoid(21)
+	if err := p.st.UpdateAppKey(id, apiKey); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		p.internal(w, err)
+		return
+	}
+	app, err := p.st.GetApp(id)
+	if err != nil {
+		p.internal(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
+		"id": app.ID, "name": app.Name, "apiKey": apiKey, "apiKeyHash": app.APIKeyHash,
+	})
+}
+
+// revokeAppKey clears the stored hash: the SDK stops accepting the key.
+func (p *portalServer) revokeAppKey(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := p.st.ClearAppKey(id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		p.internal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {

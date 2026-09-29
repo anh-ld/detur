@@ -43,7 +43,7 @@ export function ConfirmDelete({
   return (
     <Dialog>
       <Dialog.Trigger>
-        <Button size="sm" variant="ghost">
+        <Button size="sm" variant="destructive">
           Delete
         </Button>
       </Dialog.Trigger>

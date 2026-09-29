@@ -89,9 +89,8 @@ func mustJSON(t *testing.T, b []byte, v any) {
 // Scenario 1: full app + link CRUD round trip through the portal API.
 func TestPortalAppLinkCRUD(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
-	key := "portal-crud-key-1234567890abcdef"
 
-	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"crud app","apiKey":"`+key+`"}`, nil)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"crud app"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create app: %d %s", resp.StatusCode, b)
 	}
@@ -101,8 +100,8 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 		APIKeyHash string `json:"apiKeyHash"`
 	}
 	mustJSON(t, b, &created)
-	if created.APIKey != key || created.APIKeyHash != store.HashKey(key) {
-		t.Fatalf("create response must carry plaintext key + hash: %s", b)
+	if !strings.HasPrefix(created.APIKey, "dk_") || created.APIKeyHash != store.HashKey(created.APIKey) {
+		t.Fatalf("server must mint the key and store its hash: %s", b)
 	}
 
 	resp, b = portalReq(t, portal, "PATCH", "/api/apps/"+created.ID,
@@ -259,13 +258,13 @@ func TestPortalReadout(t *testing.T) {
 // Scenario 5: cross-origin requests rejected by the guard (CSRF).
 func TestPortalRejectsCrossOrigin(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
-	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x","apiKey":"k-0123456789abcdef-XYZ-000"}`,
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x"}`,
 		map[string]string{"Origin": "http://evil.example"})
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("cross-origin POST must be 403, got %d %s", resp.StatusCode, b)
 	}
 	// Same-origin (loopback) Origin passes.
-	resp, b = portalReq(t, portal, "POST", "/api/apps", `{"name":"ok","apiKey":"k-0123456789abcdef-XYZ-000"}`,
+	resp, b = portalReq(t, portal, "POST", "/api/apps", `{"name":"ok"}`,
 		map[string]string{"Origin": "http://localhost:8081"})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("loopback-origin POST must pass, got %d %s", resp.StatusCode, b)
@@ -314,7 +313,7 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), []string{portalAddr}))
 	t.Cleanup(ts.Close)
 
-	resp, b := portalReq(t, ts, "POST", "/api/apps", `{"name":"still-works","apiKey":"k-0123456789abcdef-XYZ-000"}`, nil)
+	resp, b := portalReq(t, ts, "POST", "/api/apps", `{"name":"still-works"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("API must keep working without the static dir: %d %s", resp.StatusCode, b)
 	}
@@ -328,26 +327,76 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 // plaintext key; every later GET carries only the hash.
 func TestPortalKeyShownOnce(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
-	key := "super-secret-visible-once"
-	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"once","apiKey":"`+key+`"}`, nil)
-	if resp.StatusCode != http.StatusCreated || !strings.Contains(string(b), key) {
-		t.Fatalf("create response must contain the plaintext key: %d %s", resp.StatusCode, b)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"once"}`, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create app: %d %s", resp.StatusCode, b)
+	}
+	var created struct {
+		APIKey     string `json:"apiKey"`
+		APIKeyHash string `json:"apiKeyHash"`
+	}
+	mustJSON(t, b, &created)
+	if created.APIKey == "" || !strings.Contains(string(b), created.APIKey) {
+		t.Fatalf("create response must contain the plaintext key: %s", b)
 	}
 	resp, b = portalReq(t, portal, "GET", "/api/apps", "", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list apps: %d %s", resp.StatusCode, b)
 	}
-	if strings.Contains(string(b), key) {
+	if strings.Contains(string(b), created.APIKey) {
 		t.Fatalf("plaintext key leaked in list: %s", b)
 	}
-	if !strings.Contains(string(b), store.HashKey(key)) {
+	if !strings.Contains(string(b), created.APIKeyHash) {
 		t.Fatalf("list must carry the hash: %s", b)
+	}
+}
+
+// Scenario 9: key management — rotation mints a new key and the old one
+// dies; revoke empties the hash so SDK auth fails.
+func TestPortalRotateAndRevokeKey(t *testing.T) {
+	portal, _, st := newPortalEnv(t)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"keys"}`, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create app: %d %s", resp.StatusCode, b)
+	}
+	var created struct {
+		ID         string `json:"id"`
+		APIKey     string `json:"apiKey"`
+		APIKeyHash string `json:"apiKeyHash"`
+	}
+	mustJSON(t, b, &created)
+
+	resp, b = portalReq(t, portal, "POST", "/api/apps/"+created.ID+"/rotate-key", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("rotate key: %d %s", resp.StatusCode, b)
+	}
+	var rotated struct {
+		APIKey     string `json:"apiKey"`
+		APIKeyHash string `json:"apiKeyHash"`
+	}
+	mustJSON(t, b, &rotated)
+	if rotated.APIKey == "" || rotated.APIKey == created.APIKey {
+		t.Fatalf("rotate must mint a new key: %s", b)
+	}
+	if ok, _ := st.ValidateAPIKey(created.ID, created.APIKey); ok {
+		t.Error("old key must stop working after rotation")
+	}
+	if ok, _ := st.ValidateAPIKey(created.ID, rotated.APIKey); !ok {
+		t.Error("new key must authenticate after rotation")
+	}
+
+	resp, b = portalReq(t, portal, "DELETE", "/api/apps/"+created.ID+"/key", "", nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke key: %d %s", resp.StatusCode, b)
+	}
+	if ok, _ := st.ValidateAPIKey(created.ID, rotated.APIKey); ok {
+		t.Error("key must fail auth after revoke")
 	}
 }
 
 func TestPortalCreateLinkDuplicateKey409(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
-	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"dup","apiKey":"k-dup-0123456789abcdef-XYZ-000"}`, nil)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"dup"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create app: %d %s", resp.StatusCode, b)
 	}

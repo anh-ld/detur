@@ -34,8 +34,25 @@ h1, h2, h3 {
 }
 
 main h1 {
-  font-size: 2.5rem !important;
-  letter-spacing: -0.035em;
+  font-size: 1.75rem !important;
+  letter-spacing: -0.03em;
+}
+
+/* Header: sticky with a blur, full-width hairline */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: hsl(var(--k-background) / 0.85);
+  backdrop-filter: blur(10px) saturate(1.4);
+  border-bottom: 1px solid hsl(var(--k-border));
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  header {
+    background: hsl(var(--k-background));
+    backdrop-filter: none;
+  }
 }
 
 /* Brand mark */
@@ -59,6 +76,37 @@ header [k="button"][variant="secondary"],
   box-shadow: 0 4px 12px -4px hsl(var(--k-primary) / 0.5);
 }
 
+/* Buttons: visible affordance on cards, press feedback, focus rings */
+[k="button"] {
+  transition: background 120ms ease, transform 80ms ease;
+}
+
+[k="button"]:active {
+  transform: scale(0.97);
+}
+
+[k="button"][variant="ghost"] {
+  color: hsl(var(--k-secondary-foreground));
+}
+
+[k="button"][variant="ghost"]:hover,
+[k="button"][variant="outline"]:hover {
+  background: hsl(var(--k-muted));
+}
+
+[k="button"][variant="destructive"] {
+  color: hsl(0 68% 45%);
+}
+
+[k="button"][variant="destructive"]:hover {
+  background: hsl(0 75% 95%);
+}
+
+[k="button"]:focus-visible {
+  outline: 2px solid hsl(var(--k-ring));
+  outline-offset: 2px;
+}
+
 /* Cards: flat; app cards are fully clickable */
 [k="card"] {
   box-shadow: none;
@@ -80,22 +128,17 @@ header [k="button"][variant="secondary"],
   position: relative;
 }
 
-/* Stat tiles: big numbers, first one in blue */
+/* Stat tiles: uniform cards, muted label + large tabular number */
 [k="card"][padding="sm"] > div {
-  font-size: 2.75rem !important;
+  font-size: 2.5rem !important;
   font-weight: 700 !important;
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
+  color: hsl(var(--k-foreground));
 }
 
-[k="card"][padding="sm"]:first-child {
-  border-color: transparent;
-  color: #fff;
-  background: linear-gradient(135deg, hsl(212 95% 58%), hsl(226 80% 42%));
-}
-
-[k="card"][padding="sm"]:first-child > p {
-  color: hsl(0 0% 100% / 0.8) !important;
+[k="card"][padding="sm"] > p {
+  color: hsl(var(--k-muted-foreground)) !important;
 }
 
 /* Empty states */
@@ -129,9 +172,10 @@ header [k="button"][variant="secondary"],
   border-bottom: 0;
 }
 
-[k="table"] th {
-  color: hsl(var(--k-muted-foreground));
-  font-weight: 500;
+[k="table"] thead th {
+  background: hsl(var(--k-muted));
+  color: hsl(var(--k-secondary-foreground));
+  font-weight: 600;
 }
 
 [k="dialog-content"] {

@@ -55,7 +55,9 @@ export interface CreatedApp {
 
 export const api = {
   listApps: () => req<App[]>('GET', '/api/apps'),
-  createApp: (name: string, apiKey: string) => req<CreatedApp>('POST', '/api/apps', { name, apiKey }),
+  createApp: (name: string) => req<CreatedApp>('POST', '/api/apps', { name }),
+  rotateKey: (id: string) => req<CreatedApp>('POST', `/api/apps/${id}/rotate-key`),
+  revokeKey: (id: string) => req<void>('DELETE', `/api/apps/${id}/key`),
   updateApp: (id: string, d: { iosAppId: string; androidPackage: string; androidCertFingerprint: string }) =>
     req<App>('PATCH', `/api/apps/${id}`, d),
   deleteApp: (id: string) => req<void>('DELETE', `/api/apps/${id}`),
