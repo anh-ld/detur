@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Spinner } from 'kinu';
+import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Spinner, Table } from 'kinu';
 import { api, App, CreatedApp } from './api';
 import { closeDialog, ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
 
@@ -117,33 +117,47 @@ export function AppsPage() {
           </Empty>
         </Card>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
-          {apps.map((a) => (
-            <Card key={a.id} style={{ display: 'grid', gap: 12 }}>
-              <div style={{ ...row, justifyContent: 'space-between' }}>
-                <h3 style={{ margin: 0 }}>
-                  <a href={`#/apps/${a.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+        <Table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>App ID</th>
+              <th>Platforms</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {apps.map((a) => (
+              <tr key={a.id}>
+                <td>
+                  <a href={`#/apps/${a.id}`} style={{ color: 'inherit', fontWeight: 600, textDecoration: 'none' }}>
                     {a.name}
                   </a>
-                </h3>
-                <div style={row}>
-                  {a.iosAppId && <Badge variant="secondary">iOS</Badge>}
-                  {a.androidPackage && <Badge variant="secondary">Android</Badge>}
-                  {!a.iosAppId && !a.androidPackage && <Badge variant="outline">Not set up</Badge>}
-                </div>
-              </div>
-              <span style={{ ...muted, ...mono }}>{a.id}</span>
-              <div style={{ ...row, justifyContent: 'flex-end' }}>
-                <EditDialog app={a} onSaved={load} />
-                <ConfirmDelete
-                  title={`Delete ${a.name}?`}
-                  body="Its links are deleted too, and the SDK stops accepting this API key."
-                  onConfirm={() => del(a)}
-                />
-              </div>
-            </Card>
-          ))}
-        </div>
+                </td>
+                <td data-label="App ID" style={{ ...muted, ...mono }}>
+                  {a.id}
+                </td>
+                <td>
+                  <div style={row}>
+                    {a.iosAppId && <Badge variant="secondary">iOS</Badge>}
+                    {a.androidPackage && <Badge variant="secondary">Android</Badge>}
+                    {!a.iosAppId && !a.androidPackage && <Badge variant="outline">Not set up</Badge>}
+                  </div>
+                </td>
+                <td>
+                  <div style={{ ...row, justifyContent: 'flex-end' }}>
+                    <EditDialog app={a} onSaved={load} />
+                    <ConfirmDelete
+                      title={`Delete ${a.name}?`}
+                      body="Its links are deleted too, and the SDK stops accepting this API key."
+                      onConfirm={() => del(a)}
+                    />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
     </div>
   );

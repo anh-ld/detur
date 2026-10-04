@@ -89,25 +89,10 @@ header [k="button"][variant="secondary"],
   outline-offset: 2px;
 }
 
-/* Cards: flat; app cards are fully clickable */
+/* Cards: flat */
 [k="card"] {
   box-shadow: none;
   border-radius: 0.875rem;
-  position: relative;
-}
-
-[k="card"]:has(h3 > a):hover {
-  border-color: hsl(var(--k-primary) / 0.45);
-}
-
-[k="card"] h3 > a::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-
-[k="card"] [k="button"] {
-  position: relative;
 }
 
 /* Stat tiles: uniform cards, muted label + large tabular number */
@@ -154,13 +139,118 @@ header [k="button"][variant="secondary"],
   border-bottom: 0;
 }
 
+[k="table"] td {
+  vertical-align: middle;
+}
+
 [k="table"] thead th {
   background: hsl(var(--k-muted));
-  color: hsl(var(--k-secondary-foreground));
+  color: hsl(var(--k-muted-foreground));
+  font-size: 0.75rem;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-block: 0.625rem;
+  white-space: nowrap;
+}
+
+[k="table"] tbody tr {
+  transition: background 120ms ease;
+}
+
+[k="table"] tbody tr:hover {
+  background: hsl(var(--k-muted) / 0.6);
+}
+
+[k="table"] td a:hover {
+  color: hsl(var(--k-primary)) !important;
 }
 
 [k="dialog-content"] {
   border: 1px solid hsl(var(--k-border));
   border-radius: 1rem;
+  width: min(40rem, calc(100vw - 2rem));
+  max-width: none;
+  padding: 2rem;
 }
+
+/* Phones: tables stack into one card per row, tighter page gutters */
+@media (max-width: 640px) {
+  header,
+  main {
+    padding-inline: 16px !important;
+  }
+
+  main h1 {
+    font-size: 2rem !important;
+  }
+
+  .stats {
+    gap: 8px !important;
+  }
+
+  .stats > [k="card"] {
+    padding: 0.75rem;
+  }
+
+  .stats > [k="card"] > p {
+    font-size: 12px !important;
+  }
+
+  .stats > [k="card"] > div {
+    font-size: 1.75rem !important;
+  }
+
+  [k="table"],
+  [k="table"] tbody,
+  [k="table"] tr,
+  [k="table"] td {
+    display: block;
+    width: 100%;
+  }
+
+  [k="table"] thead {
+    display: none;
+  }
+
+  [k="table"] tr {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid hsl(var(--k-border));
+  }
+
+  [k="table"] tr:last-child {
+    border-bottom: 0;
+  }
+
+  [k="table"] th,
+  [k="table"] td {
+    border: 0;
+    padding: 0.25rem 0;
+    overflow-wrap: anywhere;
+  }
+
+  [k="table"] td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: hsl(var(--k-muted-foreground));
+  }
+
+  [k="table"] td > div {
+    justify-content: flex-start !important;
+    flex-wrap: wrap;
+  }
+
+  [k="table"] td:last-child:has([k="button"]) {
+    padding-top: 0.5rem;
+  }
+
+  [k="dialog-content"] {
+    padding: 1.25rem;
+  }
+}
+

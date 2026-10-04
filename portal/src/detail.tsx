@@ -20,7 +20,7 @@ import {
 } from 'kinu';
 import { api, App, CreatedApp, Link, Readout } from './api';
 import { closeDialog, ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
-import { MatchingCard } from './settings';
+import { MatchingTable } from './settings';
 
 interface LinkDraft {
   key: string;
@@ -125,57 +125,61 @@ export function DetailPage({ id }: { id: string }) {
       />
       {error && <Alert variant="destructive">{error}</Alert>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+      <div className="stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         {stat('Clicks', readout?.clicks)}
         {stat('Non-organic installs', readout?.nonOrganic)}
         {stat('Organic installs', readout?.organic)}
       </div>
 
       <h2 style={{ margin: '40px 0 16px', fontSize: 20 }}>API key</h2>
-      <Card style={{ display: 'grid' }}>
-        <div
-          style={{
-            ...row,
-            justifyContent: 'space-between',
-            paddingBottom: 14,
-            borderBottom: '1px solid hsl(var(--k-border))',
-          }}
-        >
-          <div style={{ display: 'grid', gap: 2 }}>
-            <p style={{ ...muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em' }}>App ID</p>
-            <span style={mono}>{app.id}</span>
-          </div>
-          <CopyButton value={app.id} label="Copy ID" />
-        </div>
-        <div style={{ ...row, justifyContent: 'space-between', paddingTop: 14 }}>
-          <div style={{ display: 'grid', gap: 2 }}>
-            <p style={{ ...muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em' }}>API key</p>
-            <span style={mono}>
+      <Table>
+        <thead>
+          <tr>
+            <th>Credential</th>
+            <th>Value</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>App ID</td>
+            <td style={mono}>{app.id}</td>
+            <td>
+              <div style={{ ...row, justifyContent: 'flex-end' }}>
+                <CopyButton value={app.id} label="Copy ID" />
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>API key</td>
+            <td style={mono}>
               {app.apiKeyHash ? app.apiKeyHash.slice(0, 12) + '…' : 'revoked — SDK calls rejected'}
-            </span>
-          </div>
-          <div style={row}>
-            <RotateKeyDialog app={app} onChanged={loadAll} />
-            <ConfirmDelete
-              title={`Remove the API key for ${app.name}?`}
-              body="The SDK stops accepting it. Rotate a new key to get access back."
-              onConfirm={async () => {
-                setError('');
-                try {
-                  await api.revokeKey(app.id);
-                  loadAll();
-                } catch (e) {
-                  setError(String(e));
-                }
-              }}
-            />
-          </div>
-        </div>
-      </Card>
+            </td>
+            <td>
+              <div style={{ ...row, justifyContent: 'flex-end' }}>
+                <RotateKeyDialog app={app} onChanged={loadAll} />
+                <ConfirmDelete
+                  title={`Remove the API key for ${app.name}?`}
+                  body="The SDK stops accepting it. Rotate a new key to get access back."
+                  onConfirm={async () => {
+                    setError('');
+                    try {
+                      await api.revokeKey(app.id);
+                      loadAll();
+                    } catch (e) {
+                      setError(String(e));
+                    }
+                  }}
+                />
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </Table>
 
       <h2 style={{ margin: '40px 0 16px', fontSize: 20 }}>Matching</h2>
       <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
-      <MatchingCard app={app} onSaved={setApp} />
+      <MatchingTable app={app} onSaved={setApp} />
 
       <h2 style={{ margin: '40px 0 16px', fontSize: 20 }}>Links</h2>
       {links === null ? (
@@ -222,7 +226,7 @@ export function DetailPage({ id }: { id: string }) {
                       link={l}
                       onSaved={loadAll}
                       trigger={
-                        <Button size="sm" variant="ghost">
+                        <Button size="sm" variant="outline">
                           Edit
                         </Button>
                       }

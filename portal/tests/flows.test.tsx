@@ -72,7 +72,7 @@ afterAll(() => {
 afterEach(cleanup);
 
 describe('portal client flows', () => {
-  it('apps flow: create app through the dialog, card shows bare id', async () => {
+  it('apps flow: create app through the dialog, row shows bare id', async () => {
     const name = uniq('flow-app');
     render(<AppsPage />);
     await screen.findByText('No apps yet');
@@ -95,8 +95,8 @@ describe('portal client flows', () => {
 
     fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
 
-    // card: title, bare id (no 'id' prefix), Edit/Delete only — no key, no copy
-    const card = (await screen.findByText(name)).closest('[k=card]')!;
+    // row: name, bare id (no 'id' prefix), Edit/Delete only — no key, no copy
+    const card = (await screen.findByText(name)).closest('tr')!;
     within(card).getByText(appId, { exact: true });
     expect(within(card).queryByText(/^id /)).toBeNull();
     expect(within(card).queryByText(/^key /)).toBeNull();
@@ -182,11 +182,11 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
-  it('delete app flow: confirm removes the card and the server row', async () => {
+  it('delete app flow: confirm removes the row and the server row', async () => {
     const name = uniq('del-app');
     const app = await api.createApp(name);
     render(<AppsPage />);
-    const card = (await screen.findByText(name)).closest('[k=card]')!;
+    const card = (await screen.findByText(name)).closest('tr')!;
 
     fireEvent.click(within(card).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
@@ -194,11 +194,11 @@ describe('portal client flows', () => {
     await expect(api.getApp(app.id)).rejects.toThrow(/404/);
   });
 
-  it('edit app flow: save app details, card shows the iOS badge', async () => {
+  it('edit app flow: save app details, row shows the iOS badge', async () => {
     const name = uniq('edit-app');
     const app = await api.createApp(name);
     render(<AppsPage />);
-    const card = (await screen.findByText(name)).closest('[k=card]')!;
+    const card = (await screen.findByText(name)).closest('tr')!;
 
     fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
     fireEvent.input(within(openDialog()).getByLabelText('iOS App ID'), {
@@ -206,7 +206,7 @@ describe('portal client flows', () => {
     });
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Save', exact: true }));
 
-    // list reloads; fresh card carries badge
+    // list reloads; fresh row carries badge
     await waitFor(() => screen.getByText('iOS', { exact: true }));
     expect((await api.getApp(app.id)).iosAppId).toBe('ABCDE12345.com.example.app');
     await api.deleteApp(app.id);
@@ -217,7 +217,7 @@ describe('portal client flows', () => {
     render(<DetailPage id={app.id} />);
     await screen.findByRole('heading', { name: app.name });
 
-    const keyCard = screen.getByText('App ID', { exact: true }).closest('[k=card]')!;
+    const keyCard = screen.getByRole('button', { name: 'Rotate', exact: true }).closest('tr')!;
     fireEvent.click(within(keyCard).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
 

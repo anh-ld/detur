@@ -1,10 +1,10 @@
 import { useState } from 'preact/hooks';
-import { Alert, Button, Card, Field, Input, Label } from 'kinu';
-import { row } from './ui';
+import { Alert, Button, Input, Label, Table } from 'kinu';
+import { muted, row } from './ui';
 import { api, App } from './api';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 
-export function MatchingCard({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
+export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
   const [threshold, setThreshold] = useState(String(app.matchThreshold));
   const [windowMinutes, setWindowMinutes] = useState(String(app.matchWindowMinutes));
   const [error, setError] = useState('');
@@ -38,36 +38,55 @@ export function MatchingCard({ app, onSaved }: { app: App; onSaved: (a: App) => 
     }
   };
 
+  const field = (id: string, value: string, set: (v: string) => void) => (
+    <Input id={id} type="number" value={value} onInput={(e) => set(e.currentTarget.value)} style={{ maxWidth: 120 }} />
+  );
+
   return (
-    <Card style={{ maxWidth: 480 }}>
-      <form
-        style={{ display: 'grid', gap: 16 }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
-      >
-        <Field>
-          <Label htmlFor="set-th">Match threshold</Label>
-          <Input id="set-th" type="number" value={threshold} onInput={(e) => setThreshold(e.currentTarget.value)} />
-          <Field.Description>700–1200. Higher means stricter install matching.</Field.Description>
-        </Field>
-        <Field>
-          <Label htmlFor="set-win">Match window (minutes)</Label>
-          <Input
-            id="set-win"
-            type="number"
-            value={windowMinutes}
-            onInput={(e) => setWindowMinutes(e.currentTarget.value)}
-          />
-          <Field.Description>5–180. How long after a click an install can still match it.</Field.Description>
-        </Field>
-        {error && <Alert variant="destructive">{error}</Alert>}
-        {saved && <Alert variant="success">Saved.</Alert>}
-        <div style={{ ...row, justifyContent: 'flex-end' }}>
-          <Button type="submit">Save</Button>
-        </div>
-      </form>
-    </Card>
+    <form
+      style={{ display: 'grid', gap: 16 }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <Table>
+        <thead>
+          <tr>
+            <th>Setting</th>
+            <th>Value</th>
+            <th>Range</th>
+            <th>Effect</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <Label htmlFor="set-th">Match threshold</Label>
+            </td>
+            <td>{field('set-th', threshold, setThreshold)}</td>
+            <td data-label="Range" style={muted}>
+              {THRESHOLD.min}–{THRESHOLD.max}
+            </td>
+            <td style={muted}>Higher means stricter install matching.</td>
+          </tr>
+          <tr>
+            <td>
+              <Label htmlFor="set-win">Match window (minutes)</Label>
+            </td>
+            <td>{field('set-win', windowMinutes, setWindowMinutes)}</td>
+            <td data-label="Range" style={muted}>
+              {WINDOW.min}–{WINDOW.max}
+            </td>
+            <td style={muted}>How long after a click an install can still match it.</td>
+          </tr>
+        </tbody>
+      </Table>
+      {error && <Alert variant="destructive">{error}</Alert>}
+      {saved && <Alert variant="success">Saved.</Alert>}
+      <div style={{ ...row, justifyContent: 'flex-end' }}>
+        <Button type="submit">Save</Button>
+      </div>
+    </form>
   );
 }
