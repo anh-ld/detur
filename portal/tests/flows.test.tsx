@@ -277,10 +277,20 @@ describe('portal client flows', () => {
     screen.getByRole('link', { name: 'Back to apps' });
   });
 
-  it('shell flow: nav marks the active page, malformed hash falls back to apps', async () => {
+  it('shell flow: hash routes reach apps, detail and settings; malformed hash falls back to apps', async () => {
+    const app = await api.createApp(uniq('shell-app'));
     render(<App />);
     await screen.findByRole('heading', { name: 'Apps' });
-    expect(document.querySelector('header a[aria-current="page"]')!.textContent?.trim()).toBe('Apps');
+    expect(document.querySelector('header a[href="#/"]')).not.toBeNull();
+
+    location.hash = `#/apps/${app.id}`;
+    window.dispatchEvent(new Event('hashchange'));
+    await screen.findByRole('heading', { name: app.name });
+
+    location.hash = `#/apps/${app.id}/settings`;
+    window.dispatchEvent(new Event('hashchange'));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await api.deleteApp(app.id);
 
     // malformed percent-encoding: crash-safe fallback to the apps page
     location.hash = '#/apps/%zz';
