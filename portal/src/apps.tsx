@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Spinner, Table } from 'kinu';
 import { api, App, CreatedApp } from './api';
-import { closeDialog, ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
+import { ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
 
 export function AppsPage() {
   const [apps, setApps] = useState<App[] | null>(null);
@@ -146,7 +146,6 @@ export function AppsPage() {
                 </td>
                 <td>
                   <div style={{ ...row, justifyContent: 'flex-end' }}>
-                    <EditDialog app={a} onSaved={load} />
                     <ConfirmDelete
                       title={`Delete ${a.name}?`}
                       body="Its links are deleted too, and the SDK stops accepting this API key."
@@ -160,97 +159,5 @@ export function AppsPage() {
         </Table>
       )}
     </div>
-  );
-}
-
-function EditDialog({ app, onSaved }: { app: App; onSaved: () => void }) {
-  const [draft, setDraft] = useState({
-    iosAppId: app.iosAppId,
-    androidPackage: app.androidPackage,
-    androidCertFingerprint: app.androidCertFingerprint,
-  });
-  const [err, setErr] = useState('');
-  const id = `dlg-edit-app-${app.id}`;
-
-  const save = async () => {
-    setErr('');
-    try {
-      await api.updateApp(app.id, draft);
-      closeDialog(id);
-      onSaved();
-    } catch (e) {
-      setErr(String(e));
-    }
-  };
-
-  return (
-    <Dialog id={id}>
-      <Dialog.Trigger>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() =>
-            setDraft({
-              iosAppId: app.iosAppId,
-              androidPackage: app.androidPackage,
-              androidCertFingerprint: app.androidCertFingerprint,
-            })
-          }
-        >
-          Edit
-        </Button>
-      </Dialog.Trigger>
-      <Dialog.Content>
-        <form
-          style={{ display: 'grid', gap: 16 }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            save();
-          }}
-        >
-          <div style={{ display: 'grid', gap: 4 }}>
-            <h2 style={{ margin: 0 }}>Edit {app.name}</h2>
-            <p style={muted}>Used to serve the iOS and Android well-known files.</p>
-          </div>
-          <Field>
-            <Label htmlFor={`${id}-ios`}>iOS App ID</Label>
-            <Input
-              id={`${id}-ios`}
-              value={draft.iosAppId}
-              onInput={(e) => setDraft({ ...draft, iosAppId: e.currentTarget.value })}
-              placeholder="ABCDE12345.com.example.app"
-            />
-            <Field.Description>TEAMID.BUNDLEID</Field.Description>
-          </Field>
-          <Field>
-            <Label htmlFor={`${id}-android`}>Android package</Label>
-            <Input
-              id={`${id}-android`}
-              value={draft.androidPackage}
-              onInput={(e) => setDraft({ ...draft, androidPackage: e.currentTarget.value })}
-              placeholder="com.example.app"
-            />
-          </Field>
-          <Field>
-            <Label htmlFor={`${id}-cert`}>Android cert fingerprint</Label>
-            <Input
-              id={`${id}-cert`}
-              style={mono}
-              value={draft.androidCertFingerprint}
-              onInput={(e) => setDraft({ ...draft, androidCertFingerprint: e.currentTarget.value })}
-              placeholder="AA:BB:CC:…"
-            />
-            <Field.Description>SHA-256 of the signing certificate.</Field.Description>
-          </Field>
-          {err && <Alert variant="destructive">{err}</Alert>}
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
-            <Dialog.Close>
-              <Button variant="outline">Cancel</Button>
-            </Dialog.Close>
-            <Button type="submit">Save</Button>
-          </div>
-        </form>
-      </Dialog.Content>
-    </Dialog>
   );
 }

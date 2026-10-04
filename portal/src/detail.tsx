@@ -18,9 +18,8 @@ import {
   Spinner,
   Table,
 } from 'kinu';
-import { Analytics, api, App, CreatedApp, Link, Platform } from './api';
-import { closeDialog, ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
-import { MatchingTable } from './settings';
+import { Analytics, api, App, Link, Platform } from './api';
+import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
 import { AnalyticsView, Filters } from './analytics';
 
 interface LinkDraft {
@@ -124,6 +123,7 @@ export function DetailPage({ id }: { id: string }) {
             <Button variant="outline" onClick={refresh}>
               Refresh
             </Button>
+            <Button href={`#/apps/${app.id}/settings`}>Settings</Button>
           </>
         }
       />
@@ -213,56 +213,6 @@ export function DetailPage({ id }: { id: string }) {
       )}
 
 
-
-      <h2 style={{ margin: '40px 0 16px', fontSize: 20 }}>API key</h2>
-      <Table>
-        <thead>
-          <tr>
-            <th>Credential</th>
-            <th>Value</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>App ID</td>
-            <td style={mono}>{app.id}</td>
-            <td>
-              <div style={{ ...row, justifyContent: 'flex-end' }}>
-                <CopyButton value={app.id} label="Copy ID" />
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td>API key</td>
-            <td style={mono}>
-              {app.apiKeyHash ? app.apiKeyHash.slice(0, 12) + '…' : 'revoked — SDK calls rejected'}
-            </td>
-            <td>
-              <div style={{ ...row, justifyContent: 'flex-end' }}>
-                <RotateKeyDialog app={app} onChanged={loadAll} />
-                <ConfirmDelete
-                  title={`Remove the API key for ${app.name}?`}
-                  body="The SDK stops accepting it. Rotate a new key to get access back."
-                  onConfirm={async () => {
-                    setError('');
-                    try {
-                      await api.revokeKey(app.id);
-                      loadAll();
-                    } catch (e) {
-                      setError(String(e));
-                    }
-                  }}
-                />
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </Table>
-
-      <h2 style={{ margin: '40px 0 16px', fontSize: 20 }}>Matching</h2>
-      <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
-      <MatchingTable app={app} onSaved={setApp} />
     </div>
   );
 }
@@ -387,72 +337,6 @@ function LinkDialog({
             <Button type="submit">{link ? 'Save' : 'Create'}</Button>
           </div>
         </form>
-      </Dialog.Content>
-    </Dialog>
-  );
-}
-
-// RotateKeyDialog mints a key (old dies immediately); plaintext shown once, like create.
-function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }) {
-  const [rotated, setRotated] = useState<CreatedApp | null>(null);
-  const [err, setErr] = useState('');
-  const id = `dlg-rotate-${app.id}`;
-
-  const doRotate = async () => {
-    setErr('');
-    try {
-      setRotated(await api.rotateKey(app.id));
-      onChanged();
-    } catch (e) {
-      setErr(String(e));
-    }
-  };
-
-  return (
-    <Dialog id={id}>
-      <Dialog.Trigger>
-        <Button size="sm" variant="outline">
-          Rotate
-        </Button>
-      </Dialog.Trigger>
-      <Dialog.Content>
-        {rotated ? (
-          <div style={{ display: 'grid', gap: 16 }}>
-            <h2 style={{ margin: 0 }}>Key rotated</h2>
-            <Alert variant="warning">Old key stopped working. New key shown once.</Alert>
-            <Field>
-              <Label htmlFor={`${id}-key`}>API key</Label>
-              <Input id={`${id}-key`} readOnly value={rotated.apiKey} style={mono} />
-              <Field.Description>EXPO_PUBLIC_DETOUR_API_KEY in the SDK config.</Field.Description>
-            </Field>
-            <div style={{ ...row, justifyContent: 'flex-end' }}>
-              <Dialog.Close>
-                <Button variant="outline" onClick={() => setRotated(null)}>
-                  Done
-                </Button>
-              </Dialog.Close>
-              <CopyButton value={rotated.apiKey} label="Copy API key" />
-            </div>
-          </div>
-        ) : (
-          <form
-            style={{ display: 'grid', gap: 16 }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              doRotate();
-            }}
-          >
-            <h2 style={{ margin: 0 }}>Rotate API key</h2>
-            <p style={muted}>A new key is generated; the current one stops working immediately.</p>
-            {err && <Alert variant="destructive">{err}</Alert>}
-            <div style={{ ...row, justifyContent: 'flex-end' }}>
-              <Dialog.Close>
-                <Button variant="outline">Cancel</Button>
-              </Dialog.Close>
-              <Button type="submit">Rotate key</Button>
-            </div>
-          </form>
-        )}
       </Dialog.Content>
     </Dialog>
   );

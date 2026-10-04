@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Separator } from 'kinu';
+import { Separator } from 'kinu';
 import { row } from './ui';
 import { AppsPage } from './apps';
 import { DetailPage } from './detail';
+import { SettingsPage } from './settings';
 
-type Route = { name: 'apps' } | { name: 'detail'; id: string };
+type Route = { name: 'apps' } | { name: 'detail' | 'settings'; id: string };
 
 export function parseHash(h: string = location.hash): Route {
-  const m = h.match(/^#\/apps\/([^/?#]+)/);
+  const m = h.match(/^#\/apps\/([^/?#]+)(\/settings)?/);
   if (m) {
     try {
-      return { name: 'detail', id: decodeURIComponent(m[1]) };
+      return { name: m[2] ? 'settings' : 'detail', id: decodeURIComponent(m[1]) };
     } catch {
       // malformed %-encoding in id: treat as unknown route
     }
@@ -30,33 +31,20 @@ export function App() {
     return () => removeEventListener('hashchange', on);
   }, []);
 
-  const nav = (href: string, label: string, active: boolean) => (
-    <Button
-      size="sm"
-      variant={active ? 'secondary' : 'ghost'}
-      href={href}
-      aria-current={active ? 'page' : undefined}
-    >
-      {label}
-    </Button>
-  );
-
   return (
     <>
-      <header style={{ maxWidth: 1040, margin: '0 auto', padding: '12px 24px', ...row, justifyContent: 'space-between' }}>
+      <header style={{ maxWidth: 1040, margin: '0 auto', padding: '16px 24px', ...row, justifyContent: 'space-between' }}>
         <div style={{ ...row, gap: 24 }}>
           <a href="#/" style={{ fontWeight: 700, fontSize: 18, color: 'inherit', textDecoration: 'none' }}>
             detur
           </a>
-          <nav style={row}>
-            {nav('#/', 'Apps', true)}
-          </nav>
         </div>
       </header>
       <Separator />
       <main style={{ maxWidth: 1040, margin: '0 auto', padding: '0 24px 64px' }}>
         {route.name === 'apps' && <AppsPage />}
         {route.name === 'detail' && <DetailPage id={route.id} />}
+        {route.name === 'settings' && <SettingsPage id={route.id} />}
       </main>
     </>
   );

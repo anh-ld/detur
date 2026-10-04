@@ -51,7 +51,6 @@ header > div > a:first-child::before {
   background: hsl(var(--k-primary));
 }
 
-header [k="button"][variant="secondary"],
 [k="badge"][variant="secondary"] {
   background: hsl(var(--k-accent));
   color: hsl(var(--k-accent-foreground));

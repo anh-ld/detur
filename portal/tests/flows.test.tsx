@@ -8,6 +8,7 @@ import { api, setApiBase } from '../src/api';
 import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { DetailPage } from '../src/detail';
+import { SettingsPage } from '../src/settings';
 
 // Client-flow integration: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal on :8091.
 const PORT = 8091;
@@ -101,7 +102,7 @@ describe('portal client flows', () => {
     expect(within(card).queryByText(/^id /)).toBeNull();
     expect(within(card).queryByText(/^key /)).toBeNull();
     expect(within(card).queryByRole('button', { name: /^Copy/ })).toBeNull();
-    within(card).getByRole('button', { name: 'Edit' });
+    expect(within(card).queryByRole('button', { name: 'Edit' })).toBeNull();
     within(card).getByRole('button', { name: 'Delete' });
     expect((await api.listApps()).some((a) => a.id === appId)).toBe(true);
     await api.deleteApp(appId);
@@ -144,30 +145,30 @@ describe('portal client flows', () => {
 
   it('matching flow: save persists to the server, empty fields are rejected', async () => {
     const app = await api.createApp(uniq('m'));
-    render(<DetailPage id={app.id} />);
+    render(<SettingsPage id={app.id} />);
     await screen.findByDisplayValue('850');
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '900' } });
     fireEvent.input(screen.getByLabelText('Match window (minutes)'), { target: { value: '30' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
     await screen.findByText('Saved.');
     expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 900, matchWindowMinutes: 30 });
 
     // empty fields: honest error, no false "Saved."
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
     await screen.findByText('threshold and window are required');
     expect(screen.queryByText('Saved.')).toBeNull();
 
     // out of range: client-side rejection, no round trip
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '1300' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
     await screen.findByText(/threshold must be 700–1200/);
     expect(screen.queryByText('Saved.')).toBeNull();
 
     // restore defaults: keep suite order-independent
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '850' } });
     fireEvent.input(screen.getByLabelText('Match window (minutes)'), { target: { value: '15' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
     await screen.findByText('Saved.');
     expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 850, matchWindowMinutes: 15 });
     await api.deleteApp(app.id);
@@ -175,8 +176,8 @@ describe('portal client flows', () => {
 
   it('rotate key flow: new key is shown once', async () => {
     const app = await api.createApp(uniq('rotate-app'));
-    render(<DetailPage id={app.id} />);
-    await screen.findByRole('heading', { name: app.name });
+    render(<SettingsPage id={app.id} />);
+    await screen.findByRole('heading', { name: 'Settings' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Rotate', exact: true }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Rotate key' }));
@@ -198,28 +199,30 @@ describe('portal client flows', () => {
     await expect(api.getApp(app.id)).rejects.toThrow(/404/);
   });
 
-  it('edit app flow: save app details, row shows the iOS badge', async () => {
+  it('app config flow: settings page saves iOS App ID, list row shows the iOS badge', async () => {
     const name = uniq('edit-app');
     const app = await api.createApp(name);
-    render(<AppsPage />);
-    const card = (await screen.findByText(name)).closest('tr')!;
-
-    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
-    fireEvent.input(within(openDialog()).getByLabelText('iOS App ID'), {
+    render(<SettingsPage id={app.id} />);
+    fireEvent.input(await screen.findByLabelText('iOS App ID'), {
       target: { value: 'ABCDE12345.com.example.app' },
     });
-    fireEvent.click(within(openDialog()).getByRole('button', { name: 'Save', exact: true }));
-
-    // list reloads; fresh row carries badge
-    await waitFor(() => screen.getByText('iOS', { exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save config' }));
+    await screen.findByText('Saved.');
     expect((await api.getApp(app.id)).iosAppId).toBe('ABCDE12345.com.example.app');
+    cleanup();
+
+    // list has no Edit button; the row carries the badge
+    render(<AppsPage />);
+    const row = (await screen.findByText(name)).closest('tr')!;
+    within(row).getByText('iOS', { exact: true });
+    expect(within(row).queryByRole('button', { name: 'Edit' })).toBeNull();
     await api.deleteApp(app.id);
   });
 
   it('revoke key flow: key removed, status text shown', async () => {
     const app = await api.createApp(uniq('revoke-app'));
-    render(<DetailPage id={app.id} />);
-    await screen.findByRole('heading', { name: app.name });
+    render(<SettingsPage id={app.id} />);
+    await screen.findByRole('heading', { name: 'Settings' });
 
     const keyCard = screen.getByRole('button', { name: 'Rotate', exact: true }).closest('tr')!;
     fireEvent.click(within(keyCard).getByRole('button', { name: 'Delete' }));
