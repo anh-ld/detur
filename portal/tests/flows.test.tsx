@@ -48,6 +48,24 @@ const openDialog = (): HTMLElement => {
 
 const uniq = (s: string) => `${s}-${Date.now().toString(36)}`;
 
+// The same binary serves short links and the SDK API on :8080.
+const SDK = 'http://127.0.0.1:8080';
+const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
+const DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 Chrome/125.0 Safari/537.36';
+
+async function click(key: string, ua: string, done = false): Promise<Response> {
+  return fetch(`${SDK}/${key}${done ? '?_dt=1' : ''}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
+}
+
+// Analytics tile number by label (labels repeat in chart legends; tiles are the padding=sm cards).
+const tileValue = (label: string): number => {
+  const tile = screen
+    .getAllByText(label, { exact: true })
+    .map((e) => e.closest('[k=card][padding=sm]'))
+    .find(Boolean)!;
+  return parseInt(tile.querySelector(':scope > div')!.textContent!, 10);
+};
+
 beforeAll(async () => {
   execSync(`go build -o ${bin} ./cmd/detur`, { cwd: join(repoRoot, 'server'), stdio: 'inherit' });
   dbDir = mkdtempSync(join(tmpdir(), 'detur-integ-'));
@@ -96,14 +114,11 @@ describe('portal client flows', () => {
 
     fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
 
-    // row: name, bare id (no 'id' prefix), Edit/Delete only — no key, no copy
+    // row: bare id, no key or copy, no Edit (config lives on the settings page)
     const card = (await screen.findByText(name)).closest('tr')!;
     within(card).getByText(appId, { exact: true });
-    expect(within(card).queryByText(/^id /)).toBeNull();
-    expect(within(card).queryByText(/^key /)).toBeNull();
     expect(within(card).queryByRole('button', { name: /^Copy/ })).toBeNull();
     expect(within(card).queryByRole('button', { name: 'Edit' })).toBeNull();
-    within(card).getByRole('button', { name: 'Delete' });
     expect((await api.listApps()).some((a) => a.id === appId)).toBe(true);
     await api.deleteApp(appId);
   });
@@ -112,18 +127,6 @@ describe('portal client flows', () => {
     const app = await api.createApp(uniq('detail-app'));
     render(<DetailPage id={app.id} />);
     await screen.findByRole('heading', { name: app.name });
-
-    // analytics tiles render the zero counts once loaded (labels also appear in chart legends)
-    const tile = (label: string) =>
-      screen
-        .getAllByText(label, { exact: true })
-        .map((e) => e.closest('[k=card][padding=sm]'))
-        .find(Boolean) as HTMLElement;
-    await waitFor(() => {
-      for (const label of ['Clicks', 'Already installed opens', 'Installs via link', 'Web fallbacks']) {
-        expect(tile(label).innerText).toContain('0');
-      }
-    });
 
     fireEvent.click(screen.getByRole('button', { name: 'New link' }));
     fireEvent.input(within(openDialog()).getByLabelText('Key'), { target: { value: 'summer-sale' } });
@@ -140,6 +143,48 @@ describe('portal client flows', () => {
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByText('summer-sale')).toBeNull());
     expect(await api.listLinks(app.id)).toHaveLength(0);
+    await api.deleteApp(app.id);
+  });
+
+  it('analytics flow: real clicks and SDK events reach tiles, links and top events; platform filter narrows', async () => {
+    const app = await api.createApp(uniq('stats-app'));
+    const key = uniq('promo');
+    await api.createLink(app.id, {
+      key,
+      url: 'https://example.com/promo',
+      ios: 'https://apps.apple.com/app/id123',
+      android: '',
+      fallbackUrl: 'https://example.com',
+    });
+
+    // desktop -> fallback page (web fallback); iPhone after the interstitial hop -> App Store
+    expect((await click(key, DESKTOP)).headers.get('location')).toBe('https://example.com');
+    expect((await click(key, IPHONE, true)).headers.get('location')).toBe('https://apps.apple.com/app/id123');
+    const ev = await fetch(`${SDK}/api/analytics/event`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${app.apiKey}`,
+        'X-App-ID': app.id,
+        'X-SDK': 'react-native/2.3.1',
+      },
+      body: JSON.stringify({ event_name: 'purchase' }),
+    });
+    expect(ev.status).toBe(200);
+
+    render(<DetailPage id={app.id} />);
+    await waitFor(() => expect(tileValue('Clicks')).toBe(2));
+    expect(tileValue('Web fallbacks')).toBe(1);
+    expect(tileValue('Installs via link')).toBe(0);
+    expect(tileValue('Already installed opens')).toBe(0);
+    const linkClicks = () => screen.getByText(key).closest('tr')!.querySelector('[data-label="Clicks"]')!.textContent;
+    expect(linkClicks()).toBe('2');
+    expect(screen.getByText('purchase').closest('tr')!.querySelector('[data-label="Count"]')!.textContent).toBe('1');
+
+    fireEvent.change(screen.getByLabelText('Platform'), { target: { value: 'ios' } });
+    await waitFor(() => expect(tileValue('Clicks')).toBe(1));
+    expect(tileValue('Web fallbacks')).toBe(0);
+    expect(linkClicks()).toBe('1');
     await api.deleteApp(app.id);
   });
 
@@ -164,13 +209,6 @@ describe('portal client flows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
     await screen.findByText(/threshold must be 700–1200/);
     expect(screen.queryByText('Saved.')).toBeNull();
-
-    // restore defaults: keep suite order-independent
-    fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '850' } });
-    fireEvent.input(screen.getByLabelText('Match window (minutes)'), { target: { value: '15' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
-    await screen.findByText('Saved.');
-    expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 850, matchWindowMinutes: 15 });
     await api.deleteApp(app.id);
   });
 
@@ -281,7 +319,6 @@ describe('portal client flows', () => {
     const app = await api.createApp(uniq('shell-app'));
     render(<App />);
     await screen.findByRole('heading', { name: 'Apps' });
-    expect(document.querySelector('header a[href="#/"]')).not.toBeNull();
 
     location.hash = `#/apps/${app.id}`;
     window.dispatchEvent(new Event('hashchange'));

@@ -66,6 +66,7 @@ func recordAndroidClick(t *testing.T, s *store.Store, app store.App, link store.
 			Screen:    "393x852@3",
 			UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/TQ3A.230805.001)",
 		},
+		Platform: "android", Kind: store.KindApp, // as the browser redirect records it
 	}, 24)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)

@@ -255,9 +255,29 @@ func TestPortalAnalytics(t *testing.T) {
 		t.Fatalf("analytics links mismatch: %+v", a.Links)
 	}
 
-	for _, q := range []string{"?days=5", "?platform=web"} {
-		if resp, b := portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/analytics"+q, "", nil); resp.StatusCode != http.StatusBadRequest {
-			t.Errorf("analytics%s: %d %s; want 400", q, resp.StatusCode, b)
+	// platform filter over HTTP: the matched install is Android, nothing is iOS
+	for _, tc := range []struct {
+		platform           string
+		clicks, nonOrganic int64
+	}{{"android", 1, 1}, {"ios", 0, 0}} {
+		resp, b := portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/analytics?platform="+tc.platform, "", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("analytics platform=%s: %d %s", tc.platform, resp.StatusCode, b)
+		}
+		var f store.Analytics
+		mustJSON(t, b, &f)
+		if d := f.Days[len(f.Days)-1]; d.Clicks != tc.clicks || d.NonOrganic != tc.nonOrganic {
+			t.Errorf("platform=%s today = %+v; want %d clicks, %d non-organic", tc.platform, d, tc.clicks, tc.nonOrganic)
+		}
+	}
+
+	for q, want := range map[string]int{
+		"/api/apps/" + app.ID + "/analytics?days=5":       http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?platform=web": http.StatusBadRequest,
+		"/api/apps/missing/analytics":                     http.StatusNotFound,
+	} {
+		if resp, b := portalReq(t, portal, "GET", q, "", nil); resp.StatusCode != want {
+			t.Errorf("GET %s: %d %s; want %d", q, resp.StatusCode, b, want)
 		}
 	}
 }

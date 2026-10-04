@@ -434,9 +434,17 @@ func TestIntegrationBrowserClickThenMatchLinkNonOrganic(t *testing.T) {
 	if out.Link != link.URL {
 		t.Fatalf("match-link link = %q; want %q (deep link, not the store URL)", out.Link, link.URL)
 	}
-	organic, nonOrganic, err := s.CountInstalls(app.ID)
-	if err != nil || organic != 0 || nonOrganic != 1 {
-		t.Fatalf("installs = organic %d non-organic %d (%v); want 0/1 (F1)", organic, nonOrganic, err)
+	// analytics: one store click, one install attributed to the link, both Android
+	a, err := s.Analytics(app.ID, 7, "android", time.Now())
+	if err != nil {
+		t.Fatalf("Analytics: %v", err)
+	}
+	today := a.Days[len(a.Days)-1]
+	if today.Clicks != 1 || today.Web != 0 || today.NonOrganic != 1 || today.Organic != 0 {
+		t.Fatalf("android today = %+v; want 1 store click, 1 non-organic install (F1)", today)
+	}
+	if len(a.Links) != 1 || a.Links[0].LinkID != link.ID || a.Links[0].Clicks != 1 || a.Links[0].Matches != 1 {
+		t.Fatalf("links = %+v; want the clicked link with 1 click, 1 match", a.Links)
 	}
 }
 

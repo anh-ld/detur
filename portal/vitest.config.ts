@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import preact from '@preact/preset-vite';
 
-// One suite: client-flow integration vs real Go binary + fresh SQLite, in happy-dom.
+// flows.test.tsx: client-flow integration vs real Go binary + fresh SQLite. stale.test.tsx: mocked-fetch unit. Both in happy-dom.
 export default defineConfig({
   plugins: [preact()],
   test: {
