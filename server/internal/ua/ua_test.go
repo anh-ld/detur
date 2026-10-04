@@ -88,3 +88,20 @@ func TestIOSVersion(t *testing.T) {
 		}
 	}
 }
+
+// AppPlatform: browser markers first, then native HTTP client markers of in-app SDK requests.
+func TestAppPlatform(t *testing.T) {
+	for _, c := range []struct{ ua, want string }{
+		{iphoneSafari, "ios"},
+		{modernAndroid, "android"},
+		{"MyApp/1 CFNetwork/1490.0.4 Darwin/23.5.0", "ios"},
+		{"okhttp/4.12.0", "android"},
+		{"Dalvik/2.1.0 (Linux; U; Android 14; Pixel 7)", "android"},
+		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64)", ""},
+		{"", ""},
+	} {
+		if got := AppPlatform(c.ua); got != c.want {
+			t.Errorf("AppPlatform(%q) = %q; want %q", c.ua, got, c.want)
+		}
+	}
+}

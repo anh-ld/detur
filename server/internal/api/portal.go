@@ -1,6 +1,6 @@
 package api
 
-// Portal: apps/links CRUD, matching settings, click/install readout, static
+// Portal: apps/links CRUD, matching settings, analytics, static
 // hosting of kinu-built portal UI. No identity checks; every route wrapped in
 // origin/host guard (DNS-rebinding + CSRF; portal listener loopback by default).
 
@@ -28,7 +28,7 @@ type portalServer struct {
 	dir string // portal static dir (built UI)
 }
 
-// RegisterPortal builds portal handler: apps/links CRUD, app matching, readout routes, plus static UI
+// RegisterPortal builds portal handler: apps/links CRUD, app matching, analytics routes, plus static UI
 // from staticDir (missing files/dir 404 plain text, never crash). Mux wrapped in origin/host guard;
 // allowedHosts = listener's own address, loopback always accepted, others 403. No auth: access control
 // delegated to zero-trust boundary in front of listener.
@@ -50,7 +50,7 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) ht
 	mux.HandleFunc("POST /api/apps/{id}/links", p.createLink)
 	mux.HandleFunc("PATCH /api/links/{id}", p.updateLink)
 	mux.HandleFunc("DELETE /api/links/{id}", p.deleteLink)
-	mux.HandleFunc("GET /api/apps/{id}/readout", p.readout)
+	mux.HandleFunc("GET /api/apps/{id}/analytics", p.analytics)
 	mux.HandleFunc("GET /", p.static) // SPA shell + assets (catch-all)
 	return guard(mux, allowedHosts)
 }
@@ -451,26 +451,35 @@ func (p *portalServer) updateMatching(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
 }
 
-// readout serves app-level click/install counts: clicks, organic + non-organic installs. Unknown-attribution rows (backend errors) excluded by store's counts.
-func (p *portalServer) readout(w http.ResponseWriter, r *http.Request) {
+// analyticsRanges: allowed ?days= windows (portal range picker).
+var analyticsRanges = map[string]int{"7": 7, "30": 30, "90": 90}
+
+// analytics serves daily click/install/event stats: ?days=7|30|90 (default 7), ?platform=ios|android|desktop (default all).
+func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	if _, err := p.st.GetApp(appID); err != nil {
 		p.storeErr(w, err)
 		return
 	}
-	clicks, err := p.st.CountClicks(appID)
+	q := r.URL.Query()
+	days := 7
+	if v := q.Get("days"); v != "" {
+		if days = analyticsRanges[v]; days == 0 {
+			http.Error(w, "days must be 7, 30 or 90", http.StatusBadRequest)
+			return
+		}
+	}
+	platform := q.Get("platform")
+	if platform != "" && platform != "ios" && platform != "android" && platform != "desktop" {
+		http.Error(w, "platform must be ios, android or desktop", http.StatusBadRequest)
+		return
+	}
+	a, err := p.st.Analytics(appID, days, platform, time.Now())
 	if err != nil {
 		p.internal(w, err)
 		return
 	}
-	organic, nonOrganic, err := p.st.CountInstalls(appID)
-	if err != nil {
-		p.internal(w, err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]int64{
-		"clicks": clicks, "organic": organic, "nonOrganic": nonOrganic,
-	})
+	httpx.WriteJSON(w, http.StatusOK, a)
 }
 
 // static serves built portal from configured directory. Missing dir/file 404s plain text (FileServer); server keeps running.

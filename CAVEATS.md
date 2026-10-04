@@ -56,6 +56,10 @@ Known limits and trust boundaries. Read before running in production.
   before upgrading.
 - No rate limiting. A click flood grows the clicks table; hourly purge trims
   it to the retention period.
+- Analytics days are UTC. Clicks recorded before the analytics rollups
+  existed are not counted; installs before then have no link or platform.
+  Deleting a link drops its click counts. Event names in analytics are cut
+  to 64 characters and kept forever: don't put user or device ids in them.
 - Installs table never purged. Attribution history grows without limit, by
   design.
 - Single operator, no organizations or teams. All apps share one instance.

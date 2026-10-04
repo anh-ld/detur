@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"detur.dev/server/internal/store"
 )
 
 func TestWithParams(t *testing.T) {
@@ -50,6 +52,29 @@ func exact(want string) func(*testing.T, string) {
 	return func(t *testing.T, got string) {
 		if got != want {
 			t.Fatalf("got %s want %s", got, want)
+		}
+	}
+}
+
+// clickPlatform/clickKind: analytics labels follow redirectTarget's platform split; store targets are "app", anything else is a web fallback.
+func TestClickLabels(t *testing.T) {
+	for _, tc := range []struct{ agent, platform string }{
+		{"Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)", "ios"},
+		{"Mozilla/5.0 (Linux; Android 14; Pixel 7)", "android"},
+		{"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)", "desktop"},
+	} {
+		if got := clickPlatform(tc.agent); got != tc.platform {
+			t.Errorf("clickPlatform(%q) = %q; want %q", tc.agent, got, tc.platform)
+		}
+	}
+	for _, tc := range []struct{ dest, kind string }{
+		{"https://apps.apple.com/app/id123", store.KindApp},
+		{"https://play.google.com/store/apps/details?id=com.example&referrer=x", store.KindApp},
+		{"market://details?id=com.example", store.KindApp},
+		{"https://example.com/product", store.KindWeb},
+	} {
+		if got := clickKind(tc.dest); got != tc.kind {
+			t.Errorf("clickKind(%q) = %q; want %q", tc.dest, got, tc.kind)
 		}
 	}
 }

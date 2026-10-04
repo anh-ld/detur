@@ -17,6 +17,7 @@ import (
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/match"
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/ua"
 )
 
 // RegisterSDK attaches five SDK endpoints to mux (stdlib method patterns). Auth wrapper validates
@@ -122,14 +123,18 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !res.Matched {
-		if _, err := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: dh, Attribution: store.AttributionOrganic}); err != nil {
+		if _, err := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: dh, Attribution: store.AttributionOrganic, Platform: installPlatform(body)}); err != nil {
 			s.backendError(appID, dh, err)
 		}
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	// failed install write: readout row lost, link still returned (backend errors never deny link)
-	if _, err := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic}); err != nil {
+	// failed install write: analytics row lost, link still returned (backend errors never deny link)
+	inst := store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic, LinkID: res.Click.LinkID, Platform: installPlatform(body)}
+	if inst.Platform == "" { // clickId-only payload: matched click's browser tells the platform
+		inst.Platform = ua.Platform(res.Click.Fingerprint.UserAgent)
+	}
+	if _, err := s.st.RecordInstall(inst); err != nil {
 		s.log.Printf("match-link install record failed (link still returned): %v", err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"link": res.Destination})
@@ -216,6 +221,7 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 	rec, err := s.st.RecordClick(store.Click{
 		AppID: appID, LinkID: link.ID, Destination: link.URL,
 		Fingerprint: store.Fingerprint{IP: httpx.RemoteIP(r), UserAgent: r.UserAgent()},
+		Platform:    ua.AppPlatform(r.UserAgent()), Kind: store.KindOpen,
 	}, s.retentionHours)
 	if err != nil {
 		s.log.Printf("universal-link-click backend error (click not recorded): %v", err)
@@ -257,12 +263,23 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defa
 	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// backendError logs match-link backend failure, best-effort records unknown-attribution row: logged, never surfaced in readout.
+// backendError logs match-link backend failure, best-effort records unknown-attribution row: logged, never surfaced in analytics.
 func (s *sdkServer) backendError(appID, deviceHash string, err error) {
 	s.log.Printf("match-link backend error: %v", err)
 	if _, rerr := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: deviceHash, Attribution: store.AttributionUnknown}); rerr != nil {
 		s.log.Printf("match-link unknown-attribution record failed: %v", rerr)
 	}
+}
+
+// installPlatform: install's platform from the SDK fingerprint: Apple manufacturer -> ios, any other manufacturer -> android, else app UA markers.
+func installPlatform(b matchLinkBody) string {
+	switch {
+	case strings.EqualFold(b.Manufacturer, "apple"):
+		return "ios"
+	case b.Manufacturer != "":
+		return "android"
+	}
+	return ua.AppPlatform(b.UserAgent)
 }
 
 // deviceHash: stable per-device identifier, SHA-256 hex of canonical fingerprint fields in fixed order. Timestamp excluded (not device characteristic); stability keeps duplicate match-link calls idempotent on (device_hash, click_id). clickId-only payload hashes clickId instead.

@@ -112,12 +112,16 @@ describe('portal client flows', () => {
     render(<DetailPage id={app.id} />);
     await screen.findByRole('heading', { name: app.name });
 
-    // readout tiles render the zero counts once loaded
-    const tile = (label: string) => screen.getByText(label, { exact: true }).closest('[k=card]')!;
+    // analytics tiles render the zero counts once loaded (labels also appear in chart legends)
+    const tile = (label: string) =>
+      screen
+        .getAllByText(label, { exact: true })
+        .map((e) => e.closest('[k=card][padding=sm]'))
+        .find(Boolean) as HTMLElement;
     await waitFor(() => {
-      expect(tile('Clicks').innerText).toContain('0');
-      expect(tile('Non-organic installs').innerText).toContain('0');
-      expect(tile('Organic installs').innerText).toContain('0');
+      for (const label of ['Clicks', 'Already installed opens', 'Installs via link', 'Web fallbacks']) {
+        expect(tile(label).innerText).toContain('0');
+      }
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'New link' }));

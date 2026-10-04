@@ -26,7 +26,7 @@ Changing a decision: edit its row, keep the ID. New conflict found: add a row be
 | M8 | UA device signature scored on Android only. | Detour | Weights table "Scored on: Android". | 007 | in place |
 | M9 | Pasteboard compares install's pasted URL with the clicked short link; click's `pasted_link` stored only if it is that link. | Detour + ours | Detour compares with "the click URL". Server-side check is ours: query param was forgeable. | 007 | in place |
 | M10 | Ties → newer click. | Detour | Documented. | — | in place |
-| M11 | No match → organic install + 404. Backend error → 404 + `unknown` install, hidden from readout; later real result replaces `unknown`. | Detour + ours | Organic/404 documented. `unknown` + fail-open is ours: backend trouble never blocks the app. | 003 | in place |
+| M11 | No match → organic install + 404. Backend error → 404 + `unknown` install, hidden from analytics; later real result replaces `unknown`. | Detour + ours | Organic/404 documented. `unknown` + fail-open is ours: backend trouble never blocks the app. | 003 | in place |
 | M12 | Device hash = SHA-256 of fingerprint fields, timestamp excluded. | Ours | Stable key for idempotent install rows. | — | in place |
 
 ## Click capture
@@ -52,6 +52,15 @@ Changing a decision: edit its row, keep the ID. New conflict found: add a row be
 | R5 | Short links are one path segment. | Ours (divergence) | Detour allows extra segments after the hash. Not adopted yet; see CAVEATS. | — | in place |
 | R6 | Link targets must be absolute URLs; `javascript:`, `data:`, `vbscript:`, `file:` rejected; app schemes and `market:` allowed. | Ours | Typos became relative redirects. | 003 | in place |
 | R7 | Expired link → `expiredUrl`, else 410. | Dub | Dub link expiry. | — | in place |
+
+## Analytics
+
+| ID | Decision | Source | Why | Plan | Status |
+|---|---|---|---|---|---|
+| A1 | Overview parity: clicks, already installed opens, installs via link + match %, web fallbacks, daily chart, organic vs non-organic, per-link clicks/matches, top events. Filters: platform, 7/30/90 days. | Detour | Same overview page. Retention comparison skipped: events carry no device id. | — | in place |
+| A2 | Daily rollup tables (`click_days`, `event_days`) hold counts only, never purged. | Ours | Raw clicks/events live `RETENTION_HOURS` (default 24h); a 90-day chart needs counts that outlive the purge without keeping device data. | — | in place |
+| A3 | Web fallback = browser click redirected to a non-store URL. Already installed open = SDK universal-link-click. | Ours | Detour does not define them; these are what detur can observe. | — | in place |
+| A4 | Days are UTC. | Ours | One bucket key for every viewer. | — | in place |
 
 ## SDK API
 

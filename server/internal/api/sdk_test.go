@@ -534,3 +534,54 @@ func TestMatchLinkAuthFailOpenOnClosedDB(t *testing.T) {
 		t.Fatalf("status = %d, body %s; want 404 no-match (fail-open R3)", resp.StatusCode, b)
 	}
 }
+
+// installPlatform: Apple manufacturer -> ios, other manufacturer -> android, else app UA markers.
+func TestInstallPlatform(t *testing.T) {
+	for _, c := range []struct {
+		body matchLinkBody
+		want string
+	}{
+		{matchLinkBody{Manufacturer: "Apple"}, "ios"},
+		{matchLinkBody{Manufacturer: "apple"}, "ios"},
+		{matchLinkBody{Manufacturer: "samsung"}, "android"},
+		{matchLinkBody{UserAgent: "MyApp/1 CFNetwork/1490 Darwin/23.5.0"}, "ios"},
+		{matchLinkBody{ClickID: "abc"}, ""},
+	} {
+		if got := installPlatform(c.body); got != c.want {
+			t.Errorf("installPlatform(%+v) = %q; want %q", c.body, got, c.want)
+		}
+	}
+}
+
+// Analytics labels from real SDK paths: universal-link open counts as an iOS open; a clickId-only match takes the matched click's platform.
+func TestSDKAnalyticsLabels(t *testing.T) {
+	ts, s, _ := newTestServer(t)
+	app, link := setup(t, s)
+	hdr := authHeaders(app.ID)
+	hdr["User-Agent"] = "MyApp/1 CFNetwork/1490 Darwin/23.5.0"
+	if resp, b := doPost(t, ts, "/api/link/universal-link-click", `{"url":"https://lnk.example/abc"}`, hdr); resp.StatusCode != http.StatusOK {
+		t.Fatalf("universal-link-click: %d %s", resp.StatusCode, b)
+	}
+	c := recordAndroidClick(t, s, app, link)
+	if resp, b := doPost(t, ts, "/api/link/match-link", `{"clickId":"`+c.ID+`"}`, authHeaders(app.ID)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("clickId match: %d %s", resp.StatusCode, b)
+	}
+
+	ios, err := s.Analytics(app.ID, 7, "ios", time.Now())
+	if err != nil {
+		t.Fatalf("Analytics ios: %v", err)
+	}
+	if got := ios.Days[6]; got.Opens != 1 || got.NonOrganic != 0 {
+		t.Errorf("ios today = %+v; want 1 open, 0 installs", got)
+	}
+	android, err := s.Analytics(app.ID, 7, "android", time.Now())
+	if err != nil {
+		t.Fatalf("Analytics android: %v", err)
+	}
+	if got := android.Days[6]; got.NonOrganic != 1 || got.Opens != 0 {
+		t.Errorf("android today = %+v; want 1 non-organic install (platform from matched click), 0 opens", got)
+	}
+	if len(android.Links) != 1 || android.Links[0].Matches != 1 {
+		t.Errorf("android links = %+v; want the link with 1 match", android.Links)
+	}
+}

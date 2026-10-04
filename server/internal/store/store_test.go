@@ -331,6 +331,18 @@ func TestInstallUnknownUpgradedByRealAttribution(t *testing.T) {
 	if o, n, _ := s.CountInstalls(app.ID); o != 2 || n != 0 {
 		t.Fatalf("organic→unknown: organic %d non-organic %d; want 2/0", o, n)
 	}
+	// unknown -> real attribution carries the analytics labels
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d3", ClickID: "c3", Attribution: AttributionUnknown}); err != nil {
+		t.Fatalf("RecordInstall unknown: %v", err)
+	}
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d3", ClickID: "c3", Attribution: AttributionNonOrganic, LinkID: "l3", Platform: "ios"}); err != nil {
+		t.Fatalf("RecordInstall upgrade: %v", err)
+	}
+	var linkID, platform string
+	s.db.QueryRow(`SELECT link_id, platform FROM installs WHERE device_hash = 'd3'`).Scan(&linkID, &platform)
+	if linkID != "l3" || platform != "ios" {
+		t.Errorf("upgraded install link/platform = %q/%q; want l3/ios", linkID, platform)
+	}
 }
 
 func TestOpenMigratesLegacyInstallUniqueness(t *testing.T) {
@@ -367,6 +379,10 @@ func TestOpenMigratesLegacyInstallUniqueness(t *testing.T) {
 	})
 	if err != nil || got.AppID != "app-b" || got.ID == "legacy" {
 		t.Fatalf("cross-app install after migration = %+v, %v; want a separate app-b row", got, err)
+	}
+	// rebuild runs before addMissingColumns: analytics columns survive it
+	if !columnExists(s.db, "installs", "link_id") || !columnExists(s.db, "installs", "platform") {
+		t.Fatal("installs.link_id/platform missing after legacy rebuild")
 	}
 	var preserved int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM installs WHERE id = ? AND app_id = ?`, "legacy", "app-a").Scan(&preserved); err != nil || preserved != 1 {
@@ -679,6 +695,11 @@ func TestDeleteLinkRemovesClicks(t *testing.T) {
 	if _, err := s.GetClick(c2.ID); err != nil {
 		t.Errorf("GetClick(other link) = %v; want present", err)
 	}
+	var rollups int
+	s.db.QueryRow(`SELECT COUNT(*) FROM click_days WHERE link_id = ?`, l1.ID).Scan(&rollups)
+	if rollups != 0 {
+		t.Errorf("click_days rows for deleted link = %d; want 0", rollups)
+	}
 	if err := s.DeleteLink("missing"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("DeleteLink(missing) = %v; want ErrNotFound", err)
 	}
@@ -726,5 +747,85 @@ func TestDeleteAppRemovesAppData(t *testing.T) {
 	}
 	if err := s.DeleteApp("missing"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("DeleteApp(missing) = %v; want ErrNotFound", err)
+	}
+}
+
+// Analytics: rollups count new clicks once per kind/platform, outlive the retention purge, fill empty days, and leave with the app.
+func TestAnalytics(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	start := time.Now()
+	iphone := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"}
+	desktop := Fingerprint{IP: "203.0.113.8", UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)"}
+	appUA := Fingerprint{IP: "203.0.113.9", UserAgent: "MyApp/1 CFNetwork/1490 Darwin/23.5.0"}
+	for _, c := range []Click{
+		{Fingerprint: iphone, Platform: "ios", Kind: KindApp},
+		{Fingerprint: iphone, Platform: "ios", Kind: KindApp}, // dedup: same click
+		{Fingerprint: desktop, Platform: "desktop", Kind: KindWeb},
+		{Fingerprint: appUA, Platform: "ios", Kind: KindOpen},
+	} {
+		c.AppID, c.LinkID, c.Destination = app.ID, link.ID, link.URL
+		if _, err := s.RecordClick(c, 24); err != nil {
+			t.Fatalf("RecordClick: %v", err)
+		}
+	}
+	long := strings.Repeat("x", 100)
+	for _, e := range []string{"purchase", "signup", "purchase", long} {
+		if err := s.RecordEvent(app.ID, e, ""); err != nil {
+			t.Fatalf("RecordEvent: %v", err)
+		}
+	}
+	for _, i := range []Install{
+		{AppID: app.ID, DeviceHash: "d1", Attribution: AttributionOrganic, Platform: "android"},
+		{AppID: app.ID, DeviceHash: "d2", ClickID: "c2", Attribution: AttributionNonOrganic, LinkID: link.ID, Platform: "ios"},
+		{AppID: app.ID, DeviceHash: "d3", Attribution: AttributionUnknown},
+	} {
+		if _, err := s.RecordInstall(i); err != nil {
+			t.Fatalf("RecordInstall: %v", err)
+		}
+	}
+
+	now := time.Now()
+	if day(now) != day(start) {
+		t.Skip("crossed UTC midnight while recording; rollup day assertions would be off by one")
+	}
+	// raw clicks/events purged; rollups stay
+	if _, err := s.PurgeExpired(now.Add(48*time.Hour), 24); err != nil {
+		t.Fatalf("PurgeExpired: %v", err)
+	}
+	a, err := s.Analytics(app.ID, 7, "", now)
+	if err != nil {
+		t.Fatalf("Analytics: %v", err)
+	}
+	if len(a.Days) != 7 || a.Days[6].Day != now.UTC().Format("2006-01-02") || a.Days[0].Clicks != 0 {
+		t.Fatalf("days = %+v; want 7 zero-filled days ending today", a.Days)
+	}
+	want := DayStat{Day: a.Days[6].Day, Clicks: 2, Web: 1, Opens: 1, Organic: 1, NonOrganic: 1}
+	if a.Days[6] != want {
+		t.Errorf("today = %+v; want %+v", a.Days[6], want)
+	}
+	if len(a.Links) != 1 || a.Links[0].Clicks != 2 || a.Links[0].Matches != 1 {
+		t.Errorf("links = %+v; want 2 clicks, 1 match", a.Links)
+	}
+	if len(a.Events) != 3 || a.Events[0] != (EventStat{"purchase", 2}) || a.Events[2] != (EventStat{"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 1}) {
+		t.Errorf("events = %+v; want purchase 2, signup 1, long name cut to 64", a.Events)
+	}
+
+	ios, err := s.Analytics(app.ID, 7, "ios", now)
+	if err != nil {
+		t.Fatalf("Analytics ios: %v", err)
+	}
+	want = DayStat{Day: want.Day, Clicks: 1, Opens: 1, NonOrganic: 1}
+	if ios.Days[6] != want {
+		t.Errorf("ios today = %+v; want %+v", ios.Days[6], want)
+	}
+
+	if err := s.DeleteApp(app.ID); err != nil {
+		t.Fatalf("DeleteApp: %v", err)
+	}
+	var n int
+	s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM click_days) + (SELECT COUNT(*) FROM event_days)`).Scan(&n)
+	if n != 0 {
+		t.Errorf("rollup rows after DeleteApp = %d; want 0", n)
 	}
 }

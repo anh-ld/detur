@@ -1,6 +1,6 @@
 package api
 
-// Portal tests: portal API CRUD, app matching settings driving matching engine, readout,
+// Portal tests: portal API CRUD, app matching settings driving matching engine, analytics,
 // no-auth contract, origin/host guard, static serving, show-once API-key semantics.
 // Real store + real mux via httptest; SDK endpoints on second listener sharing store (separate listeners, one store).
 
@@ -223,9 +223,9 @@ func TestPortalAppMatchingDrivesMatching(t *testing.T) {
 	}
 }
 
-// Scenario 3: readout numbers. Recorded click + matched launch -> non-organic;
-// fresh no-match launch -> organic.
-func TestPortalReadout(t *testing.T) {
+// Scenario 3: analytics numbers. Recorded click + matched launch -> non-organic
+// on the link; fresh no-match launch -> organic. Bad range -> 400.
+func TestPortalAnalytics(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
 	app, link := setup(t, st)
 	recordAndroidClick(t, st, app, link)
@@ -241,18 +241,24 @@ func TestPortalReadout(t *testing.T) {
 		t.Fatalf("fresh no-match launch must 404: %d %s", resp.StatusCode, b)
 	}
 
-	resp, b = portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/readout", "", nil)
+	resp, b = portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/analytics?days=30", "", nil)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("readout: %d %s", resp.StatusCode, b)
+		t.Fatalf("analytics: %d %s", resp.StatusCode, b)
 	}
-	var ro struct {
-		Clicks     int64 `json:"clicks"`
-		Organic    int64 `json:"organic"`
-		NonOrganic int64 `json:"nonOrganic"`
+	var a store.Analytics
+	mustJSON(t, b, &a)
+	today := a.Days[len(a.Days)-1]
+	if len(a.Days) != 30 || today.Clicks != 1 || today.Organic != 1 || today.NonOrganic != 1 {
+		t.Fatalf("analytics days mismatch: %d days, today %+v", len(a.Days), today)
 	}
-	mustJSON(t, b, &ro)
-	if ro.Clicks != 1 || ro.Organic != 1 || ro.NonOrganic != 1 {
-		t.Fatalf("readout mismatch: %+v", ro)
+	if len(a.Links) != 1 || a.Links[0].Key != link.Key || a.Links[0].Matches != 1 {
+		t.Fatalf("analytics links mismatch: %+v", a.Links)
+	}
+
+	for _, q := range []string{"?days=5", "?platform=web"} {
+		if resp, b := portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/analytics"+q, "", nil); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("analytics%s: %d %s; want 400", q, resp.StatusCode, b)
+		}
 	}
 }
 

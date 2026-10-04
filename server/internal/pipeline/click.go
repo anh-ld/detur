@@ -83,7 +83,7 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	if track {
 		rec, err := p.st.RecordClick(store.Click{
 			ID: clickID, AppID: link.AppID, LinkID: link.ID, Destination: deepLinkURL(link, q),
-			Fingerprint: fingerprint(r, q, link),
+			Fingerprint: fingerprint(r, q, link), Platform: clickPlatform(agent), Kind: clickKind(dest),
 		}, p.retentionHours)
 		if err != nil {
 			p.log.Printf("click record failed (redirect continues): %v", err)

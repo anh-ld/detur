@@ -109,7 +109,7 @@ header [k="button"][variant="secondary"],
 }
 
 /* Empty states */
-[k="card"]:has(> [k="empty"]) {
+[k="card"]:has(> [k="empty"]:only-child) {
   border-style: dashed;
   background: radial-gradient(hsl(var(--k-border)) 1px, transparent 1.3px) 0 0 / 18px 18px;
 }
@@ -166,6 +166,20 @@ header [k="button"][variant="secondary"],
   color: hsl(var(--k-primary)) !important;
 }
 
+[k="table"] .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Charts: per-day hover column */
+.chart-hover {
+  fill: transparent;
+}
+
+.chart-hover:hover {
+  fill: hsl(var(--k-foreground) / 0.05);
+}
+
 [k="dialog-content"] {
   border: 1px solid hsl(var(--k-border));
   border-radius: 1rem;
@@ -186,7 +200,16 @@ header [k="button"][variant="secondary"],
   }
 
   .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 8px !important;
+  }
+
+  .split {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  [k="table"] .num {
+    text-align: left;
   }
 
   .stats > [k="card"] {

@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS installs (
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (app_id, device_hash, click_id)
 );
+-- installs.link_id / installs.platform: added by addMissingColumns (analytics).
 
 CREATE INDEX IF NOT EXISTS idx_installs_app_attribution ON installs (app_id, attribution);
 
@@ -79,3 +80,25 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_created ON events (created_at);
+
+-- Analytics rollups: per-day counters with no device data, so they outlive the
+-- clicks/events retention purge. day = YYYY-MM-DD (UTC).
+-- kind: app (browser click sent to a store) | web (browser click sent to a web
+-- page) | open (SDK universal-link open, app already installed).
+CREATE TABLE IF NOT EXISTS click_days (
+    app_id   TEXT NOT NULL,
+    link_id  TEXT NOT NULL,
+    day      TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    kind     TEXT NOT NULL,
+    n        INTEGER NOT NULL,
+    PRIMARY KEY (app_id, day, link_id, platform, kind)
+);
+
+CREATE TABLE IF NOT EXISTS event_days (
+    app_id TEXT NOT NULL,
+    event  TEXT NOT NULL,
+    day    TEXT NOT NULL,
+    n      INTEGER NOT NULL,
+    PRIMARY KEY (app_id, day, event)
+);

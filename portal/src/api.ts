@@ -21,11 +21,23 @@ export interface Link {
   fallbackUrl: string;
 }
 
-export interface Readout {
+// One UTC day. clicks = browser clicks; webFallbacks ⊂ clicks; opens = SDK opens of an installed app.
+export interface DayStat {
+  day: string;
   clicks: number;
+  webFallbacks: number;
+  opens: number;
   organic: number;
   nonOrganic: number;
 }
+
+export interface Analytics {
+  days: DayStat[];
+  links: { linkId: string; key: string; clicks: number; matches: number }[];
+  events: { event: string; count: number }[];
+}
+
+export type Platform = '' | 'ios' | 'android' | 'desktop';
 
 // Base URL override: '' = same origin; integration tests point client at live server.
 export let apiBase = '';
@@ -70,5 +82,6 @@ export const api = {
   deleteLink: (id: string) => req<void>('DELETE', `/api/links/${id}`),
   saveMatching: (id: string, m: { threshold: number; windowMinutes: number }) =>
     req<App>('PATCH', `/api/apps/${id}/matching`, m),
-  getReadout: (appId: string) => req<Readout>('GET', `/api/apps/${appId}/readout`),
+  getAnalytics: (appId: string, days: number, platform: Platform) =>
+    req<Analytics>('GET', `/api/apps/${appId}/analytics?days=${days}${platform ? `&platform=${platform}` : ''}`),
 };

@@ -29,7 +29,7 @@ const (
 	AttributionOrganic = "organic"
 	// AttributionNonOrganic: install matched to a click.
 	AttributionNonOrganic = "non_organic"
-	// AttributionUnknown: backend-error path (logged, not surfaced in readout).
+	// AttributionUnknown: backend-error path (logged, not surfaced in analytics).
 	AttributionUnknown = "unknown"
 )
 
@@ -62,6 +62,11 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 	hadMatch := columnExists(db, "apps", "match_threshold")
+	// legacy installs rebuild drops unknown columns: run before addMissingColumns
+	if err := migrateInstallUniqueness(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate installs: %w", err)
+	}
 	if err := addMissingColumns(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate columns: %w", err)
@@ -71,10 +76,6 @@ func Open(path string) (*Store, error) {
 			db.Close()
 			return nil, fmt.Errorf("seed app match settings: %w", err)
 		}
-	}
-	if err := migrateInstallUniqueness(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate installs: %w", err)
 	}
 	return &Store{db: db}, nil
 }
@@ -174,7 +175,7 @@ func (s *Store) DeleteApp(id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	for _, t := range []string{"clicks", "installs", "events"} {
+	for _, t := range []string{"clicks", "installs", "events", "click_days", "event_days"} {
 		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE app_id = ?`, id); err != nil {
 			return fmt.Errorf("delete app %s: %w", t, err)
 		}
@@ -385,6 +386,9 @@ func (s *Store) DeleteLink(id string) error {
 	if _, err := tx.Exec(`DELETE FROM clicks WHERE link_id = ?`, id); err != nil {
 		return fmt.Errorf("delete link clicks: %w", err)
 	}
+	if _, err := tx.Exec(`DELETE FROM click_days WHERE link_id = ?`, id); err != nil {
+		return fmt.Errorf("delete link rollups: %w", err)
+	}
 	return tx.Commit()
 }
 
@@ -438,7 +442,17 @@ type Click struct {
 	IsBot       bool
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
+	// Platform (ios | android | desktop | "") and Kind (KindApp | KindWeb | KindOpen) feed the click_days rollup only; not stored on the click row.
+	Platform string
+	Kind     string
 }
+
+// Click kinds for analytics rollups (click_days.kind).
+const (
+	KindApp  = "app"  // browser click redirected to a store
+	KindWeb  = "web"  // browser click redirected to a web page (web fallback)
+	KindOpen = "open" // SDK universal-link open: app already installed
+)
 
 // clickDedupWindow: mirrors Dub's recordClickCache — one click per link + device (IP + user agent) per hour.
 const clickDedupWindow = time.Hour
@@ -483,6 +497,15 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
+	}
+	// rollup counts new clicks only; a dedup refresh is the same click
+	_, err = tx.Exec(
+		`INSERT INTO click_days (app_id, link_id, day, platform, kind, n) VALUES (?, ?, ?, ?, ?, 1)
+		 ON CONFLICT DO UPDATE SET n = n + 1`,
+		c.AppID, c.LinkID, day(now), c.Platform, c.Kind,
+	)
+	if err != nil {
+		return Click{}, fmt.Errorf("record click rollup: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
@@ -633,6 +656,8 @@ type Install struct {
 	ClickID     string
 	Attribution string
 	CreatedAt   time.Time
+	LinkID      string // matched click's link (non-organic only); analytics
+	Platform    string // ios | android | ""; analytics
 }
 
 // RecordInstall: upsert install attribution idempotently per app, device, click; empty click_id marks organic/unknown installs, deduped per app + device too. Only an unknown row is upgraded by a later real attribution.
@@ -643,11 +668,12 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	now := time.Now().UTC()
 	i.CreatedAt = now
 	_, err := s.db.Exec(
-		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)
-			 ON CONFLICT(app_id, device_hash, click_id) DO UPDATE SET attribution = excluded.attribution
+		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at, link_id, platform)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(app_id, device_hash, click_id) DO UPDATE SET attribution = excluded.attribution,
+			   link_id = excluded.link_id, platform = excluded.platform
 			 WHERE installs.attribution = ?`,
-		i.ID, i.AppID, i.DeviceHash, i.ClickID, i.Attribution, rfc3339(now), AttributionUnknown,
+		i.ID, i.AppID, i.DeviceHash, i.ClickID, i.Attribution, rfc3339(now), nullStr(i.LinkID), nullStr(i.Platform), AttributionUnknown,
 	)
 	if err != nil {
 		return Install{}, fmt.Errorf("record install: %w", err)
@@ -678,6 +704,8 @@ func addMissingColumns(db *sql.DB) error {
 		{"clicks", "matched_at", "TEXT"},
 		{"apps", "match_threshold", "INTEGER NOT NULL DEFAULT 850"},
 		{"apps", "match_window_minutes", "INTEGER NOT NULL DEFAULT 15"},
+		{"installs", "link_id", "TEXT"},
+		{"installs", "platform", "TEXT"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {
@@ -802,7 +830,7 @@ func migrateInstallUniqueness(db *sql.DB) error {
 	return err
 }
 
-// CountInstalls: organic + non-organic install counts for app (readout; unknown excluded).
+// CountInstalls: organic + non-organic install counts for app (unknown excluded).
 func (s *Store) CountInstalls(appID string) (organic, nonOrganic int64, err error) {
 	err = s.db.QueryRow(
 		`SELECT
@@ -814,7 +842,7 @@ func (s *Store) CountInstalls(appID string) (organic, nonOrganic int64, err erro
 	return organic, nonOrganic, err
 }
 
-// CountClicks: click count for app (readout).
+// CountClicks: raw click count for app (retention window only).
 func (s *Store) CountClicks(appID string) (int64, error) {
 	var n int64
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE app_id = ?`, appID).Scan(&n)
@@ -822,14 +850,25 @@ func (s *Store) CountClicks(appID string) (int64, error) {
 }
 
 func (s *Store) RecordEvent(appID, event, metadata string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO events (id, app_id, event, metadata) VALUES (?, ?, ?, ?)`,
-		Nanoid(21), appID, event, nullStr(metadata),
-	)
+	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("record event: %w", err)
 	}
-	return nil
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		`INSERT INTO events (id, app_id, event, metadata) VALUES (?, ?, ?, ?)`,
+		Nanoid(21), appID, event, nullStr(metadata),
+	); err != nil {
+		return fmt.Errorf("record event: %w", err)
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO event_days (app_id, event, day, n) VALUES (?, ?, ?, 1)
+		 ON CONFLICT DO UPDATE SET n = n + 1`,
+		appID, rollupEventName(event), day(time.Now()),
+	); err != nil {
+		return fmt.Errorf("record event rollup: %w", err)
+	}
+	return tx.Commit()
 }
 
 func (s *Store) CountEvents(appID string) (int64, error) {
@@ -878,6 +917,21 @@ func boolInt(b bool) int {
 
 // timeLayout: matches SQLite strftime('%Y-%m-%dT%H:%M:%fZ') column defaults — fixed width, stored timestamps compare correctly as text.
 const timeLayout = "2006-01-02T15:04:05.000Z"
+
+// maxRollupEventName: event_days keeps names forever (no purge); long free-form names are cut so a name carrying device data cannot grow unbounded.
+const maxRollupEventName = 64
+
+func rollupEventName(e string) string {
+	if r := []rune(e); len(r) > maxRollupEventName {
+		return string(r[:maxRollupEventName])
+	}
+	return e
+}
+
+// day: UTC calendar day (YYYY-MM-DD), rollup + analytics bucket key.
+func day(t time.Time) string {
+	return t.UTC().Format("2006-01-02")
+}
 
 func rfc3339(t time.Time) string {
 	return t.UTC().Format(timeLayout)

@@ -587,3 +587,26 @@ func TestTimezoneScreenValidated(t *testing.T) {
 		t.Fatalf("invalid: tz=%q screen=%q; want dropped", f.Timezone, f.Screen)
 	}
 }
+
+// Browser clicks reach the rollup with the redirect's labels: desktop -> web fallback, iOS -> store click.
+func TestClickRollupLabels(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, link := setupPipeline(t, s)
+	doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": desktopUA})
+	mobileClick(t, ts, "/"+link.Key, map[string]string{"User-Agent": iosUA})
+
+	all, err := s.Analytics(app.ID, 7, "", time.Now())
+	if err != nil {
+		t.Fatalf("Analytics: %v", err)
+	}
+	if got := all.Days[6]; got.Clicks != 2 || got.Web != 1 {
+		t.Errorf("today = %+v; want 2 clicks, 1 web fallback", got)
+	}
+	ios, err := s.Analytics(app.ID, 7, "ios", time.Now())
+	if err != nil {
+		t.Fatalf("Analytics ios: %v", err)
+	}
+	if got := ios.Days[6]; got.Clicks != 1 || got.Web != 0 {
+		t.Errorf("ios today = %+v; want 1 store click", got)
+	}
+}

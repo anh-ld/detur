@@ -116,7 +116,7 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 
 - Set `EXPO_PUBLIC_DETOUR_API_KEY` and `EXPO_PUBLIC_DETOUR_APP_ID` from step 2.
 - Run the app. First launch calls match-link, shows the matched link.
-- Server logs only errors; check the portal readout for clicks and installs.
+- Server logs only errors; check the portal analytics for clicks and installs.
 - Android emulator: `http://10.0.2.2:8080`.
 - Physical device: deployed domain.
 - Dev on a trusted LAN only: publish `8080` on the host interface

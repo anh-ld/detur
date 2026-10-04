@@ -60,6 +60,21 @@ func IsAndroid(ua string) bool {
 	return strings.Contains(strings.ToLower(ua), "android")
 }
 
+// AppPlatform: platform of an in-app (SDK) request, "ios"/"android"/"": browser UA markers, then native HTTP client markers (iOS CFNetwork/Darwin, Android okhttp/Dalvik).
+func AppPlatform(ua string) string {
+	if p := Platform(ua); p != "" {
+		return p
+	}
+	l := strings.ToLower(ua)
+	switch {
+	case strings.Contains(l, "cfnetwork") || strings.Contains(l, "darwin"):
+		return "ios"
+	case strings.Contains(l, "okhttp") || strings.Contains(l, "dalvik"):
+		return "android"
+	}
+	return ""
+}
+
 // IsIOS: iOS browser UA (iPhone/iPad/iPod, case-insensitive).
 func IsIOS(ua string) bool {
 	ua = strings.ToLower(ua)

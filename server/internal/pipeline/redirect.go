@@ -115,6 +115,24 @@ func playReferrer(target string, q url.Values, clickID string) string {
 	return u.String()
 }
 
+// clickPlatform / clickKind: analytics labels for a browser click, same platform split as redirectTarget.
+func clickPlatform(agent string) string {
+	switch {
+	case ua.IsIOS(agent):
+		return "ios"
+	case ua.IsAndroid(agent):
+		return "android"
+	}
+	return "desktop"
+}
+
+func clickKind(dest string) string {
+	if u, err := url.Parse(dest); err == nil && (isAppStore(u) || isPlayStore(u)) {
+		return store.KindApp
+	}
+	return store.KindWeb
+}
+
 // isAppStore: App Store URL (itms-apps schemes included)
 func isAppStore(u *url.URL) bool {
 	h := u.Hostname()
