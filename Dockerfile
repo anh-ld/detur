@@ -3,7 +3,7 @@
 # dist -> slim alpine runtime as non-root user (uid 1000).
 
 # --- Stage 1: Go server ---
-FROM golang:alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
 RUN go mod download
@@ -15,7 +15,7 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/detur ./cmd/detur
 RUN mkdir -p /out/data && chown -R 1000:1000 /out/data
 
 # --- Stage 2: portal (kinu, vite) ---
-FROM node:lts-alpine AS portal
+FROM node:24-alpine AS portal
 WORKDIR /src
 COPY portal/package.json portal/package-lock.json ./
 RUN npm ci
@@ -23,7 +23,7 @@ COPY portal/ .
 RUN npm run build   # vite outDir=dist -> /src/dist
 
 # --- Stage 3: runtime ---
-FROM alpine:3.21
+FROM alpine:3.24
 RUN adduser -D -u 1000 -h /app detur
 COPY --from=build --chown=detur:detur /out/detur /app/detur
 COPY --from=build --chown=detur:detur /out/data /data

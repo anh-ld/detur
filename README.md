@@ -52,6 +52,7 @@ docker run -d --name detur --restart unless-stopped \
 - Build from source: `docker build -t ghcr.io/anh-ld/detur:latest .`.
 - Health check: `GET /health` → `200 ok`.
 - No Docker: `cd server && go run ./cmd/detur`.
+- Dev: `./dev.sh`. Portal HMR on `:8000`, server rebuilds on `.go` change via [air](https://github.com/air-verse/air). Ctrl-C stops both.
 - Production: publish `8080` on loopback behind a TLS reverse proxy.
 - `TRUST_PROXY=1` only behind a real proxy. Trusts rightmost
   `X-Forwarded-For` entry (the peer the proxy saw), else `X-Real-IP`. Proxy

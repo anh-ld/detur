@@ -8,4 +8,6 @@
 plans
 example
 patch
-README.md.env
+README.md
+.env
+**/.env
