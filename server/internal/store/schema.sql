@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS apps (
     match_window_minutes    INTEGER NOT NULL DEFAULT 15,
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+-- apps.sdk_version, sdk_seen_at: addMissingColumns.
 
 CREATE TABLE IF NOT EXISTS links (
     id             TEXT PRIMARY KEY,
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS installs (
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (app_id, device_hash, click_id)
 );
--- installs.link_id / installs.platform: added by addMissingColumns (analytics).
+-- installs.link_id, platform, method, score, runner_up: addMissingColumns.
 
 CREATE INDEX IF NOT EXISTS idx_installs_app_attribution ON installs (app_id, attribution);
 

@@ -212,6 +212,15 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
+  it('settings flow: fresh app shows failing SDK check and no match receipts', async () => {
+    const app = await api.createApp(uniq('h'));
+    render(<SettingsPage id={app.id} />);
+    await screen.findByText(/No SDK call yet/);
+    expect(screen.getAllByText('Fix').length).toBeGreaterThan(0);
+    await screen.findByText('No installs yet.');
+    await api.deleteApp(app.id);
+  });
+
   it('rotate key flow: new key is shown once', async () => {
     const app = await api.createApp(uniq('rotate-app'));
     render(<SettingsPage id={app.id} />);

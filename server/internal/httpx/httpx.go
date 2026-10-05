@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 )
 
 // TrustProxy gates X-Forwarded-For path: only set when TLS terminates at trusted reverse proxy (TRUST_PROXY). Off by default, client-supplied header cannot spoof IP match signal.
@@ -31,7 +32,26 @@ func RemoteIP(r *http.Request) string {
 	if err != nil {
 		return r.RemoteAddr
 	}
+	if !TrustProxy {
+		notePeer(host)
+	}
 	return host
+}
+
+// Socket peers, TRUST_PROXY off. Mostly private = proxy in front, one shared IP.
+// Since start, not sliding; resets on restart.
+var peers, privatePeers atomic.Int64
+
+func notePeer(host string) {
+	peers.Add(1)
+	if ip := net.ParseIP(host); ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
+		privatePeers.Add(1)
+	}
+}
+
+// PeerStats: peers seen, private/loopback count.
+func PeerStats() (total, private int64) {
+	return peers.Load(), privatePeers.Load()
 }
 
 // WriteJSON: v as JSON response with given status.

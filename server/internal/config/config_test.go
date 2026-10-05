@@ -7,7 +7,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "TRUST_PROXY", "LOGOUT_URL"} {
+	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "CLICK_ID_DAYS", "TRUST_PROXY", "LOGOUT_URL"} {
 		t.Setenv(k, "")
 	}
 }
@@ -26,6 +26,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.RetentionHours != 24 {
 		t.Errorf("RetentionHours default = %d, want 24", cfg.RetentionHours)
+	}
+	if cfg.ClickIDDays != 30 {
+		t.Errorf("ClickIDDays default = %d, want 30", cfg.ClickIDDays)
 	}
 }
 
@@ -51,6 +54,8 @@ func TestLoadInvalidValues(t *testing.T) {
 	}{
 		{"RETENTION_HOURS", "23", "out of range"},
 		{"RETENTION_HOURS", "not-a-number", "must be an integer"},
+		{"CLICK_ID_DAYS", "0", "out of range"},
+		{"CLICK_ID_DAYS", "91", "out of range"},
 		{"LOGOUT_URL", "javascript:alert(1)", "LOGOUT_URL"},
 		{"LOGOUT_URL", "//evil.example/logout", "LOGOUT_URL"},
 		{"LOGOUT_URL", "ftp://example.com/logout", "LOGOUT_URL"},

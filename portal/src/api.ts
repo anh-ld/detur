@@ -37,6 +37,19 @@ export interface Analytics {
   events: { event: string; count: number }[];
 }
 
+// Installs per match method ('' = pre-receipt) + 50-pt score buckets.
+export interface MatchQuality {
+  methods: Record<string, number>;
+  buckets: { from: number; matched: number; organic: number }[];
+}
+
+// GET /api/apps/{id}/health row.
+export interface HealthCheck {
+  check: string;
+  status: 'ok' | 'warn' | 'fail';
+  detail: string;
+}
+
 export type Platform = '' | 'ios' | 'android' | 'desktop';
 
 // Base URL override: '' = same origin; integration tests point client at live server.
@@ -66,6 +79,8 @@ export interface CreatedApp {
 }
 
 export const api = {
+  getMatchQuality: (id: string) => req<MatchQuality>('GET', `/api/apps/${id}/match-quality?days=30`),
+  getHealth: (id: string) => req<HealthCheck[]>('GET', `/api/apps/${id}/health`),
   getConfig: () => req<{ logoutUrl: string }>('GET', '/api/config'),
   listApps: () => req<App[]>('GET', '/api/apps'),
   getApp: (id: string) => req<App>('GET', `/api/apps/${id}`),

@@ -28,6 +28,7 @@ func main() {
 		log.Fatalf("store: %v", err)
 	}
 	defer st.Close()
+	st.ClickIDHours = cfg.ClickIDDays * 24
 	purgeLoop(st, cfg.RetentionHours)
 
 	mux := http.NewServeMux()
@@ -70,7 +71,7 @@ func serve(addr string, h http.Handler) error {
 	return srv.ListenAndServe()
 }
 
-// purgeLoop: purge expired clicks and old events at startup, then hourly.
+// purgeLoop: purge at startup, then hourly.
 func purgeLoop(st *store.Store, retentionHours int) {
 	if n, err := st.PurgeExpired(time.Now(), retentionHours); err != nil {
 		log.Printf("initial purge failed: %v", err)

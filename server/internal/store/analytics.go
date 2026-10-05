@@ -149,3 +149,63 @@ func (s *Store) Analytics(appID string, days int, platform string, now time.Time
 	}
 	return a, rows.Err()
 }
+
+// MatchQuality: last `days` UTC days. Methods: installs per method ("" = pre-receipt).
+// Buckets: probabilistic + scored organic per 50-pt score.
+type MatchQuality struct {
+	Methods map[string]int64 `json:"methods"`
+	Buckets []ScoreBucket    `json:"buckets"`
+}
+
+type ScoreBucket struct {
+	From    int   `json:"from"` // score in [From, From+ScoreBucketSize)
+	Matched int64 `json:"matched"`
+	Organic int64 `json:"organic"`
+}
+
+const ScoreBucketSize = 50
+
+func (s *Store) MatchQuality(appID string, days int, now time.Time) (MatchQuality, error) {
+	q := MatchQuality{Methods: map[string]int64{}, Buckets: []ScoreBucket{}}
+	lo := day(now.UTC().AddDate(0, 0, -(days - 1)))
+	rows, err := s.db.Query(
+		`SELECT COALESCE(method, ''), COUNT(*) FROM installs
+		 WHERE app_id = ? AND substr(created_at, 1, 10) >= ? AND attribution IN (?, ?)
+		 GROUP BY 1`, appID, lo, AttributionOrganic, AttributionNonOrganic)
+	if err != nil {
+		return q, fmt.Errorf("match quality methods: %w", err)
+	}
+	for rows.Next() {
+		var m string
+		var n int64
+		if err := rows.Scan(&m, &n); err != nil {
+			rows.Close()
+			return q, err
+		}
+		q.Methods[m] = n
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return q, err
+	}
+	rows.Close()
+
+	rows, err = s.db.Query(
+		`SELECT score / ? * ?, COALESCE(SUM(method = ?), 0), COALESCE(SUM(method = ?), 0) FROM installs
+		 WHERE app_id = ? AND substr(created_at, 1, 10) >= ? AND score IS NOT NULL AND method IN (?, ?)
+		 GROUP BY 1 ORDER BY 1`,
+		ScoreBucketSize, ScoreBucketSize, MethodProbabilistic, MethodOrganic,
+		appID, lo, MethodProbabilistic, MethodOrganic)
+	if err != nil {
+		return q, fmt.Errorf("match quality buckets: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b ScoreBucket
+		if err := rows.Scan(&b.From, &b.Matched, &b.Organic); err != nil {
+			return q, err
+		}
+		q.Buckets = append(q.Buckets, b)
+	}
+	return q, rows.Err()
+}

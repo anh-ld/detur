@@ -604,3 +604,46 @@ func TestUADeviceSignatureAndroidOnly(t *testing.T) {
 		t.Errorf("Android UA signature = %d; want 350", s)
 	}
 }
+
+// Receipts: method per path, best + runner-up, near-miss score.
+func TestMatchReceipts(t *testing.T) {
+	s, _ := newTestStore(t)
+	_, link := setupApp(t, s)
+	fp := androidFP()
+	best := androidClick(link) // IP match
+	second := androidClick(link)
+	second.Fingerprint.IP = otherIP
+	third := androidClick(link)
+	third.Fingerprint.IP, third.Fingerprint.Timezone = "192.0.2.1", "Asia/Tokyo"
+	var scores []int
+	for _, c := range []store.Click{best, second, third} {
+		scores = append(scores, Score(recordClick(t, s, c), fp, testIP))
+	}
+	if !(scores[0] > scores[1] && scores[1] > scores[2]) {
+		t.Fatalf("scores %v; want strictly descending", scores)
+	}
+	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fp})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	if !res.Matched || res.Method != store.MethodProbabilistic || res.Score != scores[0] || res.RunnerUp != scores[1] {
+		t.Errorf("receipt = %s %d/%d; want probabilistic %d/%d", res.Method, res.Score, res.RunnerUp, scores[0], scores[1])
+	}
+
+	// docs' rejection example: 500 < 850
+	miss := Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US", ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
+	res, _ = Match(s, link.AppID, Request{IP: "192.0.2.99", Fingerprint: &miss})
+	if res.Matched || res.Method != store.MethodOrganic || res.Score != 500 {
+		t.Errorf("near miss = %+v; want organic, score 500", res)
+	}
+
+	c := androidClick(link)
+	c.Fingerprint.IP, c.ClickID = "192.0.2.50", "play-7"
+	recordClick(t, s, c)
+	if res, _ := Match(s, link.AppID, Request{ClickID: "play-7"}); res.Method != store.MethodClickID || res.Score != -1 {
+		t.Errorf("clickId receipt = %s %d; want click_id, -1", res.Method, res.Score)
+	}
+	if res, _ := Match(s, link.AppID, Request{ClickID: "nope"}); res.Method != store.MethodOrganic {
+		t.Errorf("unknown clickId method = %s; want organic", res.Method)
+	}
+}

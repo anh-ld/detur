@@ -661,6 +661,47 @@ func TestPurgeExpiredKeepsLive(t *testing.T) {
 	}
 }
 
+// Past retention: scrubbed, click_id lives ClickIDHours, matched deleted.
+func TestClickIDOutlivesRetention(t *testing.T) {
+	s := newTestStore(t)
+	s.ClickIDHours = 30 * 24
+	app, link := setupApp(t, s)
+	fp := Fingerprint{IP: "1.2.3.4", UserAgent: "ua", Timezone: "Europe/Warsaw", Screen: "390x844"}
+	late, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: fp, ClickID: "late"}, 24)
+	gone, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: Fingerprint{IP: "5.6.7.8", UserAgent: "ua"}, ClickID: "gone"}, 24)
+	used, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: Fingerprint{IP: "9.9.9.9", UserAgent: "ua"}}, 24)
+	ago := func(d time.Duration) string { return rfc3339(time.Now().Add(-d)) }
+	for id, created := range map[string]time.Duration{late.ID: 3 * 24 * time.Hour, gone.ID: 31 * 24 * time.Hour, used.ID: 3 * 24 * time.Hour} {
+		if _, err := s.rawExec(`UPDATE clicks SET created_at = ?, expires_at = ? WHERE id = ?`, ago(created), ago(created-24*time.Hour), id); err != nil {
+			t.Fatalf("age click: %v", err)
+		}
+	}
+	if ok, _ := s.MarkClickMatched(used.ID); !ok {
+		t.Fatal("MarkClickMatched failed")
+	}
+	if _, err := s.PurgeExpired(time.Now(), 24); err != nil {
+		t.Fatalf("PurgeExpired: %v", err)
+	}
+	got, err := s.ClickByClickID(app.ID, "late")
+	if err != nil || got.Destination != link.URL {
+		t.Fatalf("ClickByClickID(late) = %+v, %v; want resolved after 3 days", got, err)
+	}
+	if got.Fingerprint != (Fingerprint{}) {
+		t.Errorf("fingerprint = %+v; want scrubbed", got.Fingerprint)
+	}
+	if _, err := s.ClickByClickID(app.ID, "gone"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("ClickByClickID(gone) = %v; want ErrNotFound after 31 days", err)
+	}
+	for _, id := range []string{gone.ID, used.ID} {
+		if _, err := s.GetClick(id); !errors.Is(err, ErrNotFound) {
+			t.Errorf("click %s survived purge: %v", id, err)
+		}
+	}
+	if n, _ := s.CountClicks(app.ID); n != 0 {
+		t.Errorf("CountClicks = %d; want 0 (scrubbed rows not counted)", n)
+	}
+}
+
 func TestNanoidAlphabetAndLength(t *testing.T) {
 	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 	for i := 0; i < 1000; i++ {

@@ -18,7 +18,7 @@ Change: edit row, keep ID. New conflict: add row before code.
 | M2 | Threshold 850 (700–1200), window 15 min (5–180), per app. No global default, no per-link override. | Detour | "App-level settings." Upgrade seeds old global into each app. | 005 | in place |
 | M3 | Matched click consumed: 1 click, 1 install. | Detour | Candidates = "unmatched clicks". Dub doesn't consume. | 006 | in place |
 | M4 | Same device retry → same earlier click. | Ours | SDK retries idempotent. Detour silent. | 006 | in place |
-| M5 | Deterministic `clickId`: exact, unmatched, no window, lives `RETENTION_HOURS`. | Detour + ours | Retention bound ours. | 006 | in place |
+| M5 | Deterministic `clickId`: exact, unmatched, no window, lives `CLICK_ID_DAYS` (30, 1–90). Fingerprint scrubbed at `RETENTION_HOURS`; matched clicks deleted then. | Detour + ours | Play referrer returns days later. 90 = its limit. No extra PII. | — | in place |
 | M6 | Window from SDK `timestamp`; ignored if >180 min off or future. | Detour + ours | Clamp ours: clock drift. | 007 | in place |
 | M7 | iOS 26 frozen UA (`OS 18_6`): use Safari `Version/` major if higher. | Detour | Documented workaround. | 007 | in place |
 | M8 | UA signature scored Android only. | Detour | Weights table. | 007 | in place |
@@ -26,6 +26,7 @@ Change: edit row, keep ID. New conflict: add row before code.
 | M10 | Tie → newer click. | Detour | Documented. | — | in place |
 | M11 | No match → organic + 404. Backend error → 404 + hidden `unknown` install, replaced by later real result. | Detour + ours | Fail-open ours: never block app. | 003 | in place |
 | M12 | Device hash = SHA-256 of fingerprint, no timestamp. | Ours | Stable key, idempotent installs. | — | in place |
+| M13 | Install receipt: method (`click_id`, `probabilistic`, `prior`, `organic`, `unknown`), best score, runner-up. Organic keeps best below-threshold score. Settings: method mix, histogram, threshold what-if. | Ours | Threshold set blind otherwise. | — | in place |
 
 ## Click capture
 
@@ -55,10 +56,16 @@ Change: edit row, keep ID. New conflict: add row before code.
 
 | ID | Decision | Source | Why | Plan | Status |
 |---|---|---|---|---|---|
-| A1 | Overview: clicks, installed opens, installs via link + match %, web fallbacks, daily chart, organic vs non-organic, per-link clicks/matches, top events. Filters: platform, 7/30/90d. | Detour | Same page. Retention skipped: events lack device id. | — | in place |
+| A1 | Overview: clicks, installed opens, installs via link + match %, web fallbacks, daily chart, organic vs non-organic, per-link clicks/matches, top events. Filters: platform, 7/30/90d. | Detour | Same page. Retention not built yet (events do carry `device_id`). | — | in place |
 | A2 | Rollups `click_days`, `event_days`: counts only, never purged. | Ours | Raw data purged at 24h; 90d chart needs counts, no device data. | — | in place |
 | A3 | Web fallback = browser click → non-store URL. Installed open = universal-link-click. | Ours | Detour undefined; what detur sees. | — | in place |
 | A4 | UTC days. | Ours | One bucket key. | — | in place |
+
+## Ops
+
+| ID | Decision | Source | Why | Plan | Status |
+|---|---|---|---|---|---|
+| O1 | Settings Health: SDK last seen (`X-SDK`), app detail formats, AASA refresh (>1 iOS app, links <48h), proxy (private peers with `TRUST_PROXY=0`). No outbound checks. | Ours | Setup mistakes fail silently. | — | in place |
 
 ## SDK API
 

@@ -327,6 +327,76 @@ header > div > a:first-child {
   border-radius: 8px;
 }
 
+/* Health status */
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.health::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.health.ok {
+  color: hsl(152 60% 36%);
+}
+
+.health.warn {
+  color: hsl(35 90% 42%);
+}
+
+.health.fail {
+  color: hsl(var(--k-destructive));
+}
+
+/* Score histogram: matched over organic */
+.score-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 140px;
+}
+
+.score-bars > div {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  position: relative;
+  padding-bottom: 18px;
+}
+
+.score-bars small {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11px;
+  color: hsl(var(--k-muted-foreground));
+}
+
+.score-bar {
+  display: block;
+  border-radius: 2px;
+}
+
+.score-bar.matched {
+  background: hsl(205 87% 59%);
+}
+
+.score-bar.organic {
+  background: hsl(204 77% 86%);
+}
+
 /* Loading placeholders */
 .skeleton {
   display: block;

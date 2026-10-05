@@ -53,6 +53,8 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	mux.HandleFunc("PATCH /api/links/{id}", p.updateLink)
 	mux.HandleFunc("DELETE /api/links/{id}", p.deleteLink)
 	mux.HandleFunc("GET /api/apps/{id}/analytics", p.analytics)
+	mux.HandleFunc("GET /api/apps/{id}/match-quality", p.matchQuality)
+	mux.HandleFunc("GET /api/apps/{id}/health", p.health)
 	mux.HandleFunc("GET /", p.static) // SPA shell + assets (catch-all)
 	return guard(mux, allowedHosts)
 }
@@ -487,6 +489,28 @@ func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, a)
+}
+
+// matchQuality: GET /api/apps/{id}/match-quality?days=7|30|90 (default 30).
+func (p *portalServer) matchQuality(w http.ResponseWriter, r *http.Request) {
+	appID := r.PathValue("id")
+	if _, err := p.st.GetApp(appID); err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	days := 30
+	if v := r.URL.Query().Get("days"); v != "" {
+		if days = analyticsRanges[v]; days == 0 {
+			http.Error(w, "days must be 7, 30 or 90", http.StatusBadRequest)
+			return
+		}
+	}
+	q, err := p.st.MatchQuality(appID, days, time.Now())
+	if err != nil {
+		p.internal(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, q)
 }
 
 // static serves built portal from configured directory. Missing dir/file 404s plain text (FileServer); server keeps running.

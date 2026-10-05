@@ -41,10 +41,14 @@ type Request struct {
 }
 
 // Result: match outcome. Matched=false is no-match (404, organic install).
+// Method/Score/RunnerUp: receipt (store.Method*). Score kept on no-match; -1 = no candidate.
 type Result struct {
 	Matched     bool
 	Click       store.Click
 	Destination string
+	Method      string
+	Score       int
+	RunnerUp    int
 }
 
 // ValidateSettings: app match settings within Detour's documented ranges.
@@ -64,19 +68,19 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	if req.DeviceHash != "" {
 		// lookup error falls through to normal matching: backend trouble never denies a link
 		if c, err := st.PriorMatch(appID, req.DeviceHash); err == nil {
-			return Result{Matched: true, Click: c, Destination: c.Destination}, nil
+			return Result{Matched: true, Click: c, Destination: c.Destination, Method: store.MethodPrior, Score: -1, RunnerUp: -1}, nil
 		}
 	}
 	// Deterministic lookup has no window; unknown clickId is no-match, never probabilistic fallback.
 	if req.ClickID != "" {
 		c, err := st.ClickByClickID(appID, req.ClickID)
 		if errors.Is(err, store.ErrNotFound) {
-			return Result{}, nil
+			return noMatch(-1, -1), nil
 		}
 		if err != nil {
 			return Result{}, err
 		}
-		return claim(st, c)
+		return claim(st, c, Result{Method: store.MethodClickID, Score: -1, RunnerUp: -1})
 	}
 
 	// Probabilistic: window scan per app (match-link fingerprint carries no link identity).
@@ -101,27 +105,36 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	best, bestClick := -1, store.Click{}
+	// all candidates, not only >= threshold: near misses feed the what-if
+	best, second, bestClick := -1, -1, store.Click{}
 	for _, c := range clicks { // newest first; strict > keeps newer click on ties
-		if s := Score(c, fp, req.IP); s >= app.MatchThreshold && s > best {
-			best, bestClick = s, c
+		s := Score(c, fp, req.IP)
+		if s > best {
+			best, second, bestClick = s, best, c
+		} else if s > second {
+			second = s
 		}
 	}
-	if best >= 0 {
-		return claim(st, bestClick)
+	if best >= app.MatchThreshold {
+		return claim(st, bestClick, Result{Method: store.MethodProbabilistic, Score: best, RunnerUp: second})
 	}
-	return Result{}, nil
+	return noMatch(best, second), nil
 }
 
-// claim: mark click matched; losing the race is no-match.
-func claim(st *store.Store, c store.Click) (Result, error) {
+func noMatch(score, runnerUp int) Result {
+	return Result{Method: store.MethodOrganic, Score: score, RunnerUp: runnerUp}
+}
+
+// claim: mark matched, fill r; lost race = no-match.
+func claim(st *store.Store, c store.Click, r Result) (Result, error) {
 	ok, err := st.MarkClickMatched(c.ID)
 	if err != nil {
 		return Result{}, err
 	}
 	if !ok {
 		// lost the claim race: rare (two first-opens on one click within ms), falls to organic
-		return Result{}, nil
+		return noMatch(r.Score, r.RunnerUp), nil
 	}
-	return Result{Matched: true, Click: c, Destination: c.Destination}, nil
+	r.Matched, r.Click, r.Destination = true, c, c.Destination
+	return r, nil
 }

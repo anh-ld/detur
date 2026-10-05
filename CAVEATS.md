@@ -13,7 +13,8 @@ Read before prod. Sources: [DECISIONS.md](DECISIONS.md).
 ## Matching
 
 - Identical devices = one fingerprint → organic installs undercounted.
-- Deterministic match: `RETENTION_HOURS` max (24h default). Later install = link lost.
+- Click ID match: `CLICK_ID_DAYS` max (30 default). Fingerprint gone at `RETENTION_HOURS`;
+  late click-ID installs get no platform from the click.
 - Threshold/window per app. Upgrade copies old global values; per-link overrides dropped.
 - Matched click consumed. 2 devices, 1 IP, 1 click → second = organic.
 - Reinstall within `RETENTION_HOURS` → earlier link back, even after newer tap.
@@ -31,12 +32,13 @@ Read before prod. Sources: [DECISIONS.md](DECISIONS.md).
 - SQLite: one writer. Personal/team scale.
 - No graceful shutdown. WAL keeps data safe.
 - No schema versions. `Open()` adds columns. Back up before upgrade.
-- No rate limit. Click flood → table grows until hourly purge.
+- No rate limit. Click flood → table grows; unmatched rows kept `CLICK_ID_DAYS` (no PII).
 - Analytics: UTC days. Pre-rollup clicks uncounted; pre-rollup installs lack
   link/platform. Link delete drops its counts.
 - Event names: cut to 64 chars, kept forever. No user/device ids in them.
 - Installs never purged, by design.
 - Single operator. No orgs/teams.
+- Health proxy check: counts since start, resets on restart.
 
 ## Compatibility
 

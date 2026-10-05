@@ -10,7 +10,7 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
     <td width="25%"><img src="images/apps.webp" alt="Apps list"></td>
     <td width="25%"><img src="images/analytics.webp" alt="Analytics: clicks, installs via link, web fallbacks"></td>
     <td width="25%"><img src="images/charts.webp" alt="Daily activity and organic vs. non-organic installs"></td>
-    <td width="25%"><img src="images/settings.webp" alt="App settings: config, API key, matching"></td>
+    <td width="25%"><img src="images/settings.webp" alt="App settings: health, config, API key, matching"></td>
   </tr>
   <tr>
     <td align="center">Apps</td>
@@ -42,6 +42,7 @@ docker run -d --name detur --restart unless-stopped \
 | `DOMAIN` | prod | `localhost` |
 | `DB_PATH` | no | `/data/detur.db` (Docker), `detur.db` (bare) |
 | `RETENTION_HOURS` | no | `24` |
+| `CLICK_ID_DAYS` | no | `30` (1–90) |
 | `TRUST_PROXY` | no | `0` |
 | `LOGOUT_URL` | no | empty = no Log out link |
 

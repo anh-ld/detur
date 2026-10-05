@@ -67,6 +67,9 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 			httpx.WriteJSON(w, http.StatusUnauthorized, errorBody("unauthorized"))
 			return
 		}
+		if err := s.st.NoteSDK(r.Header.Get("X-App-ID"), r.Header.Get("X-SDK"), time.Now()); err != nil {
+			s.log.Printf("note sdk failed: %v", err) // never blocks
+		}
 		next(w, r)
 	}
 }
@@ -123,14 +126,16 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !res.Matched {
-		if _, err := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: dh, Attribution: store.AttributionOrganic, Platform: installPlatform(body)}); err != nil {
+		if _, err := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: dh, Attribution: store.AttributionOrganic, Platform: installPlatform(body),
+			Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp}); err != nil {
 			s.backendError(appID, dh, err)
 		}
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	// failed install write: analytics row lost, link still returned (backend errors never deny link)
-	inst := store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic, LinkID: res.Click.LinkID, Platform: installPlatform(body)}
+	inst := store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic, LinkID: res.Click.LinkID, Platform: installPlatform(body),
+		Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp}
 	if inst.Platform == "" { // clickId-only payload: matched click's browser tells the platform
 		inst.Platform = ua.Platform(res.Click.Fingerprint.UserAgent)
 	}
@@ -266,7 +271,7 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defa
 // backendError logs match-link backend failure, best-effort records unknown-attribution row: logged, never surfaced in analytics.
 func (s *sdkServer) backendError(appID, deviceHash string, err error) {
 	s.log.Printf("match-link backend error: %v", err)
-	if _, rerr := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: deviceHash, Attribution: store.AttributionUnknown}); rerr != nil {
+	if _, rerr := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: deviceHash, Attribution: store.AttributionUnknown, Method: store.MethodUnknown, Score: -1, RunnerUp: -1}); rerr != nil {
 		s.log.Printf("match-link unknown-attribution record failed: %v", rerr)
 	}
 }

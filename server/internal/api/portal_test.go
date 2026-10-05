@@ -271,10 +271,24 @@ func TestPortalAnalytics(t *testing.T) {
 		}
 	}
 
+	// 1 probabilistic (bucketed), 1 organic (no candidate, unbucketed)
+	resp, b = portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/match-quality", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("match-quality: %d %s", resp.StatusCode, b)
+	}
+	var mq store.MatchQuality
+	mustJSON(t, b, &mq)
+	if mq.Methods[store.MethodProbabilistic] != 1 || mq.Methods[store.MethodOrganic] != 1 ||
+		len(mq.Buckets) != 1 || mq.Buckets[0].Matched != 1 || mq.Buckets[0].From < 850 {
+		t.Errorf("match-quality = %+v; want 1 probabilistic in a bucket >= 850, 1 organic", mq)
+	}
+
 	for q, want := range map[string]int{
 		"/api/apps/" + app.ID + "/analytics?days=5":       http.StatusBadRequest,
 		"/api/apps/" + app.ID + "/analytics?platform=web": http.StatusBadRequest,
 		"/api/apps/missing/analytics":                     http.StatusNotFound,
+		"/api/apps/" + app.ID + "/match-quality?days=5":   http.StatusBadRequest,
+		"/api/apps/missing/match-quality":                 http.StatusNotFound,
 	} {
 		if resp, b := portalReq(t, portal, "GET", q, "", nil); resp.StatusCode != want {
 			t.Errorf("GET %s: %d %s; want %d", q, resp.StatusCode, b, want)

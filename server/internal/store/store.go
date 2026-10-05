@@ -33,6 +33,15 @@ const (
 	AttributionUnknown = "unknown"
 )
 
+// Match methods (installs.method).
+const (
+	MethodPrior         = "prior"         // same-device retry
+	MethodClickID       = "click_id"      // deterministic
+	MethodProbabilistic = "probabilistic" // score >= threshold
+	MethodOrganic       = "organic"       // no match
+	MethodUnknown       = "unknown"       // backend error
+)
+
 // ErrNotFound: requested row does not exist.
 var ErrNotFound = errors.New("not found")
 var ErrKeyConflict = errors.New("short key already exists")
@@ -40,6 +49,8 @@ var ErrAmbiguousKey = errors.New("short key is ambiguous")
 
 type Store struct {
 	db *sql.DB
+	// ClickIDHours: unmatched click_id life (CLICK_ID_DAYS). Fingerprint scrubbed at expires_at. 0 = expires_at only.
+	ClickIDHours int
 }
 
 // Open: open SQLite database at path, creating if needed.
@@ -224,6 +235,55 @@ func (s *Store) ClearAppKey(id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// sdkSeenEvery: last-seen write throttle per app; version change bypasses.
+const sdkSeenEvery = 5 * time.Minute
+
+// NoteSDK: store X-SDK of an authed call.
+func (s *Store) NoteSDK(appID, version string, now time.Time) error {
+	if r := []rune(version); len(r) > 64 {
+		version = string(r[:64])
+	}
+	_, err := s.db.Exec(
+		`UPDATE apps SET sdk_version = ?, sdk_seen_at = ?
+		 WHERE id = ? AND (sdk_seen_at IS NULL OR sdk_seen_at < ? OR sdk_version IS NOT ?)`,
+		version, rfc3339(now), appID, rfc3339(now.Add(-sdkSeenEvery)), version)
+	if err != nil {
+		return fmt.Errorf("note sdk: %w", err)
+	}
+	return nil
+}
+
+// SDKSeen: last X-SDK + time; zero = never.
+func (s *Store) SDKSeen(appID string) (version string, at time.Time, err error) {
+	var seen string
+	err = s.db.QueryRow(`SELECT COALESCE(sdk_version, ''), COALESCE(sdk_seen_at, '') FROM apps WHERE id = ?`, appID).Scan(&version, &seen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", time.Time{}, ErrNotFound
+	}
+	if seen != "" {
+		at = parseTime(seen)
+	}
+	return version, at, err
+}
+
+// RecentLinkKeys: link keys created >= since.
+func (s *Store) RecentLinkKeys(appID string, since time.Time) ([]string, error) {
+	rows, err := s.db.Query(`SELECT key FROM links WHERE app_id = ? AND created_at >= ? ORDER BY created_at`, appID, rfc3339(since))
+	if err != nil {
+		return nil, fmt.Errorf("recent links: %w", err)
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
 }
 
 // ValidateAPIKey: key matches app's stored hash.
@@ -551,11 +611,18 @@ func (s *Store) GetClick(id string) (Click, error) {
 	))
 }
 
-// ClickByClickID: click by deterministic clickId (no window filter — deterministic match has no window; retention floor governs expiry, so expired-but-unpurged rows no longer resolve).
+// ClickByClickID: no window. Live until max(expires_at, created_at + ClickIDHours); scrubbed rows keep destination.
 func (s *Store) ClickByClickID(appID, clickID string) (Click, error) {
+	now := time.Now()
 	return scanClick(s.db.QueryRow(
-		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND click_id = ? AND expires_at >= ? AND matched_at IS NULL`, appID, clickID, rfc3339(time.Now()),
+		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND click_id = ? AND (expires_at >= ? OR created_at > ?) AND matched_at IS NULL`,
+		appID, clickID, rfc3339(now), rfc3339(s.clickIDCutoff(now)),
 	))
+}
+
+// clickIDCutoff: older clicks lost their click_id.
+func (s *Store) clickIDCutoff(now time.Time) time.Time {
+	return now.Add(-time.Duration(s.ClickIDHours) * time.Hour)
 }
 
 // MarkClickMatched: claim click for one install (Detour: "marks the click as matched"). false = already matched.
@@ -598,10 +665,17 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	return clicks, rows.Err()
 }
 
-// PurgeExpired: delete clicks past expiry + events older than retention floor; return total rows removed; retention governs both tables.
+// PurgeExpired: expired clicks scrubbed; matched or past ClickIDHours deleted. Old events deleted. Returns rows deleted.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
-	res, err := s.db.Exec(`DELETE FROM clicks WHERE expires_at < ?`, rfc3339(now))
+	if _, err := s.db.Exec(
+		`UPDATE clicks SET ip = NULL, device = NULL, locale = NULL, timezone = NULL, screen = NULL,
+		   user_agent = NULL, os_version = NULL, pasted_link = NULL
+		 WHERE expires_at < ? AND (ip IS NOT NULL OR user_agent IS NOT NULL)`, rfc3339(now)); err != nil {
+		return 0, fmt.Errorf("scrub clicks: %w", err)
+	}
+	res, err := s.db.Exec(`DELETE FROM clicks WHERE expires_at < ? AND (matched_at IS NOT NULL OR created_at <= ?)`,
+		rfc3339(now), rfc3339(s.clickIDCutoff(now)))
 	if err != nil {
 		return 0, fmt.Errorf("purge clicks: %w", err)
 	}
@@ -658,6 +732,9 @@ type Install struct {
 	CreatedAt   time.Time
 	LinkID      string // matched click's link (non-organic only); analytics
 	Platform    string // ios | android | ""; analytics
+	Method      string // Method*; "" = NULL
+	Score       int    // best score; < 0 = NULL
+	RunnerUp    int    // second-best; < 0 = NULL
 }
 
 // RecordInstall: upsert install attribution idempotently per app, device, click; empty click_id marks organic/unknown installs, deduped per app + device too. Only an unknown row is upgraded by a later real attribution.
@@ -668,12 +745,14 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	now := time.Now().UTC()
 	i.CreatedAt = now
 	_, err := s.db.Exec(
-		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at, link_id, platform)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at, link_id, platform, method, score, runner_up)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(app_id, device_hash, click_id) DO UPDATE SET attribution = excluded.attribution,
-			   link_id = excluded.link_id, platform = excluded.platform
+			   link_id = excluded.link_id, platform = excluded.platform,
+			   method = excluded.method, score = excluded.score, runner_up = excluded.runner_up
 			 WHERE installs.attribution = ?`,
-		i.ID, i.AppID, i.DeviceHash, i.ClickID, i.Attribution, rfc3339(now), nullStr(i.LinkID), nullStr(i.Platform), AttributionUnknown,
+		i.ID, i.AppID, i.DeviceHash, i.ClickID, i.Attribution, rfc3339(now), nullStr(i.LinkID), nullStr(i.Platform),
+		nullStr(i.Method), i.nullScore(i.Score), i.nullScore(i.RunnerUp), AttributionUnknown,
 	)
 	if err != nil {
 		return Install{}, fmt.Errorf("record install: %w", err)
@@ -706,6 +785,11 @@ func addMissingColumns(db *sql.DB) error {
 		{"apps", "match_window_minutes", "INTEGER NOT NULL DEFAULT 15"},
 		{"installs", "link_id", "TEXT"},
 		{"installs", "platform", "TEXT"},
+		{"installs", "method", "TEXT"},
+		{"installs", "score", "INTEGER"},
+		{"installs", "runner_up", "INTEGER"},
+		{"apps", "sdk_version", "TEXT"},
+		{"apps", "sdk_seen_at", "TEXT"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {
@@ -842,10 +926,10 @@ func (s *Store) CountInstalls(appID string) (organic, nonOrganic int64, err erro
 	return organic, nonOrganic, err
 }
 
-// CountClicks: raw click count for app (retention window only).
+// CountClicks: live clicks; scrubbed rows excluded.
 func (s *Store) CountClicks(appID string) (int64, error) {
 	var n int64
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE app_id = ?`, appID).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE app_id = ? AND expires_at >= ?`, appID, rfc3339(time.Now())).Scan(&n)
 	return n, err
 }
 
@@ -906,6 +990,14 @@ func nullStr(s string) any {
 		return nil
 	}
 	return s
+}
+
+// nullScore: NULL if < 0 or no Method (zero-value Install).
+func (i Install) nullScore(n int) any {
+	if n < 0 || i.Method == "" {
+		return nil
+	}
+	return n
 }
 
 func boolInt(b bool) int {

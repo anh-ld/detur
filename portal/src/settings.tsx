@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import {
   Alert,
+  Badge,
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
@@ -15,7 +16,7 @@ import {
   Spinner,
   Table,
 } from 'kinu';
-import { api, App, CreatedApp } from './api';
+import { api, App, CreatedApp, HealthCheck, MatchQuality } from './api';
 import { ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 
@@ -63,7 +64,11 @@ export function SettingsPage({ id }: { id: string }) {
       <PageHeader title="Settings" />
       {error && <Alert variant="destructive">{error}</Alert>}
 
-      <h2 style={{ ...sectionTitle, marginTop: 0 }}>App config</h2>
+      <h2 style={{ ...sectionTitle, marginTop: 0 }}>Health</h2>
+      <p style={{ ...muted, marginBottom: 16 }}>Setup checks. Refreshes after you save.</p>
+      <HealthTable app={app} />
+
+      <h2 style={sectionTitle}>App config</h2>
       <p style={{ ...muted, marginBottom: 16 }}>Used to serve the iOS and Android well-known files.</p>
       <AppConfigTable app={app} onSaved={setApp} />
 
@@ -116,6 +121,10 @@ export function SettingsPage({ id }: { id: string }) {
       <h2 style={sectionTitle}>Matching</h2>
       <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
       <MatchingTable app={app} onSaved={setApp} />
+
+      <h2 style={sectionTitle}>Match quality</h2>
+      <p style={{ ...muted, marginBottom: 16 }}>Installs from the last 30 days: how each was attributed, and the score it got.</p>
+      <MatchQualityView app={app} />
     </div>
   );
 }
@@ -289,6 +298,102 @@ export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) =>
         <Button type="submit">Save matching</Button>
       </div>
     </form>
+  );
+}
+
+const STATUS = { ok: 'OK', warn: 'Check', fail: 'Fix' };
+
+// Refetch on app change (config save).
+function HealthTable({ app }: { app: App }) {
+  const [checks, setChecks] = useState<HealthCheck[] | null>(null);
+  useEffect(() => {
+    api.getHealth(app.id).then(setChecks, () => setChecks([]));
+  }, [app]);
+  if (!checks) return <Spinner />;
+  return (
+    <Table>
+      <thead>
+        <tr>
+          <th>Check</th>
+          <th>Status</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {checks.map((c) => (
+          <tr key={c.check}>
+            <td>{c.check}</td>
+            <td data-label="Status">
+              <span class={`health ${c.status}`}>{STATUS[c.status]}</span>
+            </td>
+            <td style={muted}>{c.detail}</td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
+  );
+}
+
+const METHODS: [string, string][] = [
+  ['click_id', 'Click ID'],
+  ['probabilistic', 'Fingerprint'],
+  ['prior', 'Retry'],
+  ['organic', 'Organic'],
+  ['', 'Before receipts'],
+];
+
+// Method mix, score histogram, threshold what-if.
+export function MatchQualityView({ app }: { app: App }) {
+  const [q, setQ] = useState<MatchQuality | null>(null);
+  const [at, setAt] = useState(app.matchThreshold);
+  useEffect(() => {
+    api.getMatchQuality(app.id).then(setQ, () => setQ({ methods: {}, buckets: [] }));
+  }, [app.id]);
+  useEffect(() => setAt(app.matchThreshold), [app.matchThreshold]);
+  if (!q) return <Spinner />;
+
+  const top = Math.max(1, ...q.buckets.map((b) => b.matched + b.organic));
+  const lose = q.buckets.filter((b) => b.from < at).reduce((n, b) => n + b.matched, 0);
+  const gain = q.buckets.filter((b) => b.from >= at).reduce((n, b) => n + b.organic, 0);
+  return (
+    <Card style={{ display: 'grid', gap: 16 }}>
+      <div style={{ ...row, flexWrap: 'wrap' }}>
+        {METHODS.filter(([k]) => q.methods[k]).map(([k, label]) => (
+          <Badge key={k} variant="secondary" style={{ letterSpacing: 'normal' }}>
+            {label} {q.methods[k]}
+          </Badge>
+        ))}
+        {Object.keys(q.methods).length === 0 && <p style={muted}>No installs yet.</p>}
+      </div>
+      {q.buckets.length > 0 && (
+        <>
+          <div class="score-bars" role="img" aria-label="Installs per fingerprint score">
+            {q.buckets.map((b) => (
+              <div key={b.from} title={`${b.from}–${b.from + 49}: ${b.matched} matched, ${b.organic} organic`}>
+                <span class="score-bar organic" style={{ height: `${(b.organic / top) * 100}%` }} />
+                <span class="score-bar matched" style={{ height: `${(b.matched / top) * 100}%`, opacity: b.from < at ? 0.35 : 1 }} />
+                <small>{b.from}</small>
+              </div>
+            ))}
+          </div>
+          <Field>
+            <Label htmlFor="whatif">
+              At threshold {at}: lose {lose} matches, gain up to {gain} organic installs
+            </Label>
+            <input
+              id="whatif"
+              type="range"
+              min={THRESHOLD.min}
+              max={THRESHOLD.max}
+              step={50}
+              value={at}
+              onInput={(e) => setAt(Number(e.currentTarget.value))}
+            />
+            <Field.Description>Fingerprint matches only. Click ID matches never depend on the threshold.</Field.Description>
+          </Field>
+        </>
+      )}
+    </Card>
   );
 }
 
