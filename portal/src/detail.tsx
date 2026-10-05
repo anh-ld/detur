@@ -20,7 +20,7 @@ import {
 } from 'kinu';
 import { Analytics, api, App, Link, Platform } from './api';
 import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
-import { AnalyticsView, Filters } from './analytics';
+import { AnalyticsView, Filters, fmt } from './analytics';
 
 interface LinkDraft {
   key: string;
@@ -46,6 +46,14 @@ const draftFrom = (l: Link): LinkDraft => ({
   fallbackUrl: l.fallbackUrl,
 });
 
+// 1.5px outline icon, decorative (the button label carries the name).
+const Icon = ({ d, spin }: { d: string; spin?: boolean }) => (
+  <svg class={spin ? 'spin' : undefined} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+
 export function DetailPage({ id }: { id: string }) {
   const [app, setApp] = useState<App | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
@@ -56,32 +64,42 @@ export function DetailPage({ id }: { id: string }) {
 
   const loadAll = () => {
     setError('');
-    api
-      .getApp(id)
-      .then(setApp)
-      .catch((e) => setError(String(e)));
-    api
-      .listLinks(id)
-      .then(setLinks)
-      .catch((e) => setError(String(e)));
+    return Promise.all([
+      api
+        .getApp(id)
+        .then(setApp)
+        .catch((e) => setError(String(e))),
+      api
+        .listLinks(id)
+        .then(setLinks)
+        .catch((e) => setError(String(e))),
+    ]);
   };
   // Analytics: one request per id/filter/refresh; a superseded response is dropped (stale flag).
   const [statsTick, setStatsTick] = useState(0);
+  const [statsLoading, setStatsLoading] = useState(false);
   useEffect(() => {
     let stale = false;
+    setStatsLoading(true);
     api
       .getAnalytics(id, days, platform)
       .then((s) => !stale && setStats(s))
-      .catch((e) => !stale && setError(String(e)));
+      .catch((e) => !stale && setError(String(e)))
+      .finally(() => !stale && setStatsLoading(false));
     return () => {
       stale = true;
     };
   }, [id, days, platform, statsTick]);
+  // Refresh icon spins until app, links and analytics load; min 600ms so a fast reload stays visible.
+  const [refreshing, setRefreshing] = useState(false);
   const refresh = () => {
-    loadAll();
+    setRefreshing(true);
     setStatsTick((t) => t + 1);
+    Promise.all([loadAll(), new Promise((r) => setTimeout(r, 600))]).then(() => setRefreshing(false));
   };
-  useEffect(loadAll, [id]);
+  useEffect(() => {
+    loadAll();
+  }, [id]);
 
   if (app === null && error === '') return <Spinner />;
   if (app === null)
@@ -115,15 +133,18 @@ export function DetailPage({ id }: { id: string }) {
           <BreadcrumbItem>
             <BreadcrumbLink href="#/">Apps</BreadcrumbLink>
           </BreadcrumbItem>
-          <BreadcrumbItem>{app.name}</BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
       <PageHeader title={app.name} actions={
           <>
-            <Button variant="outline" onClick={refresh}>
+            <Button variant="secondary" onClick={refresh} aria-busy={refreshing || statsLoading}>
+              <Icon d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" spin={refreshing || statsLoading} />
               Refresh
             </Button>
-            <Button href={`#/apps/${app.id}/settings`}>Settings</Button>
+            <Button variant="secondary" href={`#/apps/${app.id}/settings`}>
+              <Icon d="M4 7h10M18 7h2M4 17h2M10 17h10M18 7a2 2 0 1 1-4 0a2 2 0 1 1 4 0M10 17a2 2 0 1 1-4 0a2 2 0 1 1 4 0" />
+              Settings
+            </Button>
           </>
         }
       />
@@ -182,10 +203,10 @@ export function DetailPage({ id }: { id: string }) {
                   </div>
                 </td>
                 <td data-label="Clicks" className="num">
-                  {linkStats.get(l.id)?.clicks ?? 0}
+                  {fmt(linkStats.get(l.id)?.clicks ?? 0)}
                 </td>
                 <td data-label="Matches" className="num">
-                  {linkStats.get(l.id)?.matches ?? 0}
+                  {fmt(linkStats.get(l.id)?.matches ?? 0)}
                 </td>
                 <td>
                   <div style={{ ...row, justifyContent: 'flex-end' }}>

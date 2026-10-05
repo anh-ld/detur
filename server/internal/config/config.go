@@ -3,16 +3,19 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
-// Config: runtime configuration from exactly four env vars: DOMAIN, DB_PATH, RETENTION_HOURS, TRUST_PROXY.
+// Config: runtime config from five env vars: DOMAIN, DB_PATH, RETENTION_HOURS, TRUST_PROXY, LOGOUT_URL.
 type Config struct {
 	Domain         string // public domain for links, well-known, redirects
 	DBPath         string
-	RetentionHours int  // click + event retention floor
-	TrustProxy     bool // honor X-Forwarded-For (only behind a trusted proxy)
+	RetentionHours int    // click + event retention floor
+	TrustProxy     bool   // honor X-Forwarded-For (only behind a trusted proxy)
+	LogoutURL      string // gateway sign-out URL for the Log out link; "" hides it
 }
 
 // Load: configuration from environment, sensible defaults.
@@ -22,12 +25,31 @@ func Load() (*Config, error) {
 		DBPath:         envOr("DB_PATH", "detur.db"),
 		RetentionHours: 24,
 		TrustProxy:     os.Getenv("TRUST_PROXY") == "1",
+		LogoutURL:      os.Getenv("LOGOUT_URL"),
 	}
 	var err error
 	if cfg.RetentionHours, err = envIntRange("RETENTION_HOURS", cfg.RetentionHours, 24, 8760); err != nil {
 		return nil, err
 	}
+	if err := checkLogoutURL(cfg.LogoutURL); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// checkLogoutURL: "", http(s) URL, or "/path". Rejects the rest (javascript:, "//host"): it lands in an href.
+func checkLogoutURL(v string) error {
+	if v == "" {
+		return nil
+	}
+	if strings.HasPrefix(v, "/") && !strings.HasPrefix(v, "//") {
+		return nil
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("LOGOUT_URL: must be an http(s) URL or a path starting with /, got %q", v)
+	}
+	return nil
 }
 
 func envOr(key, def string) string {

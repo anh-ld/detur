@@ -38,7 +38,7 @@ func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) 
 		[]byte("<!doctype html><title>detur portal</title>"), 0o644); err != nil {
 		t.Fatalf("write index.html: %v", err)
 	}
-	portal = httptest.NewServer(RegisterPortal(st, staticDir, []string{portalAddr}))
+	portal = httptest.NewServer(RegisterPortal(st, staticDir, []string{portalAddr}, "/cdn-cgi/access/logout"))
 	t.Cleanup(portal.Close)
 
 	sdkMux := http.NewServeMux()
@@ -336,7 +336,7 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), []string{portalAddr}))
+	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), []string{portalAddr}, ""))
 	t.Cleanup(ts.Close)
 
 	resp, b := portalReq(t, ts, "POST", "/api/apps", `{"name":"still-works"}`, nil)
@@ -497,5 +497,19 @@ func TestPortalGetApp(t *testing.T) {
 	resp, _ = portalReq(t, portal, "GET", "/api/apps/nope", "", nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("get missing app: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestPortalConfig(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	resp, body := portalReq(t, portal, "GET", "/api/config", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body %s", resp.StatusCode, body)
+	}
+	var got struct {
+		LogoutURL string `json:"logoutUrl"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil || got.LogoutURL != "/cdn-cgi/access/logout" {
+		t.Errorf("config = %s (err %v), want logoutUrl /cdn-cgi/access/logout", body, err)
 	}
 }

@@ -7,7 +7,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "TRUST_PROXY"} {
+	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "TRUST_PROXY", "LOGOUT_URL"} {
 		t.Setenv(k, "")
 	}
 }
@@ -51,12 +51,30 @@ func TestLoadInvalidValues(t *testing.T) {
 	}{
 		{"RETENTION_HOURS", "23", "out of range"},
 		{"RETENTION_HOURS", "not-a-number", "must be an integer"},
+		{"LOGOUT_URL", "javascript:alert(1)", "LOGOUT_URL"},
+		{"LOGOUT_URL", "//evil.example/logout", "LOGOUT_URL"},
+		{"LOGOUT_URL", "ftp://example.com/logout", "LOGOUT_URL"},
 	} {
 		clearEnv(t)
 		t.Setenv(tc.key, tc.val)
 		_, err := Load()
 		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Errorf("%s=%s: err = %v, want containing %q", tc.key, tc.val, err, tc.wantErr)
+		}
+	}
+}
+
+func TestLoadLogoutURL(t *testing.T) {
+	for _, v := range []string{"", "/cdn-cgi/access/logout", "/?gcp-iap-mode=CLEAR_LOGIN_COOKIE", "https://auth.example.com/logout"} {
+		clearEnv(t)
+		t.Setenv("LOGOUT_URL", v)
+		cfg, err := Load()
+		if err != nil {
+			t.Errorf("LOGOUT_URL=%q: %v", v, err)
+			continue
+		}
+		if cfg.LogoutURL != v {
+			t.Errorf("LogoutURL = %q, want %q", cfg.LogoutURL, v)
 		}
 	}
 }

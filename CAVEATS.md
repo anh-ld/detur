@@ -8,6 +8,9 @@ Known limits and trust boundaries. Read before running in production.
 
 - Portal has no authentication. Whoever reaches it controls every app and
   link. Only protection: loopback or a zero-trust gateway.
+- Log out (`LOGOUT_URL`) only links to the gateway's sign-out. The identity
+  provider may still be signed in and log the user right back in.
+  Tailscale-style device trust has no session to end.
 - No TLS enforcement. Over plain http, the SDK's bearer key and device
   fingerprints travel in the clear. HTTPS is the operator's job.
 - API keys hashed with plain, unsalted SHA-256, not a slow KDF. Safe only

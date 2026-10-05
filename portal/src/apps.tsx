@@ -128,7 +128,14 @@ export function AppsPage() {
           </thead>
           <tbody>
             {apps.map((a) => (
-              <tr key={a.id}>
+              <tr
+                key={a.id}
+                class="row-link"
+                // row click opens the app; buttons, links and the delete dialog keep their own
+                onClick={(e) => {
+                  if (!(e.target as Element).closest('a, button, dialog')) location.hash = `#/apps/${a.id}`;
+                }}
+              >
                 <td>
                   <a href={`#/apps/${a.id}`} style={{ color: 'inherit', fontWeight: 600, textDecoration: 'none' }}>
                     {a.name}

@@ -1,54 +1,102 @@
-/* kinu tokens: one blue, cool blue-gray neutrals. */
+/* Seline-style tokens: warm stone neutrals, one cyan accent. */
 :root {
-  --k-primary: 217 91% 52%;
-  --k-primary-hover: 217 85% 45%;
+  /* fills under white text: 205 90% 40% (#0a75c2) is 4.8:1 vs white; the brighter #3ba6f1 was 2.6:1 */
+  --k-primary: 205 90% 40%;
+  --k-primary-hover: 205 90% 34%;
   --k-primary-foreground: 0 0% 100%;
-  --k-ring: 217 91% 55%;
-  --k-accent: 214 95% 95%;
-  --k-accent-foreground: 217 80% 40%;
-  --k-foreground: 222 30% 12%;
-  --k-card-foreground: 222 30% 12%;
-  --k-popover-foreground: 222 30% 12%;
-  --k-secondary-foreground: 222 25% 20%;
-  --k-muted-foreground: 220 10% 44%;
-  --k-border: 218 25% 89%;
-  --k-input: 218 20% 82%;
-  --k-muted: 216 35% 96%;
-  --k-secondary: 216 30% 94%;
-  --k-background: 216 40% 98%;
+  --k-ring: 205 87% 59%; /* cyan signal #3ba6f1, non-text */
+  --k-accent: 204 77% 86%; /* sky wash #c1e1f7 */
+  --k-accent-foreground: 205 90% 32%; /* text on the wash, 4.5:1+ */
+  --k-foreground: 20 14% 4%; /* ink #0c0a09 */
+  --k-card-foreground: 20 14% 4%;
+  --k-popover-foreground: 20 14% 4%;
+  --k-secondary-foreground: 20 14% 4%;
+  --k-muted-foreground: 25 5% 45%; /* warm gray #78716c */
+  --k-border: 20 6% 90%; /* #e8e6e5 */
+  --k-input: 24 6% 83%; /* #d6d3d1 */
+  --k-muted: 60 5% 96%;
+  --k-secondary: 60 5% 96%;
+  --k-background: 60 9% 98%; /* canvas #fafaf9 */
   --k-card: 0 0% 100%;
   --k-popover: 0 0% 100%;
   --k-destructive: 0 72% 51%;
   --k-destructive-foreground: 0 0% 100%;
-  --k-radius: 0.625rem;
+  --k-radius: 10px;
+  --shadow-md: rgba(0, 0, 0, 0.05) 0px 4px 16px 0px;
+}
+
+/* No rubber-band at the edges: keeps the sticky header pinned on overscroll */
+html,
+body {
+  overscroll-behavior-y: none;
 }
 
 body {
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: 14px/1.64 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.004em;
   -webkit-font-smoothing: antialiased;
-  background: radial-gradient(70rem 30rem at 50% -14rem, hsl(var(--k-primary) / 0.13), transparent 70%)
-    hsl(var(--k-background));
+  background: hsl(var(--k-background));
   min-height: 100dvh;
 }
 
+/* Headings: display face at weight 400, tight tracking */
 h1, h2, h3 {
-  letter-spacing: -0.02em;
+  font-weight: 400;
+  letter-spacing: -0.017em;
 }
 
 main h1 {
-  font-size: 2.5rem !important;
-  letter-spacing: -0.035em;
+  font-size: 32px !important;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 
-/* Brand mark */
-header > div > a:first-child::before {
-  content: "";
-  display: inline-block;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-right: 0.5rem;
-  border-radius: 4px;
-  background: hsl(var(--k-primary));
+main h2 {
+  font-size: 20px !important;
+  line-height: 1.2;
+}
+
+main h3 {
+  font-size: 18px;
+}
+
+/* Header: white sticky bar, hairline bottom */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: hsl(var(--k-card));
+  border-bottom: 1px solid hsl(var(--k-border));
+}
+
+header > div > a:first-child {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  font-size: 14px;
+  color: hsl(var(--k-muted-foreground));
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+.nav-link:hover {
+  color: hsl(var(--k-foreground));
+}
+
+[k="separator"] {
+  background: hsl(var(--k-border));
+}
+
+/* Badges: pill, cyan text on sky wash */
+[k="badge"] {
+  border-radius: 9999px;
+  font-weight: 500;
 }
 
 [k="badge"][variant="secondary"] {
@@ -56,21 +104,46 @@ header > div > a:first-child::before {
   color: hsl(var(--k-accent-foreground));
 }
 
-[k="button"]:not([variant]) {
-  box-shadow: 0 4px 12px -4px hsl(var(--k-primary) / 0.5);
+/* Buttons: pills, cyan filled primary, hairline ghosts */
+[k="button"],
+[k="button"][size] {
+  border-radius: 9999px;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
 }
 
-/* Buttons: visible affordance on cards, press feedback, focus rings */
-[k="button"] {
-  transition: background 120ms ease, transform 80ms ease;
+[k="button"]:not([variant]) {
+  border: 1px solid hsl(var(--k-primary-hover));
+}
+
+[k="button"]:not([variant]):hover {
+  background: hsl(var(--k-primary-hover));
 }
 
 [k="button"]:active {
   transform: scale(0.97);
 }
 
-[k="button"][variant="ghost"] {
-  color: hsl(var(--k-secondary-foreground));
+[k="button"][variant="ghost"],
+[k="button"][variant="outline"] {
+  color: hsl(var(--k-foreground));
+  font-weight: 400;
+}
+
+[k="button"][variant="outline"] {
+  border: 1px solid hsl(var(--k-input));
+  background: hsl(var(--k-card));
+  box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
+}
+
+/* Soft cyan: sky wash fill, cyan text, for actions beside a primary */
+[k="button"][variant="secondary"] {
+  background: hsl(var(--k-accent) / 0.55);
+  color: hsl(var(--k-accent-foreground));
+  border: 1px solid hsl(var(--k-accent));
+}
+
+[k="button"][variant="secondary"]:hover {
+  background: hsl(var(--k-accent));
 }
 
 [k="button"][variant="ghost"]:hover,
@@ -83,28 +156,75 @@ header > div > a:first-child::before {
   background-color: hsl(0 66% 46%);
 }
 
+/* Row-level delete stays quiet; the confirm dialog keeps the solid red */
+[k="table"] [k="button"][variant="destructive"] {
+  background: transparent;
+  color: hsl(var(--k-destructive));
+  border: 1px solid hsl(var(--k-border));
+  font-weight: 400;
+}
+
+[k="table"] [k="button"][variant="destructive"]:hover {
+  background: hsl(0 72% 51% / 0.06);
+  border-color: hsl(0 72% 51% / 0.3);
+}
+
 [k="button"]:focus-visible {
   outline: 2px solid hsl(var(--k-ring));
   outline-offset: 2px;
 }
 
-/* Cards: flat */
+/* Inputs: white fill, 6px radius */
+[k="input"],
+[k="select"],
+[k="textarea"] {
+  background-color: hsl(var(--k-card));
+  border-radius: 6px;
+}
+
+[k="input"]::placeholder,
+[k="textarea"]::placeholder {
+  color: hsl(var(--k-muted-foreground));
+}
+
+/* Cards: white on canvas, the hairline is the structure */
 [k="card"] {
-  box-shadow: none;
-  border-radius: 0.875rem;
+  box-shadow: var(--shadow-md);
+  border-radius: 10px;
 }
 
 /* Stat tiles: uniform cards, muted label + large tabular number */
 [k="card"][padding="sm"] > div {
-  font-size: 2.5rem !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.04em;
+  font-size: 32px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
   color: hsl(var(--k-foreground));
 }
 
 [k="card"][padding="sm"] > p {
   color: hsl(var(--k-muted-foreground)) !important;
+}
+
+.tile {
+  display: grid;
+  gap: 4px;
+  padding: 20px !important;
+}
+
+.tile-icon {
+  display: inline-grid;
+  flex: none;
+}
+
+.tile > div {
+  line-height: 1.1;
+  margin-top: 4px;
+}
+
+.tile > svg {
+  margin-top: 12px;
+  display: block;
 }
 
 /* Empty states */
@@ -122,9 +242,10 @@ header > div > a:first-child::before {
   border-collapse: separate;
   border-spacing: 0;
   border: 1px solid hsl(var(--k-border));
-  border-radius: 0.875rem;
+  border-radius: 10px;
   overflow: hidden;
   background: hsl(var(--k-card));
+  box-shadow: var(--shadow-md);
 }
 
 [k="table"] th,
@@ -145,10 +266,9 @@ header > div > a:first-child::before {
 [k="table"] thead th {
   background: hsl(var(--k-muted));
   color: hsl(var(--k-muted-foreground));
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.025em;
   padding-block: 0.625rem;
   white-space: nowrap;
 }
@@ -157,7 +277,7 @@ header > div > a:first-child::before {
   transition: background 120ms ease;
 }
 
-[k="table"] tbody tr:hover {
+[k="table"] tbody tr:hover:not(:has([k="button"]:hover)) {
   background: hsl(var(--k-muted) / 0.6);
 }
 
@@ -176,12 +296,82 @@ header > div > a:first-child::before {
 }
 
 .chart-hover:hover {
-  fill: hsl(var(--k-foreground) / 0.05);
+  fill: hsl(var(--k-foreground) / 0.03);
+}
+
+/* Chart hover card */
+.chart-tip {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  padding: 10px 12px;
+  font-size: 12px;
+  background: hsl(var(--k-card));
+  border: 1px solid hsl(var(--k-border));
+  border-radius: 10px;
+  box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.1) 0px 2px 4px -2px;
+  pointer-events: none;
+}
+
+.chart-tip strong {
+  font-weight: 500;
+}
+
+.chart-empty {
+  display: grid;
+  place-items: center;
+  color: hsl(var(--k-muted-foreground));
+  border: 1px dashed hsl(var(--k-border));
+  border-radius: 8px;
+}
+
+/* Loading placeholders */
+.skeleton {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, hsl(var(--k-muted)) 25%, hsl(var(--k-border)) 50%, hsl(var(--k-muted)) 75%) 0 0 / 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-fill {
+  fill: hsl(var(--k-muted));
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .spin {
+    animation: none;
+  }
+}
+
+/* Apps list: the whole row opens the app */
+.row-link {
+  cursor: pointer;
 }
 
 [k="dialog-content"] {
+  background: hsl(var(--k-card));
   border: 1px solid hsl(var(--k-border));
-  border-radius: 1rem;
+  border-radius: 16px;
+  box-shadow: rgba(17, 12, 46, 0.12) 0px 12px 45px 0px;
   width: min(40rem, calc(100vw - 2rem));
   max-width: none;
   padding: 2rem;
@@ -189,13 +379,17 @@ header > div > a:first-child::before {
 
 /* Phones: tables stack into one card per row, tighter page gutters */
 @media (max-width: 640px) {
-  header,
+  header > div,
   main {
     padding-inline: 16px !important;
   }
 
+  header > div {
+    padding-block: 4px !important;
+  }
+
   main h1 {
-    font-size: 2rem !important;
+    font-size: 28px !important;
   }
 
   .stats {
@@ -212,7 +406,7 @@ header > div > a:first-child::before {
   }
 
   .stats > [k="card"] {
-    padding: 0.75rem;
+    padding: 12px !important;
   }
 
   .stats > [k="card"] > p {
@@ -220,7 +414,7 @@ header > div > a:first-child::before {
   }
 
   .stats > [k="card"] > div {
-    font-size: 1.75rem !important;
+    font-size: 26px !important;
   }
 
   [k="table"],
@@ -229,6 +423,7 @@ header > div > a:first-child::before {
   [k="table"] td {
     display: block;
     width: 100%;
+    box-sizing: border-box; /* row padding inside the 100%, not on top of it */
   }
 
   [k="table"] thead {
@@ -255,10 +450,9 @@ header > div > a:first-child::before {
     content: attr(data-label);
     display: block;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.025em;
     color: hsl(var(--k-muted-foreground));
   }
 
@@ -271,8 +465,46 @@ header > div > a:first-child::before {
     padding-top: 0.5rem;
   }
 
+  /* Dialogs become bottom sheets: full width, docked, slide up */
   [k="dialog-content"] {
-    padding: 1.25rem;
+    width: 100%;
+    max-width: 100%;
+    max-height: 90dvh;
+    margin: auto 0 0;
+    border: 0;
+    border-top: 1px solid hsl(var(--k-border));
+    border-radius: 16px 16px 0 0;
+    padding: 0.75rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom));
+    transform: translateY(100%);
+  }
+
+  [k="dialog-content"][open] {
+    transform: none;
+  }
+
+  @starting-style {
+    [k="dialog-content"][open] {
+      transform: translateY(100%);
+    }
+  }
+
+  /* grab handle */
+  [k="dialog-content"]::before {
+    content: "";
+    flex: none;
+    align-self: center;
+    width: 36px;
+    height: 4px;
+    margin-bottom: 0.5rem;
+    border-radius: 9999px;
+    background: hsl(var(--k-input));
+  }
+
+  /* 16px inputs stop iOS from zooming on focus */
+  [k="input"],
+  [k="select"],
+  [k="textarea"] {
+    font-size: 16px;
   }
 }
 

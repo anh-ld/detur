@@ -76,3 +76,5 @@ In-app browser hand-off (Instagram/Facebook/TikTok), return-to-web after store d
 ## Security and operations
 
 Trust boundaries (portal without auth, TLS, `TRUST_PROXY`, key hashing): [CAVEATS.md](CAVEATS.md).
+
+Portal Log out links to `LOGOUT_URL`, the gateway's sign-out URL. detur holds no session to end. Unset: no link.

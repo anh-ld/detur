@@ -48,7 +48,7 @@ func main() {
 
 	// Portal: own listener; static UI from ./portal/dist (missing dir = API only).
 	go func() {
-		portal := api.RegisterPortal(st, "portal/dist", []string{*portalAddr})
+		portal := api.RegisterPortal(st, "portal/dist", []string{*portalAddr}, cfg.LogoutURL)
 		log.Printf("portal on %s", *portalAddr)
 		log.Fatal(serve(*portalAddr, portal))
 	}()

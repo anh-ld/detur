@@ -66,6 +66,7 @@ export interface CreatedApp {
 }
 
 export const api = {
+  getConfig: () => req<{ logoutUrl: string }>('GET', '/api/config'),
   listApps: () => req<App[]>('GET', '/api/apps'),
   getApp: (id: string) => req<App>('GET', `/api/apps/${id}`),
   createApp: (name: string) => req<CreatedApp>('POST', '/api/apps', { name }),

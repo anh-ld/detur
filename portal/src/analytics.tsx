@@ -1,29 +1,40 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Card, Empty, Select, Table } from 'kinu';
+import { Badge, Card, Select, Table } from 'kinu';
 import { Analytics, DayStat, Platform } from './api';
 import { muted, row } from './ui';
+
+// Series colors: a blue ramp around the brand cyan, one warm gray.
+const CYAN = 'hsl(205 87% 59%)';
 
 // Analytics view (Detour overview parity): filters, totals, daily charts, top events. Charts are plain SVG.
 
 type Metric = keyof Omit<DayStat, 'day'>;
 
 const LINES: { key: Metric; label: string; color: string }[] = [
-  { key: 'clicks', label: 'Clicks', color: 'hsl(217 91% 52%)' },
-  { key: 'nonOrganic', label: 'Installs via link', color: 'hsl(152 60% 40%)' },
-  { key: 'webFallbacks', label: 'Web fallbacks', color: 'hsl(265 70% 60%)' },
-  { key: 'opens', label: 'Already installed opens', color: 'hsl(25 90% 52%)' },
+  { key: 'clicks', label: 'Clicks', color: CYAN },
+  { key: 'nonOrganic', label: 'Installs via link', color: 'hsl(212 72% 34%)' },
+  { key: 'webFallbacks', label: 'Web fallbacks', color: 'hsl(192 70% 52%)' },
+  { key: 'opens', label: 'Already installed opens', color: 'hsl(25 6% 55%)' },
 ];
 
 const BARS: { key: Metric; label: string; color: string }[] = [
-  { key: 'nonOrganic', label: 'Non-organic', color: 'hsl(217 91% 52%)' },
-  { key: 'organic', label: 'Organic', color: 'hsl(214 60% 80%)' },
+  { key: 'nonOrganic', label: 'Non-organic', color: CYAN },
+  { key: 'organic', label: 'Organic', color: 'hsl(204 77% 86%)' },
 ];
 
 const fmtDay = (d: string) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 const sum = (days: DayStat[], k: Metric) => days.reduce((n, d) => n + d[k], 0);
+
+// Thousands separators: 12500 → 12,500.
+export const fmt = (n: number) => n.toLocaleString('en');
+
+// Placeholder bar while data loads.
+const Skeleton = ({ w = '100%', h }: { w?: number | string; h: number }) => (
+  <span class="skeleton" style={{ width: w, height: h }} />
+);
 
 export function Filters({
   days,
@@ -57,40 +68,96 @@ export function Filters({
   );
 }
 
+// Tile icons: Lucide paths (ISC), 24px grid, outline.
+const ICONS: Partial<Record<Metric, string>> = {
+  clicks:
+    'M14 4.1 12 6M5.1 8l-2.9-.8M6 12l-1.9 2M7.2 2.2 8 5.1M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z',
+  opens: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM12 18h.01',
+  nonOrganic: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
+  webFallbacks: 'M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 2a14.5 14.5 0 0 0 0 20a14.5 14.5 0 0 0 0-20M2 12h20',
+};
+
+// Stat tile: icon + label, total, one-line hint, per-day sparkline in the chart's color.
+function Tile({
+  data,
+  metric,
+  hint,
+  extra,
+}: {
+  data: Analytics | null;
+  metric: Metric;
+  hint: string;
+  extra?: ComponentChildren;
+}) {
+  const s = LINES.find((l) => l.key === metric)!;
+  const days = data?.days ?? [];
+  const vals = days.map((d) => d[metric]);
+  const top = Math.max(1, ...vals);
+  const pts = vals.map((v, i) => `${(i / Math.max(1, vals.length - 1)) * 100},${30 - (v / top) * 28}`).join(' ');
+  return (
+    <Card padding="sm" class="tile">
+      <p style={{ ...muted, ...row, gap: 6 }}>
+        <span class="tile-icon" style={{ color: s.color }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d={ICONS[metric]} />
+          </svg>
+        </span>
+        {s.label}
+      </p>
+      <div style={{ ...row, fontSize: 28, fontWeight: 400 }}>
+        {data ? fmt(sum(days, metric)) : <Skeleton w={56} h={28} />}
+        {extra}
+      </div>
+      <p style={{ ...muted, fontSize: 12 }}>{hint}</p>
+      <svg viewBox="0 0 100 32" preserveAspectRatio="none" width="100%" height="32" aria-hidden="true">
+        <line x1="0" x2="100" y1="30" y2="30" stroke="hsl(var(--k-border))" vector-effect="non-scaling-stroke" />
+        {!data && <rect x="0" y="4" width="100" height="26" rx="2" class="skeleton-fill" />}
+        {vals.length > 1 && (
+          <>
+            <polygon points={`0,30 ${pts} 100,30`} fill={s.color} opacity="0.18" />
+            <polyline
+              points={pts}
+              fill="none"
+              stroke={s.color}
+              stroke-width="2"
+              stroke-linejoin="round"
+              vector-effect="non-scaling-stroke"
+            />
+          </>
+        )}
+      </svg>
+    </Card>
+  );
+}
+
 export function AnalyticsView({ data }: { data: Analytics | null }) {
   const days = data?.days ?? [];
   const clicks = sum(days, 'clicks');
   const viaLink = sum(days, 'nonOrganic');
-  const tile = (label: string, n: number | undefined, extra?: ComponentChildren) => (
-    <Card padding="sm" style={{ display: 'grid', gap: 4 }}>
-      <p style={muted}>{label}</p>
-      <div style={{ ...row, fontSize: 28, fontWeight: 600 }}>
-        {n ?? '–'}
-        {extra}
-      </div>
-    </Card>
-  );
-
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16 }}>
-        {tile('Clicks', data ? clicks : undefined)}
-        {tile('Already installed opens', data ? sum(days, 'opens') : undefined)}
-        {tile(
-          'Installs via link',
-          data ? viaLink : undefined,
-          data && clicks > 0 && (
-            <Badge variant="secondary" style={{ letterSpacing: 'normal', whiteSpace: 'nowrap' }}>
-              {Math.round((viaLink / clicks) * 100)}% match
-            </Badge>
-          ),
-        )}
-        {tile('Web fallbacks', data ? sum(days, 'webFallbacks') : undefined)}
+        <Tile data={data} metric="clicks" hint="Link opens on any platform" />
+        <Tile data={data} metric="opens" hint="Opened straight in the app" />
+        <Tile
+          data={data}
+          metric="nonOrganic"
+          hint="Installs matched to a click"
+          extra={
+            data && clicks > 0 && (
+              <Badge variant="secondary" style={{ letterSpacing: 'normal', whiteSpace: 'nowrap' }}>
+                {Math.round((viaLink / clicks) * 100)}% match
+              </Badge>
+            )
+          }
+        />
+        <Tile data={data} metric="webFallbacks" hint="Sent to the web URL" />
       </div>
 
       <Card style={{ display: 'grid', gap: 12 }}>
         <h3 style={{ margin: 0 }}>Activity</h3>
-        <Chart days={days} series={LINES} kind="line" />
+        <ChartOr data={data} series={LINES} kind="line" empty="No activity in this range." />
       </Card>
 
       <div className="split" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
@@ -99,15 +166,23 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
             <h3 style={{ margin: 0 }}>Organic vs. non-organic</h3>
             <p style={muted}>Installs matched to a link vs. installs with no click.</p>
           </div>
-          <Chart days={days} series={BARS} kind="bar" />
+          <ChartOr data={data} series={BARS} kind="bar" empty="No installs in this range." />
         </Card>
         <Card style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
           <div style={{ display: 'grid', gap: 4 }}>
             <h3 style={{ margin: 0 }}>Top events</h3>
             <p style={muted}>Most common events sent by the SDK.</p>
           </div>
-          {data && data.events.length === 0 ? (
-            <Empty>No events in this range.</Empty>
+          {!data ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} h={36} />
+              ))}
+            </div>
+          ) : data.events.length === 0 ? (
+            <div class="chart-empty" style={{ height: H + 28 }}>
+              No events in this range.
+            </div>
           ) : (
             <Table>
               <thead>
@@ -117,11 +192,11 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
                 </tr>
               </thead>
               <tbody>
-                {data?.events.map((e) => (
+                {data.events.map((e) => (
                   <tr key={e.event}>
                     <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.event}</td>
                     <td data-label="Count" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {e.count}
+                      {fmt(e.count)}
                     </td>
                   </tr>
                 ))}
@@ -148,6 +223,21 @@ function useWidth() {
   return [ref, w] as const;
 }
 
+type Series = { key: Metric; label: string; color: string }[];
+
+// Chart, or a skeleton while loading, or a message when every value in range is 0.
+function ChartOr({ data, series, kind, empty }: { data: Analytics | null; series: Series; kind: 'line' | 'bar'; empty: string }) {
+  if (!data) return <Skeleton h={H + 28} />;
+  const total = series.reduce((n, s) => n + sum(data.days, s.key), 0);
+  if (total === 0)
+    return (
+      <div class="chart-empty" style={{ height: H + 28 }}>
+        {empty}
+      </div>
+    );
+  return <Chart days={data.days} series={series} kind={kind} />;
+}
+
 const H = 200;
 const PAD = { l: 32, r: 8, t: 8, b: 24 };
 
@@ -157,10 +247,11 @@ function Chart({
   kind,
 }: {
   days: DayStat[];
-  series: { key: Metric; label: string; color: string }[];
+  series: Series;
   kind: 'line' | 'bar';
 }) {
   const [ref, w] = useWidth();
+  const [hover, setHover] = useState<number | null>(null);
   const n = Math.max(days.length, 1);
   const plotW = w - PAD.l - PAD.r;
   const plotH = H - PAD.t - PAD.b;
@@ -177,8 +268,15 @@ function Chart({
   const every = Math.ceil(n / Math.max(2, Math.floor(plotW / 64))); // ~64px per x label
 
   return (
-    <div ref={ref} style={{ display: 'grid', gap: 8, minWidth: 0, overflow: 'hidden' }}>
-      <svg width={w} height={H} style={{ display: 'block' }} role="img" aria-label={series.map((s) => s.label).join(', ') + ' per day'}>
+    <div ref={ref} style={{ display: 'grid', gap: 8, minWidth: 0, position: 'relative' }}>
+      <svg
+        width={w}
+        height={H}
+        style={{ display: 'block', overflow: 'visible' }}
+        role="img"
+        aria-label={series.map((s) => s.label).join(', ') + ' per day'}
+        onPointerLeave={() => setHover(null)}
+      >
         {[0, 1, 2, 3, 4].map((g) => (
           <g key={g}>
             <line
@@ -189,7 +287,7 @@ function Chart({
               stroke="hsl(var(--k-border))"
             />
             <text x={PAD.l - 6} y={y((top * g) / 4) + 4} text-anchor="end" font-size="11" fill="hsl(var(--k-muted-foreground))">
-              {(top * g) / 4}
+              {fmt((top * g) / 4)}
             </text>
           </g>
         ))}
@@ -201,7 +299,7 @@ function Chart({
           ) : null,
         )}
         {kind === 'line'
-          ? series.map((s) => (
+          ? [...series].reverse().map((s) => ( // first series drawn last, on top
               <polyline
                 key={s.key}
                 fill="none"
@@ -230,13 +328,51 @@ function Chart({
                 return rect;
               });
             })}
-        {/* hover target per day: native tooltip with that day's numbers */}
+        {/* hovered day: guide line + a dot per line series */}
+        {hover !== null && (
+          <g pointer-events="none">
+            <line x1={x(hover)} x2={x(hover)} y1={PAD.t} y2={PAD.t + plotH} stroke="hsl(var(--k-input))" stroke-dasharray="3 3" />
+            {kind === 'line' &&
+              series.map((s) => (
+                <circle key={s.key} cx={x(hover)} cy={y(days[hover][s.key])} r="3.5" fill="hsl(var(--k-card))" stroke={s.color} stroke-width="2" />
+              ))}
+          </g>
+        )}
+        {/* hover target per day */}
         {days.map((d, i) => (
-          <rect key={'h' + d.day} class="chart-hover" x={PAD.l + slot * i} y={PAD.t} width={slot} height={plotH}>
-            <title>{[fmtDay(d.day), ...series.map((s) => `${s.label}: ${d[s.key]}`)].join('\n')}</title>
-          </rect>
+          <rect
+            key={'h' + d.day}
+            class="chart-hover"
+            x={PAD.l + slot * i}
+            y={PAD.t}
+            width={slot}
+            height={plotH}
+            onPointerEnter={() => setHover(i)}
+          />
         ))}
       </svg>
+      {hover !== null && (
+        <div
+          class="chart-tip"
+          role="status"
+          style={{
+            top: PAD.t,
+            // past the middle, flip left so the card stays inside the chart
+            ...(x(hover) > w / 2 ? { right: w - x(hover) + 10 } : { left: x(hover) + 10 }),
+          }}
+        >
+          <strong>{fmtDay(days[hover].day)}</strong>
+          {series.map((s) => (
+            <span key={s.key} style={{ ...row, gap: 6, justifyContent: 'space-between' }}>
+              <span style={{ ...row, gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
+                {s.label}
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(days[hover][s.key])}</span>
+            </span>
+          ))}
+        </div>
+      )}
       <div style={{ ...row, flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
         {series.map((s) => (
           <span key={s.key} style={{ ...row, gap: 6, fontSize: 13 }}>

@@ -58,10 +58,9 @@ export function SettingsPage({ id }: { id: string }) {
           <BreadcrumbItem>
             <BreadcrumbLink href={`#/apps/${app.id}`}>{app.name}</BreadcrumbLink>
           </BreadcrumbItem>
-          <BreadcrumbItem>Settings</BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <PageHeader title="Settings" description={app.name} />
+      <PageHeader title="Settings" />
       {error && <Alert variant="destructive">{error}</Alert>}
 
       <h2 style={{ ...sectionTitle, marginTop: 0 }}>App config</h2>

@@ -5,18 +5,18 @@ for hosted [godetour.dev](https://godetour.dev). Deferred deep links on your
 own infrastructure: tap short link → install app → first launch opens the
 link's destination.
 
-![Analytics overview: clicks, installs, charts, links](images/analytics.webp)
-
 <table>
   <tr>
-    <td width="40%"><img src="images/apps.webp" alt="Apps list"></td>
-    <td width="40%"><img src="images/settings.webp" alt="App settings: config, API key, matching"></td>
-    <td width="20%"><img src="images/mobile.webp" alt="Analytics on a phone"></td>
+    <td width="25%"><img src="images/apps.webp" alt="Apps list"></td>
+    <td width="25%"><img src="images/analytics.webp" alt="Analytics: clicks, installs via link, web fallbacks"></td>
+    <td width="25%"><img src="images/charts.webp" alt="Daily activity and organic vs. non-organic installs"></td>
+    <td width="25%"><img src="images/settings.webp" alt="App settings: config, API key, matching"></td>
   </tr>
   <tr>
     <td align="center">Apps</td>
+    <td align="center">Analytics</td>
+    <td align="center">Charts</td>
     <td align="center">Settings</td>
-    <td align="center">Mobile</td>
   </tr>
 </table>
 
@@ -45,6 +45,7 @@ docker run -d --name detur --restart unless-stopped \
 | `DB_PATH` | `/data/detur.db` (Docker), `detur.db` (bare run) |
 | `RETENTION_HOURS` | `24` |
 | `TRUST_PROXY` | `0` |
+| `LOGOUT_URL` | empty (no Log out link) |
 
 - Minimum instance: 1 vCPU, 512 MB RAM, 1 GB disk.
 - Only `DOMAIN` required. Override the rest with `-e NAME=value`.
@@ -58,6 +59,13 @@ docker run -d --name detur --restart unless-stopped \
   `X-Forwarded-For` entry (the peer the proxy saw), else `X-Real-IP`. Proxy
   must append to `X-Forwarded-For`, or overwrite `X-Real-IP` if it sets no
   XFF. Without a proxy, direct callers spoof the IP match signal.
+- `LOGOUT_URL`: gateway sign-out URL. Set it to show a Log out link.
+  `http(s)` URL or `/path`:
+  - Cloudflare Access: `/cdn-cgi/access/logout`
+  - oauth2-proxy: `/oauth2/sign_out`
+  - Pomerium: `/.pomerium/sign_out`
+  - Google IAP: `/?gcp-iap-mode=CLEAR_LOGIN_COOKIE`
+  - Authelia, Authentik: your auth domain's logout URL
 
 ### 2. Create an app in the portal
 

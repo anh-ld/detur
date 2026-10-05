@@ -23,21 +23,23 @@ import (
 
 // portal matching defaults come from store's exported defaults; settings table overrides at runtime.
 type portalServer struct {
-	st  *store.Store
-	log *log.Logger
-	dir string // portal static dir (built UI)
+	st     *store.Store
+	log    *log.Logger
+	dir    string // portal static dir (built UI)
+	logout string // LOGOUT_URL, served to the UI via /api/config
 }
 
 // RegisterPortal builds portal handler: apps/links CRUD, app matching, analytics routes, plus static UI
 // from staticDir (missing files/dir 404 plain text, never crash). Mux wrapped in origin/host guard;
-// allowedHosts = listener's own address, loopback always accepted, others 403. No auth: access control
-// delegated to zero-trust boundary in front of listener.
-func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string) http.Handler {
-	p := &portalServer{st: st, log: log.Default(), dir: staticDir}
+// allowedHosts = listener's own address, loopback always accepted, others 403. No auth: a zero-trust
+// gateway in front does access control; logoutURL is its sign-out URL ("" = none).
+func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, logoutURL string) http.Handler {
+	p := &portalServer{st: st, log: log.Default(), dir: staticDir, logout: logoutURL}
 	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
 		p.log.Printf("portal static dir %q missing: portal API only, UI will 404", staticDir)
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/config", p.config)
 	mux.HandleFunc("GET /api/apps", p.listApps)
 	mux.HandleFunc("POST /api/apps", p.createApp)
 	mux.HandleFunc("POST /api/apps/{id}/rotate-key", p.rotateAppKey)
@@ -164,6 +166,11 @@ func parseExpiry(v *string) (*time.Time, error) {
 		return nil, errors.New("expiresAt must be RFC3339, e.g. 2026-12-31T23:59:59Z")
 	}
 	return &t, nil
+}
+
+// config: UI settings from env. logoutUrl "" = no Log out link.
+func (p *portalServer) config(w http.ResponseWriter, r *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"logoutUrl": p.logout})
 }
 
 func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {
