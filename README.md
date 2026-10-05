@@ -1,9 +1,9 @@
 # detur
 
-Self-hosted backend for `@swmansion/react-native-detour`. Drop-in replacement
-for hosted [godetour.dev](https://godetour.dev). Deferred deep links on your
-own infrastructure: tap short link → install app → first launch opens the
-link's destination.
+Self-hosted backend for `@swmansion/react-native-detour`. Drop-in for
+[godetour.dev](https://godetour.dev).
+
+Deferred deep links + analytics: tap link → install → first launch opens link. Clicks, installs, events tracked.
 
 <table>
   <tr>
@@ -20,15 +20,13 @@ link's destination.
   </tr>
 </table>
 
-## Why detur?
+## Why
 
-- No pricing tiers, no click limits. Your server, your data.
-- Drop-in: same five SDK endpoints, same matching. Point the app at your domain.
-- One binary: Go + SQLite + portal. No external services, no outbound calls.
+- No tiers, no click limits. Your data.
+- Same 5 SDK endpoints, same matching.
+- One binary: Go + SQLite + portal. No outbound calls.
 
-## Quick start
-
-### 1. Run the server
+## 1. Run
 
 ```sh
 docker run -d --name detur --restart unless-stopped \
@@ -39,50 +37,38 @@ docker run -d --name detur --restart unless-stopped \
   ghcr.io/anh-ld/detur:latest
 ```
 
-| Env | Default |
-|---|---|
-| `DOMAIN` | `localhost` |
-| `DB_PATH` | `/data/detur.db` (Docker), `detur.db` (bare run) |
-| `RETENTION_HOURS` | `24` |
-| `TRUST_PROXY` | `0` |
-| `LOGOUT_URL` | empty (no Log out link) |
+| Env | Required | Default |
+|---|---|---|
+| `DOMAIN` | prod | `localhost` |
+| `DB_PATH` | no | `/data/detur.db` (Docker), `detur.db` (bare) |
+| `RETENTION_HOURS` | no | `24` |
+| `TRUST_PROXY` | no | `0` |
+| `LOGOUT_URL` | no | empty = no Log out link |
 
-- Minimum instance: 1 vCPU, 512 MB RAM, 1 GB disk.
-- Only `DOMAIN` required. Override the rest with `-e NAME=value`.
-- Production: pin a version (`ghcr.io/anh-ld/detur:0.1.0`), not `latest`.
-- Build from source: `docker build -t ghcr.io/anh-ld/detur:latest .`.
-- Health check: `GET /health` → `200 ok`.
+- Min: 1 vCPU, 512 MB, 1 GB disk.
+- Prod: pin version (`:0.1.0`), `8080` on loopback behind TLS proxy.
+- Health: `GET /health` → `200 ok`.
+- Build: `docker build -t ghcr.io/anh-ld/detur:latest .`
 - No Docker: `cd server && go run ./cmd/detur`.
-- Dev: `./dev.sh`. Portal HMR on `:8000`, server rebuilds on `.go` change via [air](https://github.com/air-verse/air). Ctrl-C stops both.
-- Production: publish `8080` on loopback behind a TLS reverse proxy.
-- `TRUST_PROXY=1` only behind a real proxy. Trusts rightmost
-  `X-Forwarded-For` entry (the peer the proxy saw), else `X-Real-IP`. Proxy
-  must append to `X-Forwarded-For`, or overwrite `X-Real-IP` if it sets no
-  XFF. Without a proxy, direct callers spoof the IP match signal.
-- `LOGOUT_URL`: gateway sign-out URL. Set it to show a Log out link.
-  `http(s)` URL or `/path`:
-  - Cloudflare Access: `/cdn-cgi/access/logout`
-  - oauth2-proxy: `/oauth2/sign_out`
-  - Pomerium: `/.pomerium/sign_out`
-  - Google IAP: `/?gcp-iap-mode=CLEAR_LOGIN_COOKIE`
-  - Authelia, Authentik: your auth domain's logout URL
+- Dev: `./dev.sh`. Portal HMR `:8000`, Go rebuild via [air](https://github.com/air-verse/air).
+- `TRUST_PROXY=1`: real proxy only. Trusts rightmost `X-Forwarded-For`, else
+  `X-Real-IP`. Proxy must append XFF (or overwrite `X-Real-IP`). No proxy =
+  IP spoofable.
+- `LOGOUT_URL`: any gateway sign-out URL or `/path`, e.g. `/cdn-cgi/access/logout` (Cloudflare), etc.
 
-### 2. Create an app in the portal
+## 2. Create app
 
-Open `http://127.0.0.1:8081`:
+Portal: `http://127.0.0.1:8081`.
 
-- Create an app. API key shows once: copy it then.
-- Add links (`/key` → URL), optional iOS, Android, fallback URLs.
-- Set app details (iOS app ID, Android package, certificate fingerprint).
-  Server builds the well-known files from them.
+- Create app. API key shown once: copy.
+- Add links: `/key` → URL, optional iOS / Android / fallback.
+- App details: iOS app ID, Android package, cert fingerprint → well-known
+  files.
 
-### 3. Patch the SDK
+## 3. Patch SDK
 
-SDK hardcodes its five endpoint URLs to [godetour.dev](https://godetour.dev),
-no `baseURL` config field. File layout changes per SDK version, so give this
-prompt to your AI agent. It patches whichever version you installed.
-
-**Patch prompt (paste to your AI agent):**
+SDK hardcodes 5 URLs to godetour.dev, no `baseURL`. Layout varies per
+version → give your AI agent:
 
 ```text
 Point the installed @swmansion/react-native-detour at your detur server.
@@ -98,16 +84,13 @@ Point the installed @swmansion/react-native-detour at your detur server.
 6. Report: changed files + patch file path.
 ```
 
-- [example/patch/@swmansion+react-native-detour+2.3.1.patch](example/patch/@swmansion+react-native-detour+2.3.1.patch):
-  worked example, SDK 2.3.1 only.
-- Shows what the patch looks like. Not a version pin; your version may differ.
+Example (2.3.1 only, not a pin): [example/patch/](example/patch/).
 
-### 4. Wire up the app
+## 4. Wire app
 
-Full example: [example/expo-app/](example/expo-app/). Worked patch:
-[example/patch/](example/patch/).
+Full example: [example/expo-app/](example/expo-app/).
 
-In `+native-intent.tsx`, list your domain in the host matcher:
+`+native-intent.tsx`, add your domain to `hosts`:
 
 ```tsx
 import { createDetourNativeIntentHandler } from "@swmansion/react-native-detour/expo-router";
@@ -122,23 +105,19 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 });
 ```
 
-- Set `EXPO_PUBLIC_DETOUR_API_KEY` and `EXPO_PUBLIC_DETOUR_APP_ID` from step 2.
-- Run the app. First launch calls match-link, shows the matched link.
-- Server logs only errors; check the portal analytics for clicks and installs.
-- Android emulator: `http://10.0.2.2:8080`.
-- Physical device: deployed domain.
-- Dev on a trusted LAN only: publish `8080` on the host interface
-  (`-p 8080:8080`), use the host's LAN IP.
-- Production: `https://<DOMAIN>` through the TLS proxy.
+- Env: `EXPO_PUBLIC_DETOUR_API_KEY`, `EXPO_PUBLIC_DETOUR_APP_ID` (step 2).
+- First launch → match-link → matched link shown.
+- Server logs errors only. Clicks/installs: portal analytics.
+- Base URL by target:
+  - Android emulator: `http://10.0.2.2:8080`
+  - Device, trusted LAN dev: `-p 8080:8080`, host LAN IP
+  - Prod: `https://<DOMAIN>`
 
 ## Credits
 
-- [dub.sh](https://dub.sh) (dubinc/dub): server logic cloned from their
-  production deep-link funnel.
-- [Detour matching docs](https://detour.swmansion.com/docs/platform/architecture/matching/):
-  probabilistic matching weights, threshold, window.
-- Which source wins where: [DECISIONS.md](DECISIONS.md).
-- Software Mansion: [@swmansion/react-native-detour](https://github.com/software-mansion-labs/react-native-detour), the SDK this server serves.
-- [kinu](https://github.com/developit/kinu) (developit): portal UI toolkit.
+- [dub.sh](https://dub.sh): server logic from their link funnel.
+- [Detour matching docs](https://detour.swmansion.com/docs/platform/architecture/matching/): weights, threshold, window.
+- [@swmansion/react-native-detour](https://github.com/software-mansion-labs/react-native-detour): the SDK.
+- [kinu](https://github.com/developit/kinu): portal UI.
 
-Known limits: [CAVEATS.md](CAVEATS.md).
+[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
