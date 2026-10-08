@@ -104,8 +104,7 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ margin: 0 }}>Signals</h2>
         <p style={muted}>
-          Tagged signals only label installs. Active signals also keep the clicks they flag from getting credit. Changes
-          save right away and apply from the next install.
+          Tagged: label only. Active: flagged clicks get no credit. Applies from the next install.
         </p>
       </div>
       <ul class="signal-list">

@@ -23,7 +23,7 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
   return (
     <Button
       size="sm"
-      variant="ghost"
+      variant="outline"
       onClick={async () => {
         await copyText(value);
         setCopied(true);
@@ -33,6 +33,22 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
     </Button>
   );
 }
+
+// Backdrop press closes any open dialog, like Escape (kinu wires this only for Dialog.Trigger;
+// the portal opens dialogs by id). The press must start and end outside the panel, so a text
+// selection dragged out of a field never closes it.
+const onBackdrop = (e: MouseEvent) => {
+  const d = e.target as HTMLElement;
+  if (d.localName !== 'dialog') return false;
+  const r = d.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+};
+let pressedBackdrop = false;
+addEventListener('pointerdown', (e) => (pressedBackdrop = onBackdrop(e)));
+addEventListener('click', (e) => {
+  if (pressedBackdrop && onBackdrop(e)) (e.target as HTMLDialogElement).close();
+  pressedBackdrop = false;
+});
 
 export function openDialog(id: string) {
   (document.getElementById(id) as HTMLDialogElement | null)?.showModal();

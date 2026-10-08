@@ -365,8 +365,10 @@ button.nav-link {
   vertical-align: middle;
 }
 
+/* 1px same-colour shadow covers the antialias seam Chrome leaves at fractional column edges */
 [k="table"] thead th {
   background: hsl(var(--k-muted));
+  box-shadow: 1px 0 0 hsl(var(--k-muted));
   color: hsl(var(--k-muted-foreground));
   font-size: 12px;
   font-weight: 500;
@@ -537,6 +539,17 @@ button.nav-link {
   margin-bottom: 24px;
 }
 
+/* narrow phones: tabs scroll sideways instead of widening the page */
+.tab-bar > [role="tablist"] {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab-bar > [role="tablist"] > * {
+  flex: none;
+}
+
 /* Fraud signals: one bordered list, a row per signal; text left, mode switch right */
 .signal-list {
   list-style: none;
@@ -599,11 +612,17 @@ button.nav-link {
   flex: none;
 }
 
-/* tagged is the calm default: pressed but neutral; only active takes the accent */
+/* tagged is the calm default: pressed but neutral; only active takes the accent.
+   Unpressed reads muted so the pressed side is obvious either way. */
+.mode-toggle [aria-pressed="false"] {
+  color: hsl(var(--k-muted-foreground));
+}
+
 .mode-toggle [data-mode="tagged"][aria-pressed="true"] {
-  background: hsl(var(--k-secondary));
+  background: hsl(var(--k-border));
   color: hsl(var(--k-foreground));
   border-color: hsl(var(--k-input));
+  font-weight: 500;
   box-shadow: none;
 }
 
