@@ -23,7 +23,7 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
   return (
     <Button
       size="sm"
-      variant="ghost"
+      variant="outline"
       onClick={async () => {
         await copyText(value);
         setCopied(true);
@@ -33,6 +33,22 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
     </Button>
   );
 }
+
+// Backdrop press closes any open dialog, like Escape (kinu wires this only for Dialog.Trigger;
+// the portal opens dialogs by id). The press must start and end outside the panel, so a text
+// selection dragged out of a field never closes it.
+const onBackdrop = (e: MouseEvent) => {
+  const d = e.target as HTMLElement;
+  if (d.localName !== 'dialog') return false;
+  const r = d.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+};
+let pressedBackdrop = false;
+addEventListener('pointerdown', (e) => (pressedBackdrop = onBackdrop(e)));
+addEventListener('click', (e) => {
+  if (pressedBackdrop && onBackdrop(e)) (e.target as HTMLDialogElement).close();
+  pressedBackdrop = false;
+});
 
 export function openDialog(id: string) {
   (document.getElementById(id) as HTMLDialogElement | null)?.showModal();
@@ -115,6 +131,32 @@ export function gateOpen(dialogId: string) {
   }
 }
 
+// Locked-section notice: the one look every admin-gated panel shows before elevation.
+// Elevating notifies subscribeAdmin, so panels reload themselves.
+export function AdminRequired({ children }: { children: ComponentChildren }) {
+  return (
+    <div
+      style={{
+        ...row,
+        justifyContent: 'space-between',
+        gap: 16,
+        padding: 16,
+        background: 'hsl(var(--k-card))',
+        border: '1px solid hsl(var(--k-border))',
+        borderRadius: 'var(--k-radius)',
+      }}
+    >
+      <div>
+        <strong>Admin required</strong>
+        <p style={{ ...muted, marginTop: 4 }}>{children}</p>
+      </div>
+      <Button variant="outline" onClick={() => ensureAdmin()}>
+        Unlock admin
+      </Button>
+    </div>
+  );
+}
+
 // The prompt was canceled: the gated action must not run (callers return quietly).
 export class AdminGateAborted extends Error {}
 
@@ -185,7 +227,7 @@ export function AdminPasswordDialog() {
           }}
         >
           <div style={{ display: 'grid', gap: 4 }}>
-            <h2 style={{ margin: 0 }}>Enter admin mode</h2>
+            <h2 style={{ margin: 0 }}>Enter admin</h2>
             <p style={muted}>A master password unlocks app management for this browser session.</p>
           </div>
           <Field>

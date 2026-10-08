@@ -30,7 +30,7 @@ type portalServer struct {
 	log    *log.Logger
 	dir    string // portal static dir (built UI)
 	logout string // LOGOUT_URL, served to the UI via /api/config
-	// admin gating: adminPassword "" = no gating, every route behaves as before admin mode existed.
+	// admin gating: adminPassword "" = no gating, every route behaves as before admin existed.
 	adminPassword string
 	adminHours    int
 	adminMu       sync.Mutex           // guards adminLocks
@@ -68,6 +68,12 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	mux.HandleFunc("GET /api/apps/{id}/fraud", p.fraud)
 	mux.HandleFunc("GET /api/apps/{id}/fraud/settings", p.requireAdmin(p.fraudSettings))
 	mux.HandleFunc("PATCH /api/apps/{id}/fraud/settings", p.requireAdmin(p.updateFraudSettings))
+	mux.HandleFunc("GET /api/apps/{id}/webhooks", p.requireWebhookAdmin(p.listWebhooks))
+	mux.HandleFunc("POST /api/apps/{id}/webhooks", p.requireWebhookAdmin(p.createWebhook))
+	mux.HandleFunc("PATCH /api/webhooks/{id}", p.requireWebhookAdmin(p.updateWebhook))
+	mux.HandleFunc("DELETE /api/webhooks/{id}", p.requireWebhookAdmin(p.deleteWebhook))
+	mux.HandleFunc("POST /api/webhooks/{id}/rotate-secret", p.requireWebhookAdmin(p.rotateWebhookSecret))
+	mux.HandleFunc("POST /api/webhooks/{id}/replay", p.requireWebhookAdmin(p.replayWebhook))
 	mux.HandleFunc("GET /api/admin/session", p.sessionStatus)
 	mux.HandleFunc("POST /api/admin/session", p.elevate)
 	mux.HandleFunc("DELETE /api/admin/session", p.clearSession)

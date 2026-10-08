@@ -1,6 +1,5 @@
-# Build context = repo root; keep it lean + deterministic.
-# Without this, the portal stage's `COPY portal/ .` would copy local
-# node_modules and macOS-built dist over the `npm ci`/`vite build` output.
+# Build context = repo root. Lean + deterministic.
+# Else `COPY portal/ .` drags local node_modules + macOS dist over `npm ci` / `vite build`.
 .git
 .gitignore
 **/node_modules

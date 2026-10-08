@@ -7,9 +7,10 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 
 - No tiers, no click limits. Your data.
 - Same 5 SDK endpoints, same matching.
-- One binary: Go + SQLite + Preact portal. No outbound calls.
+- One binary: Go + SQLite + Preact portal. No outbound calls unless webhooks on.
 - Analytics: clicks, installs, events, charts, match quality.
 - Fraud: floods, fast opens, bots, datacenter IPs, repeat devices. Tag or block.
+- Webhooks: installs, events, clicks → your URL. Signed, retried, replayable.
 - Admin: one password to manage apps. Everyone else: links + stats.
 
 [DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
@@ -44,10 +45,10 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 | Analytics | Events tracking | Events tracking | Events tracking, revenue, cohorts |
 | Fraud detection | ✅ No click injection | ❌ | ✅ |
 | Ad-network / BI integrations | ❌ | ❌ | ✅ |
-| Webhooks | ❌ | ✅ | ✅ |
+| Webhooks | ✅ Opt-in, HMAC-signed | ✅ | ✅ |
 | Platform API | ❌ | ❌ | ✅ |
 | Data | Yours | Theirs | Theirs |
-| Outbound calls | None | n/a | n/a |
+| Outbound calls | None by default (webhooks opt-in) | n/a | n/a |
 
 Detour SDK, self-hosted → detur. Detour SDK, hosted → godetour. Multi-touch, click-injection checks, ad networks → AppsFlyer.
 

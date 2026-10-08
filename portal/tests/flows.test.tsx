@@ -219,7 +219,7 @@ describe('portal client flows', () => {
     location.hash = `#/apps/${app.id}`;
     render(<App />);
     await screen.findByRole('heading', { name: app.name });
-    expect(tabs().map((t) => t.textContent)).toEqual(['Links', 'Analytics', 'Fraud', 'Settings']);
+    expect(tabs().map((t) => t.textContent)).toEqual(['Links', 'Analytics', 'Fraud', 'Settings', 'Webhooks']);
     expect(selectedTab()).toEqual(['Links']);
     await screen.findByText('No links yet');
     screen.getByRole('button', { name: 'New link' });
@@ -255,6 +255,12 @@ describe('portal client flows', () => {
     expect(screen.queryByRole('region', { name: 'Fraud signals' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Flagged installs' })).toBeNull();
     expect(screen.queryByText('Click flooding')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Webhooks' }));
+    expect(location.hash).toBe(`#/apps/${app.id}/webhooks`);
+    window.dispatchEvent(new Event('hashchange'));
+    await screen.findByRole('heading', { name: 'Webhook endpoints' });
+    expect(selectedTab()).toEqual(['Webhooks']);
 
     fireEvent.click(screen.getByRole('tab', { name: 'Links' }));
     expect(location.hash).toBe(`#/apps/${app.id}`);
@@ -659,7 +665,7 @@ describe('portal client flows', () => {
     location.hash = '#/';
     render(<App />);
     await screen.findByRole('heading', { name: 'Apps' });
-    expect(screen.queryByRole('button', { name: 'Enter admin mode' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Enter admin' })).toBeNull();
     expect(screen.queryByText(/Admin · until/)).toBeNull();
 
     // nothing to elevate from: POST rejects, GET stays inactive

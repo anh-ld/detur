@@ -89,6 +89,90 @@ header > div > a:first-child {
   color: hsl(var(--k-foreground));
 }
 
+button.nav-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Checkbox option rows: plain list, whole row clickable */
+.check-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+/* kinu derives the box radius from --k-radius (10px), which turns a 16px box into a circle */
+.check-option [k="checkbox"] {
+  border-radius: 4px;
+  margin: 3px 0 0;
+  flex-shrink: 0;
+}
+
+.check-option-title {
+  display: block;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.check-option-desc {
+  display: block;
+  font-size: 12px;
+  color: hsl(var(--k-muted-foreground));
+}
+
+/* webhook URL: one line + ellipsis on desktop (full URL in title), wraps on phones */
+.wh-url {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* Elevated-session chip: one pill, Exit sits inside after a hairline */
+.admin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding-left: 10px;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: 999px;
+  font-size: 13px;
+  color: hsl(var(--k-foreground));
+  white-space: nowrap;
+}
+
+.admin-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(142 71% 45%);
+}
+
+.admin-chip button {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-left: 1px solid hsl(var(--k-border));
+  border-radius: 0 999px 999px 0;
+  background: none;
+  font: inherit;
+  color: hsl(var(--k-destructive));
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.admin-chip button:hover {
+  background: hsl(var(--k-destructive) / 0.1);
+}
+
 [k="separator"] {
   background: hsl(var(--k-border));
 }
@@ -176,10 +260,28 @@ header > div > a:first-child {
 
 /* Inputs: white fill, 6px radius */
 [k="input"],
-[k="select"],
 [k="textarea"] {
   background-color: hsl(var(--k-card));
   border-radius: 6px;
+}
+
+/* Filter selects: same height and grey fill as the tab group beside them; muted chevron
+   (kinu's uses currentColor, which a data-URI image can't inherit, so it renders black) */
+[k="select"] {
+  height: 36px;
+  padding: 0 30px 0 12px;
+  border-color: transparent;
+  border-radius: 10px;
+  background-color: hsl(var(--k-muted));
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><path d='M6 8l4 4 4-4' stroke='%2378716c' stroke-width='1.75' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-position: right 10px center;
+  background-size: 14px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+[k="select"]:hover {
+  background-color: hsl(var(--k-border));
 }
 
 [k="input"]::placeholder,
@@ -263,8 +365,10 @@ header > div > a:first-child {
   vertical-align: middle;
 }
 
+/* 1px same-colour shadow covers the antialias seam Chrome leaves at fractional column edges */
 [k="table"] thead th {
   background: hsl(var(--k-muted));
+  box-shadow: 1px 0 0 hsl(var(--k-muted));
   color: hsl(var(--k-muted-foreground));
   font-size: 12px;
   font-weight: 500;
@@ -435,6 +539,17 @@ header > div > a:first-child {
   margin-bottom: 24px;
 }
 
+/* narrow phones: tabs scroll sideways instead of widening the page */
+.tab-bar > [role="tablist"] {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab-bar > [role="tablist"] > * {
+  flex: none;
+}
+
 /* Fraud signals: one bordered list, a row per signal; text left, mode switch right */
 .signal-list {
   list-style: none;
@@ -497,11 +612,17 @@ header > div > a:first-child {
   flex: none;
 }
 
-/* tagged is the calm default: pressed but neutral; only active takes the accent */
+/* tagged is the calm default: pressed but neutral; only active takes the accent.
+   Unpressed reads muted so the pressed side is obvious either way. */
+.mode-toggle [aria-pressed="false"] {
+  color: hsl(var(--k-muted-foreground));
+}
+
 .mode-toggle [data-mode="tagged"][aria-pressed="true"] {
-  background: hsl(var(--k-secondary));
+  background: hsl(var(--k-border));
   color: hsl(var(--k-foreground));
   border-color: hsl(var(--k-input));
+  font-weight: 500;
   box-shadow: none;
 }
 
@@ -625,6 +746,11 @@ header > div > a:first-child {
     font-weight: 500;
     letter-spacing: 0.025em;
     color: hsl(var(--k-muted-foreground));
+  }
+
+  .wh-url {
+    max-width: none;
+    white-space: normal;
   }
 
   [k="table"] td > div {

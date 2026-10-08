@@ -2,7 +2,7 @@ import { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Badge, Card, Empty, Input, Select, Table, toast, Toggle, ToggleGroup } from 'kinu';
 import { api, FlaggedInstall, Fraud, FraudMode, FraudSettings } from './api';
-import { AdminGateAborted, adminCall, getAdmin, Loading, mono, muted, row, subscribeAdmin } from './ui';
+import { AdminGateAborted, adminCall, AdminRequired, getAdmin, Loading, mono, muted, row, subscribeAdmin } from './ui';
 import { FRAUD_RANGES, FraudNumKey, SIGNALS } from './matching';
 import { fmt, Skeleton } from './analytics';
 
@@ -77,8 +77,8 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
         <section aria-label="Fraud signals" style={{ display: 'grid', gap: 16 }}>
           <div style={{ display: 'grid', gap: 4 }}>
             <h2 style={{ margin: 0 }}>Signals</h2>
-            <p style={muted}>Admin mode required to configure signals.</p>
           </div>
+          <AdminRequired>Enter your admin password to configure signals.</AdminRequired>
         </section>
       );
     }
@@ -104,8 +104,7 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ margin: 0 }}>Signals</h2>
         <p style={muted}>
-          Tagged signals only label installs. Active signals also keep the clicks they flag from getting credit. Changes
-          save right away and apply from the next install.
+          Tagged: label only. Active: flagged clicks get no credit. Applies from the next install.
         </p>
       </div>
       <ul class="signal-list">
