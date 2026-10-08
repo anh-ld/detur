@@ -13,7 +13,7 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 - Webhooks: installs, events, clicks → your URL. Signed, retried, replayable.
 - Admin: one password to manage apps. Everyone else: links + stats.
 
-[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
+[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md) · [Agent skill](skills/detur/SKILL.md)
 
 <table>
   <tr>
@@ -91,6 +91,8 @@ Portal: `:8081`.
 - `ADMIN_PASSWORD` set → app changes need admin (top bar).
 
 ## 3. Patch SDK
+
+> **Agent skill:** `npx skills add anh-ld/detur` (or copy [skills/detur/](skills/detur/)) → your agent does steps 3–4: detects setup, patches, wires, verifies.
 
 SDK hardcodes 5 URLs to godetour.dev, no `baseURL`. Layout varies per
 version → give your AI agent:
