@@ -3,9 +3,13 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"detur.dev/server/internal/fraud"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -511,6 +515,7 @@ func TestGetLinkByKeyGlobalAmbiguousFailsClosed(t *testing.T) {
 }
 
 // pre-v0.2 DB gains expires_at, expired_url, os_version on Open; re-Open is a no-op
+// Pre-fraud database: Open adds every later column, legacy rows read with zero facts, new facts and labels round trip.
 func TestOpenAddsMissingColumns(t *testing.T) {
 	path := t.TempDir() + "/legacy.db"
 	db, err := sql.Open("sqlite", path)
@@ -530,7 +535,12 @@ CREATE TABLE clicks (id TEXT PRIMARY KEY, app_id TEXT NOT NULL, link_id TEXT NOT
   destination TEXT NOT NULL, click_id TEXT, is_bot INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), expires_at TEXT NOT NULL);
 INSERT INTO apps (id, name, api_key_hash) VALUES ('legacy-app', 'old', 'h');
-INSERT INTO links (id, app_id, key, url) VALUES ('legacy-link', 'legacy-app', 'old', 'https://example.com/old');`)
+INSERT INTO links (id, app_id, key, url) VALUES ('legacy-link', 'legacy-app', 'old', 'https://example.com/old');
+INSERT INTO clicks (id, app_id, link_id, ip, destination, created_at, expires_at) VALUES ('legacy-click', 'legacy-app', 'legacy-link', '203.0.113.7', 'x', '2026-01-01T00:00:00.000Z', '2999-01-01T00:00:00.000Z');
+CREATE TABLE installs (id TEXT PRIMARY KEY, app_id TEXT NOT NULL, device_hash TEXT NOT NULL, click_id TEXT, attribution TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), link_id TEXT, platform TEXT, method TEXT, score INTEGER, runner_up INTEGER,
+  UNIQUE (app_id, device_hash, click_id));
+INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('legacy-install', 'legacy-app', 'd0', 'legacy-click', 'non_organic');`)
 	closeErr := db.Close()
 	if err != nil {
 		t.Fatalf("prepare legacy database: %v", err)
@@ -544,8 +554,15 @@ INSERT INTO links (id, app_id, key, url) VALUES ('legacy-link', 'legacy-app', 'o
 		t.Fatalf("Open legacy database: %v", err)
 	}
 	defer s.Close()
-	if !columnExists(s.db, "clicks", "matched_at") {
-		t.Error("clicks.matched_at missing after Open")
+	for _, c := range [][2]string{{"clicks", "matched_at"}, {"clicks", "kind"}, {"clicks", "first_seen_at"}, {"clicks", "ua_suspect"}, {"clicks", "ip_hosting"},
+		{"clicks", "hits_ip"}, {"clicks", "hits_link"}, {"installs", "fraud"}, {"installs", "fraud_action"}, {"installs", "fraud_link_id"}} {
+		if !columnExists(s.db, c[0], c[1]) {
+			t.Errorf("%s.%s missing after Open", c[0], c[1])
+		}
+	}
+	// legacy row: zero facts, first_seen_at falls back to created_at
+	if lc, err := s.GetClick("legacy-click"); err != nil || lc.UASuspect || lc.IPHosting || lc.HitsIP != 0 || lc.HitsLink != 0 || lc.Kind != "" || !lc.FirstSeenAt.Equal(lc.CreatedAt) {
+		t.Errorf("legacy click = %+v, %v; want zero facts, first_seen = created", lc, err)
 	}
 	l, err := s.GetLink("legacy-link")
 	if err != nil || l.ExpiresAt != nil || l.ExpiredURL != "" {
@@ -566,6 +583,24 @@ INSERT INTO links (id, app_id, key, url) VALUES ('legacy-link', 'legacy-app', 'o
 	}
 	if gc, err := s.GetClick(c.ID); err != nil || gc.Fingerprint.OSVersion != "14.0.0" {
 		t.Errorf("GetClick OSVersion = %q, %v; want 14.0.0", gc.Fingerprint.OSVersion, err)
+	}
+	// fraud facts and labels write and read back on the upgraded tables
+	fc, err := s.RecordClick(Click{AppID: "legacy-app", LinkID: "legacy-link", Destination: "x", Kind: KindApp, IPHosting: true,
+		Fingerprint: Fingerprint{IP: "3.5.140.1", UserAgent: "ua"}}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick with fraud facts: %v", err)
+	}
+	if gc, err := s.GetClick(fc.ID); err != nil || gc.Kind != KindApp || !gc.IPHosting || gc.HitsIP != 1 || gc.HitsLink != 2 {
+		t.Errorf("GetClick = kind %q hosting %v hits %d/%d, %v; want app, true, 1/2", gc.Kind, gc.IPHosting, gc.HitsIP, gc.HitsLink, err)
+	}
+	if _, err := s.RecordInstall(Install{AppID: "legacy-app", DeviceHash: "d1", Attribution: AttributionOrganic, Method: MethodOrganic,
+		Fraud: "velocity,install_ip", FraudAction: FraudActionExcluded, FraudLinkID: "legacy-link"}); err != nil {
+		t.Fatalf("RecordInstall with fraud labels: %v", err)
+	}
+	f, err := s.Fraud("legacy-app", 7, time.Now())
+	if err != nil || len(f.Installs) != 1 || f.Installs[0].DeviceHash != "d1" || f.Installs[0].FraudAction != FraudActionExcluded ||
+		f.Installs[0].FraudLinkID != "legacy-link" || f.Signals[fraud.SignalInstallIP] != 1 || f.Signals[fraud.SignalVelocity] != 1 {
+		t.Errorf("Fraud after upgrade = %+v, %v; want the d1 install, excluded, velocity + install_ip counted", f, err)
 	}
 	s.Close()
 	s2, err := Open(path)
@@ -868,5 +903,477 @@ func TestAnalytics(t *testing.T) {
 	s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM click_days) + (SELECT COUNT(*) FROM event_days)`).Scan(&n)
 	if n != 0 {
 		t.Errorf("rollup rows after DeleteApp = %d; want 0", n)
+	}
+}
+
+// hits counts raw taps per IP and link (KTD2): dedup merges rows, not hits; first_seen_at stays at the first tap.
+func TestRecordClickHitCounter(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	fp := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"}
+	rec := func(fp Fingerprint) Click {
+		t.Helper()
+		c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: fp, Destination: link.URL, Kind: KindApp}, 24)
+		if err != nil {
+			t.Fatalf("RecordClick: %v", err)
+		}
+		return c
+	}
+	first := rec(fp)
+	if first.HitsIP != 1 || first.HitsLink != 1 || !first.FirstSeenAt.Equal(first.CreatedAt) || first.Kind != KindApp {
+		t.Fatalf("first = hits %d/%d first_seen %v created %v kind %q; want 1/1, equal, app", first.HitsIP, first.HitsLink, first.FirstSeenAt, first.CreatedAt, first.Kind)
+	}
+	var stamped bool
+	s.db.QueryRow(`SELECT first_seen_at IS created_at FROM clicks WHERE id = ?`, first.ID).Scan(&stamped)
+	if !stamped {
+		t.Fatal("stored first_seen_at differs from created_at on insert; want the first tap stamped")
+	}
+	old := time.Now().UTC().Add(-10 * time.Minute)
+	if _, err := s.rawExec(`UPDATE clicks SET created_at = ?, first_seen_at = ? WHERE id = ?`, rfc3339(old), rfc3339(old), first.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec(fp)
+	third := rec(fp)
+	if third.ID != first.ID || third.HitsIP != 3 || third.HitsLink != 3 {
+		t.Errorf("third = id %s hits %d/%d; want %s 3/3", third.ID, third.HitsIP, third.HitsLink, first.ID)
+	}
+	if !third.FirstSeenAt.Equal(parseTime(rfc3339(old))) || !third.CreatedAt.After(old) {
+		t.Errorf("first_seen %v created %v; want first_seen = %v, created moved forward", third.FirstSeenAt, third.CreatedAt, old)
+	}
+	if n, _ := s.CountClicks(app.ID); n != 1 {
+		t.Errorf("clicks = %d; want 1", n)
+	}
+	// second IP on the same link: link counts all, IP counts its own
+	other := rec(Fingerprint{IP: "198.51.100.9", UserAgent: fp.UserAgent})
+	if other.HitsIP != 1 || other.HitsLink != 4 {
+		t.Errorf("other IP hits = %d/%d; want 1/4", other.HitsIP, other.HitsLink)
+	}
+	// IPv4-mapped form of the first IP: same counter
+	if mapped := rec(Fingerprint{IP: "::ffff:203.0.113.7", UserAgent: "ua-mapped"}); mapped.HitsIP != 4 {
+		t.Errorf("IPv4-mapped hits_ip = %d; want 4 (shares 203.0.113.7's counter)", mapped.HitsIP)
+	}
+	// IPv6 sharing a /64: one key
+	a := rec(Fingerprint{IP: "2001:db8:1:2::1", UserAgent: "ua-a"})
+	b := rec(Fingerprint{IP: "2001:db8:1:2:ffff::9", UserAgent: "ua-b"})
+	if a.HitsIP != 1 || b.HitsIP != 2 {
+		t.Errorf("v6 /64 hits = %d, %d; want 1, 2", a.HitsIP, b.HitsIP)
+	}
+	// private and empty IPs never count (KTD8)
+	for _, ip := range []string{"10.0.0.1", "127.0.0.1", ""} {
+		c := rec(Fingerprint{IP: ip, UserAgent: "ua-" + ip})
+		if c.HitsIP != 0 {
+			t.Errorf("hits_ip for %q = %d; want 0", ip, c.HitsIP)
+		}
+	}
+	var keys int
+	s.db.QueryRow(`SELECT COUNT(*) FROM click_hits WHERE key_type = 'ip'`).Scan(&keys)
+	if keys != 3 {
+		t.Errorf("ip counter keys = %d; want 3 (v4, v4, one v6 /64)", keys)
+	}
+	if got, _ := s.GetClick(first.ID); got.HitsIP != 3 || got.HitsLink != 3 {
+		t.Errorf("GetClick hits = %d/%d; want 3/3", got.HitsIP, got.HitsLink)
+	}
+}
+
+// UA-suspect clicks are stored but stay out of click_days (R3, AE1).
+func TestRecordClickUASuspectSkipsRollup(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	bot, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Kind: KindApp, UASuspect: true, IPHosting: true,
+		Fingerprint: Fingerprint{IP: "203.0.113.7", UserAgent: "python-requests/2.31"}}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	if got, err := s.GetClick(bot.ID); err != nil || !got.UASuspect || !got.IPHosting {
+		t.Errorf("GetClick = %+v, %v; want ua_suspect + ip_hosting", got, err)
+	}
+	var n int
+	s.db.QueryRow(`SELECT COALESCE(SUM(n), 0) FROM click_days WHERE app_id = ?`, app.ID).Scan(&n)
+	if n != 0 {
+		t.Errorf("click_days after suspect click = %d; want 0", n)
+	}
+	if _, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Kind: KindApp,
+		Fingerprint: Fingerprint{IP: "203.0.113.8", UserAgent: "Mozilla/5.0"}}, 24); err != nil {
+		t.Fatal(err)
+	}
+	s.db.QueryRow(`SELECT COALESCE(SUM(n), 0) FROM click_days WHERE app_id = ?`, app.ID).Scan(&n)
+	if n != 1 {
+		t.Errorf("click_days after clean click = %d; want 1", n)
+	}
+}
+
+// Fraud settings: no row reads as Defaults, upsert round trips, a second upsert replaces every field, unknown app is ErrNotFound.
+func TestFraudSettings(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	got, err := s.FraudSettings(app.ID)
+	if err != nil || got != fraud.Defaults {
+		t.Fatalf("FraudSettings (no row) = %+v, %v; want defaults", got, err)
+	}
+	want := fraud.Defaults
+	want.VelocityMode, want.IPMode, want.VelocityWindowMinutes, want.FingerprintMax = fraud.ModeActive, fraud.ModeActive, 15, 9
+	if err := s.UpdateFraudSettings(app.ID, want); err != nil {
+		t.Fatalf("UpdateFraudSettings: %v", err)
+	}
+	if got, err := s.FraudSettings(app.ID); err != nil || got != want {
+		t.Errorf("round trip = %+v, %v; want %+v", got, err, want)
+	}
+	want = fraud.Settings{VelocityMode: fraud.ModeTagged, TimingMode: fraud.ModeActive, UserAgentMode: fraud.ModeActive, IPMode: fraud.ModeTagged,
+		VelocityIPMax: 31, VelocityLinkMax: 601, VelocityWindowMinutes: 91, TimingShortSeconds: 6, TimingLongHours: 49,
+		FingerprintMax: 7, FingerprintWindowDays: 15}
+	if err := s.UpdateFraudSettings(app.ID, want); err != nil {
+		t.Fatalf("UpdateFraudSettings again: %v", err)
+	}
+	if got, _ := s.FraudSettings(app.ID); got != want {
+		t.Errorf("second update = %+v; want %+v", got, want)
+	}
+	if err := s.UpdateFraudSettings("missing", want); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UpdateFraudSettings(missing) = %v; want ErrNotFound", err)
+	}
+}
+
+// velocity window follows the app's setting: a bucket outside it stops counting.
+func TestRecordClickHitWindow(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	st := fraud.Defaults
+	st.VelocityWindowMinutes = 5
+	if err := s.UpdateFraudSettings(app.ID, st); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-10 * time.Minute).Format(bucketLayout)
+	if _, err := s.rawExec(`INSERT INTO click_hits (app_id, key_type, key, bucket, n) VALUES (?, 'link', ?, ?, 50)`, app.ID, link.ID, old); err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: Fingerprint{IP: "203.0.113.7"}}, 24)
+	if err != nil || c.HitsLink != 1 {
+		t.Errorf("hits_link = %d, %v; want 1 (old bucket outside 5m window)", c.HitsLink, err)
+	}
+}
+
+// Unknown install upgraded by a real attribution takes its fraud labels; purge leaves install labels alone.
+func TestInstallFraudLabelsSurviveUpgradeAndPurge(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d1", ClickID: "c1", Attribution: AttributionUnknown}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d1", ClickID: "c1", Attribution: AttributionNonOrganic, LinkID: link.ID,
+		Fraud: "velocity,ip", FraudAction: FraudActionReattributed, FraudLinkID: "l-bad"}); err != nil {
+		t.Fatal(err)
+	}
+	check := func(when string) {
+		t.Helper()
+		var f, a, l string
+		s.db.QueryRow(`SELECT COALESCE(fraud, ''), COALESCE(fraud_action, ''), COALESCE(fraud_link_id, '') FROM installs WHERE device_hash = 'd1'`).Scan(&f, &a, &l)
+		if f != "velocity,ip" || a != FraudActionReattributed || l != "l-bad" {
+			t.Errorf("%s labels = %q/%q/%q; want velocity,ip/reattributed/l-bad", when, f, a, l)
+		}
+	}
+	check("upgraded")
+	if _, err := s.PurgeExpired(time.Now().Add(1000*time.Hour), 24); err != nil {
+		t.Fatal(err)
+	}
+	check("after purge")
+}
+
+// Purge drops hit buckets past the 24 h max window, keeps younger ones.
+func TestPurgeExpiredClickHits(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	now := time.Now().UTC()
+	for _, b := range []time.Time{now.Add(-25 * time.Hour), now.Add(-23 * time.Hour)} {
+		if _, err := s.rawExec(`INSERT INTO click_hits (app_id, key_type, key, bucket, n) VALUES (?, 'link', ?, ?, 1)`, app.ID, link.ID, b.Format(bucketLayout)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.PurgeExpired(now, 24); err != nil {
+		t.Fatal(err)
+	}
+	var buckets []string
+	rows, _ := s.db.Query(`SELECT bucket FROM click_hits`)
+	for rows.Next() {
+		var b string
+		rows.Scan(&b)
+		buckets = append(buckets, b)
+	}
+	rows.Close()
+	if len(buckets) != 1 || buckets[0] != now.Add(-23*time.Hour).Format(bucketLayout) {
+		t.Errorf("buckets after purge = %v; want only the 23h-old one", buckets)
+	}
+}
+
+// DeleteLink drops that link's counter only; DeleteApp drops the app's counters and settings, other apps untouched.
+func TestDeleteRemovesFraudRows(t *testing.T) {
+	s := newTestStore(t)
+	a, la := setupApp(t, s)
+	b, _ := s.CreateApp("other", "k2")
+	lb, _ := s.CreateLink(Link{AppID: b.ID, Key: "xyz", URL: "https://example.com/b"})
+	la2, _ := s.CreateLink(Link{AppID: a.ID, Key: "two", URL: "https://example.com/two"})
+	for _, x := range []struct {
+		app string
+		l   string
+	}{{a.ID, la.ID}, {a.ID, la2.ID}, {b.ID, lb.ID}} {
+		if _, err := s.RecordClick(Click{AppID: x.app, LinkID: x.l, Destination: "d", Fingerprint: Fingerprint{IP: "203.0.113.7", UserAgent: x.l}}, 24); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{a.ID, b.ID} {
+		if err := s.UpdateFraudSettings(id, fraud.Defaults); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(q string, args ...any) int {
+		var n int
+		s.db.QueryRow(q, args...).Scan(&n)
+		return n
+	}
+	if err := s.DeleteLink(la2.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT COUNT(*) FROM click_hits WHERE key_type = 'link' AND key = ?`, la2.ID); n != 0 {
+		t.Errorf("link counter rows after DeleteLink = %d; want 0", n)
+	}
+	if n := count(`SELECT COUNT(*) FROM click_hits WHERE key_type = 'link' AND key = ?`, la.ID); n != 1 {
+		t.Errorf("sibling link counter rows = %d; want 1", n)
+	}
+	if err := s.DeleteApp(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT COUNT(*) FROM click_hits WHERE app_id = ?`, a.ID) + count(`SELECT COUNT(*) FROM fraud_settings WHERE app_id = ?`, a.ID); n != 0 {
+		t.Errorf("deleted app fraud rows = %d; want 0", n)
+	}
+	if n := count(`SELECT COUNT(*) FROM click_hits WHERE app_id = ?`, b.ID) + count(`SELECT COUNT(*) FROM fraud_settings WHERE app_id = ?`, b.ID); n != 3 {
+		t.Errorf("other app fraud rows = %d; want 3 (ip + link counters, settings)", n)
+	}
+}
+
+// Fingerprint count: probabilistic installs only, same hash and same link.
+func TestCountFingerprintInstalls(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	for i, in := range []Install{
+		{DeviceHash: "h", LinkID: link.ID, Method: MethodProbabilistic, Attribution: AttributionNonOrganic},
+		{DeviceHash: "h", LinkID: link.ID, Method: MethodProbabilistic, Attribution: AttributionNonOrganic},
+		{DeviceHash: "h", LinkID: link.ID, Method: MethodClickID, Attribution: AttributionNonOrganic},
+		{DeviceHash: "h", LinkID: "other", Method: MethodProbabilistic, Attribution: AttributionNonOrganic},
+		{DeviceHash: "x", LinkID: link.ID, Method: MethodProbabilistic, Attribution: AttributionNonOrganic},
+	} {
+		in.AppID, in.ClickID = app.ID, fmt.Sprint("c", i)
+		if _, err := s.RecordInstall(in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := s.CountFingerprintInstalls(app.ID, "h", link.ID, time.Now().Add(-time.Hour)); err != nil || n != 2 {
+		t.Errorf("CountFingerprintInstalls = %d, %v; want 2", n, err)
+	}
+}
+
+// Fraud report: per-signal counts over the range (every key present, ip and install_ip apart), latest 100 flagged installs newest first.
+func TestFraudAnalytics(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	now := time.Now().UTC()
+	for i := 0; i < 102; i++ {
+		f := "velocity"
+		if i%2 == 0 {
+			f = "velocity,ip"
+		}
+		if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: fmt.Sprint("d", i), Attribution: AttributionOrganic, Method: MethodOrganic,
+			Fraud: f, FraudAction: FraudActionExcluded, FraudLinkID: link.ID}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.rawExec(`UPDATE installs SET created_at = ? WHERE device_hash = ?`, rfc3339(now.Add(-time.Duration(102-i)*time.Second)), fmt.Sprint("d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// clean install and an out-of-range flagged one: not counted
+	s.RecordInstall(Install{AppID: app.ID, DeviceHash: "clean", Attribution: AttributionOrganic})
+	s.RecordInstall(Install{AppID: app.ID, DeviceHash: "old", Attribution: AttributionOrganic, Fraud: "timing"})
+	s.rawExec(`UPDATE installs SET created_at = ? WHERE device_hash = 'old'`, rfc3339(now.AddDate(0, 0, -30)))
+	// install-IP label: counted on its own, never as ip (",ip," is not a substring of ",install_ip,"); oldest, so outside the 100 listed
+	s.RecordInstall(Install{AppID: app.ID, DeviceHash: "hosted", Attribution: AttributionOrganic, Fraud: "install_ip"})
+	s.rawExec(`UPDATE installs SET created_at = ? WHERE device_hash = 'hosted'`, rfc3339(now.Add(-time.Hour)))
+
+	f, err := s.Fraud(app.ID, 7, now)
+	if err != nil {
+		t.Fatalf("Fraud: %v", err)
+	}
+	want := map[string]int64{fraud.SignalVelocity: 102, fraud.SignalTiming: 0, fraud.SignalUserAgent: 0, fraud.SignalIP: 51, fraud.SignalInstallIP: 1, fraud.SignalFingerprint: 0}
+	if !reflect.DeepEqual(f.Signals, want) {
+		t.Errorf("signals = %v; want %v", f.Signals, want)
+	}
+	if len(f.Installs) != 100 || f.Installs[0].DeviceHash != "d101" || f.Installs[99].DeviceHash != "d2" {
+		t.Fatalf("installs = %d, first %+v; want 100 newest first", len(f.Installs), f.Installs[0])
+	}
+	if in := f.Installs[0]; len(in.Fraud) != 1 || in.Fraud[0] != "velocity" || in.FraudAction != FraudActionExcluded || in.FraudLinkID != link.ID {
+		t.Errorf("install = %+v; want fraud [velocity], excluded, link", in)
+	}
+}
+
+// Fraud settings table gone: read returns the error and Defaults (callers fail open on it), write returns an error that is not ErrNotFound.
+func TestFraudSettingsBackendError(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	want := fraud.Defaults
+	want.VelocityMode = fraud.ModeActive
+	if err := s.UpdateFraudSettings(app.ID, want); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.rawExec(`DROP TABLE fraud_settings`); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.FraudSettings(app.ID); err == nil || got != fraud.Defaults {
+		t.Errorf("FraudSettings = %+v, %v; want Defaults and an error", got, err)
+	}
+	if err := s.UpdateFraudSettings(app.ID, want); err == nil || errors.Is(err, ErrNotFound) {
+		t.Errorf("UpdateFraudSettings = %v; want a backend error, not ErrNotFound", err)
+	}
+}
+
+// Installs table gone: fingerprint count, fraud report and signal counts all return errors.
+func TestFraudInstallQueriesBackendError(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	if _, err := s.rawExec(`DROP TABLE installs`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.CountFingerprintInstalls(app.ID, "h", link.ID, time.Now().Add(-time.Hour)); err == nil || n != 0 {
+		t.Errorf("CountFingerprintInstalls = %d, %v; want 0 and an error", n, err)
+	}
+	if _, err := s.Fraud(app.ID, 7, time.Now()); err == nil {
+		t.Error("Fraud: want an error")
+	}
+	if m, err := s.FraudSignals(app.ID, 7, time.Now()); err == nil || m != nil {
+		t.Errorf("FraudSignals = %v, %v; want nil and an error", m, err)
+	}
+}
+
+// Fraud report list fails after the counts succeed: a column only the list reads is gone, then a corrupt row (NULL id) fails the scan.
+func TestFraudListBackendError(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d", Attribution: AttributionOrganic, Fraud: "velocity"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.rawExec(`UPDATE installs SET id = NULL`); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := s.FraudSignals(app.ID, 7, time.Now()); err != nil || m[fraud.SignalVelocity] != 1 {
+		t.Fatalf("FraudSignals = %v, %v; want velocity 1", m, err)
+	}
+	if _, err := s.Fraud(app.ID, 7, time.Now()); err == nil {
+		t.Error("Fraud with a NULL-id row: want a scan error")
+	}
+	if _, err := s.rawExec(`ALTER TABLE installs DROP COLUMN fraud_link_id`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FraudSignals(app.ID, 7, time.Now()); err != nil {
+		t.Fatalf("FraudSignals after column drop: %v", err)
+	}
+	if _, err := s.Fraud(app.ID, 7, time.Now()); err == nil {
+		t.Error("Fraud without fraud_link_id: want a query error")
+	}
+}
+
+// Range edge: a 7-day report starts at 00:00 UTC six days back; an install a millisecond earlier is out, in both counts and list.
+func TestFraudRangeEdge(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	now := time.Now().UTC()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -6)
+	for dh, at := range map[string]time.Time{"in": start, "out": start.Add(-time.Millisecond)} {
+		if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: dh, Attribution: AttributionOrganic, Fraud: "timing"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.rawExec(`UPDATE installs SET created_at = ? WHERE device_hash = ?`, rfc3339(at), dh); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f, err := s.Fraud(app.ID, 7, now)
+	if err != nil {
+		t.Fatalf("Fraud: %v", err)
+	}
+	if f.Signals[fraud.SignalTiming] != 1 || len(f.Installs) != 1 || f.Installs[0].DeviceHash != "in" {
+		t.Errorf("7-day report = timing %d, installs %+v; want 1, only the install at %s", f.Signals[fraud.SignalTiming], f.Installs, start)
+	}
+}
+
+// Hit counter write fails for one key type (a trigger aborts the IP or the link bucket insert): RecordClick returns the error and leaves
+// no click and no rollup behind.
+func TestRecordClickHitsBackendError(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	for _, kt := range []string{"ip", "link"} {
+		if _, err := s.rawExec(`CREATE TRIGGER no_hits BEFORE INSERT ON click_hits WHEN NEW.key_type = '` + kt + `' BEGIN SELECT RAISE(ABORT, 'hits down'); END`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: Fingerprint{IP: "203.0.113.7"}}, 24); err == nil {
+			t.Errorf("%s bucket insert aborted: RecordClick err = nil; want an error", kt)
+		}
+		if _, err := s.rawExec(`DROP TRIGGER no_hits`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM clicks) + (SELECT COUNT(*) FROM click_days)`).Scan(&n)
+	if n != 0 {
+		t.Errorf("click + rollup rows = %d; want 0", n)
+	}
+}
+
+// Hit counter table gone: DeleteApp and DeleteLink fail and roll back (app, link, clicks kept); PurgeExpired returns the error.
+func TestFraudCleanupBackendError(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	if _, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 24); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.rawExec(`DROP TABLE click_hits`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteLink(link.ID); err == nil {
+		t.Error("DeleteLink: want an error")
+	}
+	if err := s.DeleteApp(app.ID); err == nil {
+		t.Error("DeleteApp: want an error")
+	}
+	if _, err := s.GetApp(app.ID); err != nil {
+		t.Errorf("app after failed delete: %v", err)
+	}
+	if _, err := s.GetLink(link.ID); err != nil {
+		t.Errorf("link after failed delete: %v", err)
+	}
+	if n, _ := s.CountClicks(app.ID); n != 1 {
+		t.Errorf("clicks after failed deletes = %d; want 1", n)
+	}
+	if _, err := s.PurgeExpired(time.Now(), 24); err == nil {
+		t.Error("PurgeExpired: want an error")
+	}
+}
+
+// Refresh keeps the hit maxima: 50 taps counted, then the buckets age out (deleted), so the next tap's fresh sums are 1, but the stored
+// counts stay at their peak.
+func TestRecordClickRefreshKeepsHitMax(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	c := Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Fingerprint: Fingerprint{IP: "203.0.113.7", UserAgent: "ua"}}
+	first, err := s.RecordClick(c, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.rawExec(`UPDATE click_hits SET n = 50`); err != nil {
+		t.Fatal(err)
+	}
+	peak, err := s.RecordClick(c, 24)
+	if err != nil || peak.HitsIP != 51 || peak.HitsLink != 51 {
+		t.Fatalf("peak = hits %d/%d, %v; want 51/51", peak.HitsIP, peak.HitsLink, err)
+	}
+	if _, err := s.rawExec(`DELETE FROM click_hits`); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.RecordClick(c, 24)
+	if err != nil || again.ID != first.ID || again.HitsIP != 51 || again.HitsLink != 51 {
+		t.Errorf("refresh = id %s hits %d/%d, %v; want %s, hits kept at 51/51", again.ID, again.HitsIP, again.HitsLink, err, first.ID)
 	}
 }

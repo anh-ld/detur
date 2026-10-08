@@ -186,7 +186,7 @@ func (s *Store) DeleteApp(id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	for _, t := range []string{"clicks", "installs", "events", "click_days", "event_days"} {
+	for _, t := range []string{"clicks", "installs", "events", "click_days", "event_days", "fraud_settings", "click_hits"} {
 		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE app_id = ?`, id); err != nil {
 			return fmt.Errorf("delete app %s: %w", t, err)
 		}
@@ -429,7 +429,7 @@ func (s *Store) UpdateLink(l Link) error {
 	return nil
 }
 
-// DeleteLink: link + its clicks (no FK on clicks; orphans would keep matching).
+// DeleteLink: link + its clicks (no FK on clicks; orphans would keep matching), rollups and link hit counter.
 func (s *Store) DeleteLink(id string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -448,6 +448,9 @@ func (s *Store) DeleteLink(id string) error {
 	}
 	if _, err := tx.Exec(`DELETE FROM click_days WHERE link_id = ?`, id); err != nil {
 		return fmt.Errorf("delete link rollups: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM click_hits WHERE key_type = 'link' AND key = ?`, id); err != nil {
+		return fmt.Errorf("delete link hits: %w", err)
 	}
 	return tx.Commit()
 }
@@ -502,9 +505,14 @@ type Click struct {
 	IsBot       bool
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
-	// Platform (ios | android | desktop | "") and Kind (KindApp | KindWeb | KindOpen) feed the click_days rollup only; not stored on the click row.
+	// Platform (ios | android | desktop | ""): click_days rollup only, not stored. Kind (KindApp | KindWeb | KindOpen): rollup + stored (open clicks skip UA/short-timing, KTD3).
 	Platform string
 	Kind     string
+	// Fraud facts (KTD1), judged at match time. FirstSeenAt: first tap (refresh keeps it). HitsIP/HitsLink: max hits seen over the velocity window, set by RecordClick.
+	FirstSeenAt      time.Time
+	UASuspect        bool
+	IPHosting        bool
+	HitsIP, HitsLink int
 }
 
 // Click kinds for analytics rollups (click_days.kind).
@@ -526,6 +534,11 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 		return Click{}, fmt.Errorf("record click: %w", err)
 	}
 	defer tx.Rollback()
+	// velocity counter before dedup: merged repeats still count (KTD2)
+	c.HitsIP, c.HitsLink, err = bumpHits(tx, c, now)
+	if err != nil {
+		return Click{}, fmt.Errorf("record click hits: %w", err)
+	}
 	existing, err := scanClick(tx.QueryRow(
 		`SELECT `+clickCols+` FROM clicks
 		 WHERE link_id = ? AND ip IS ? AND COALESCE(user_agent, '') = ? AND created_at >= ? AND expires_at >= ?
@@ -548,45 +561,51 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	c.CreatedAt = now
 	c.ExpiresAt = now.Add(expires)
 	_, err = tx.Exec(
-		`INSERT INTO clicks (id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO clicks (id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at,
+		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.AppID, c.LinkID, nullStr(c.Fingerprint.IP), nullStr(c.Fingerprint.Device),
 		nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone), nullStr(c.Fingerprint.Screen),
 		nullStr(c.Fingerprint.UserAgent), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink), c.Destination,
 		nullStr(c.ClickID), boolInt(c.IsBot), rfc3339(c.CreatedAt), rfc3339(c.ExpiresAt),
+		nullStr(c.Kind), rfc3339(c.CreatedAt), boolInt(c.UASuspect), boolInt(c.IPHosting), c.HitsIP, c.HitsLink,
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
 	}
-	// rollup counts new clicks only; a dedup refresh is the same click
-	_, err = tx.Exec(
-		`INSERT INTO click_days (app_id, link_id, day, platform, kind, n) VALUES (?, ?, ?, ?, ?, 1)
-		 ON CONFLICT DO UPDATE SET n = n + 1`,
-		c.AppID, c.LinkID, day(now), c.Platform, c.Kind,
-	)
-	if err != nil {
-		return Click{}, fmt.Errorf("record click rollup: %w", err)
+	// rollup counts new clicks only; a dedup refresh is the same click. UA-suspect stays out (R3).
+	if !c.UASuspect {
+		_, err = tx.Exec(
+			`INSERT INTO click_days (app_id, link_id, day, platform, kind, n) VALUES (?, ?, ?, ?, ?, 1)
+			 ON CONFLICT DO UPDATE SET n = n + 1`,
+			c.AppID, c.LinkID, day(now), c.Platform, c.Kind,
+		)
+		if err != nil {
+			return Click{}, fmt.Errorf("record click rollup: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
 	}
 	c.CreatedAt = parseTime(rfc3339(c.CreatedAt)) // stored precision
 	c.ExpiresAt = parseTime(rfc3339(c.ExpiresAt))
+	c.FirstSeenAt = c.CreatedAt
 	return c, nil
 }
 
-// refreshClick: dedup hit. Same id, created_at = now, expiry only extends, non-empty new signals overwrite.
+// refreshClick: dedup hit. Same id, created_at = now, expiry only extends, non-empty new signals overwrite, hit maxima only grow; first_seen_at kept.
 func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (Click, error) {
 	_, err := tx.Exec(
 		`UPDATE clicks SET created_at = ?, expires_at = MAX(expires_at, ?),
 		   device = COALESCE(?, device), locale = COALESCE(?, locale), timezone = COALESCE(?, timezone),
 		   screen = COALESCE(?, screen), os_version = COALESCE(?, os_version), pasted_link = COALESCE(?, pasted_link),
-		   destination = COALESCE(NULLIF(?, ''), destination)
+		   destination = COALESCE(NULLIF(?, ''), destination),
+		   hits_ip = MAX(hits_ip, ?), hits_link = MAX(hits_link, ?)
 		 WHERE id = ?`,
 		rfc3339(now), rfc3339(expires),
 		nullStr(c.Fingerprint.Device), nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone),
 		nullStr(c.Fingerprint.Screen), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink),
-		c.Destination, old.ID,
+		c.Destination, c.HitsIP, c.HitsLink, old.ID,
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click refresh: %w", err)
@@ -601,9 +620,11 @@ func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (
 	return refreshed, nil
 }
 
-const clickCols = `id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(os_version, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at`
+const clickCols = `id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(os_version, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at,
+  COALESCE(kind, ''), COALESCE(first_seen_at, created_at), ua_suspect, ip_hosting, hits_ip, hits_link`
 
-const clickColsC = `c.id, c.app_id, c.link_id, COALESCE(c.ip, ''), COALESCE(c.device, ''), COALESCE(c.locale, ''), COALESCE(c.timezone, ''), COALESCE(c.screen, ''), COALESCE(c.user_agent, ''), COALESCE(c.os_version, ''), COALESCE(c.pasted_link, ''), c.destination, COALESCE(c.click_id, ''), c.is_bot, c.created_at, c.expires_at`
+const clickColsC = `c.id, c.app_id, c.link_id, COALESCE(c.ip, ''), COALESCE(c.device, ''), COALESCE(c.locale, ''), COALESCE(c.timezone, ''), COALESCE(c.screen, ''), COALESCE(c.user_agent, ''), COALESCE(c.os_version, ''), COALESCE(c.pasted_link, ''), c.destination, COALESCE(c.click_id, ''), c.is_bot, c.created_at, c.expires_at,
+  COALESCE(c.kind, ''), COALESCE(c.first_seen_at, c.created_at), c.ua_suspect, c.ip_hosting, c.hits_ip, c.hits_link`
 
 func (s *Store) GetClick(id string) (Click, error) {
 	return scanClick(s.db.QueryRow(
@@ -665,7 +686,7 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	return clicks, rows.Err()
 }
 
-// PurgeExpired: expired clicks scrubbed; matched or past ClickIDHours deleted. Old events deleted. Returns rows deleted.
+// PurgeExpired: expired clicks scrubbed; matched or past ClickIDHours deleted. Old events deleted. Hit buckets past the 24h max window deleted (not counted). Returns rows deleted.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
 	if _, err := s.db.Exec(
@@ -690,6 +711,9 @@ func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	if n, _ := res.RowsAffected(); n > 0 {
 		removed += n
 	}
+	if _, err := s.db.Exec(`DELETE FROM click_hits WHERE bucket < ?`, now.UTC().Add(-24*time.Hour).Format(bucketLayout)); err != nil {
+		return 0, fmt.Errorf("purge click hits: %w", err)
+	}
 	return removed, nil
 }
 
@@ -709,10 +733,11 @@ func scanClickRows(row rowScanner) (Click, error) {
 	var (
 		c                                                                Click
 		ip, device, locale, timezone, screen, ua, osVer, pasted, clickID string
-		createdAt, expiresAt                                             string
+		createdAt, expiresAt, firstSeen                                  string
 	)
 	err := row.Scan(&c.ID, &c.AppID, &c.LinkID, &ip, &device, &locale, &timezone,
-		&screen, &ua, &osVer, &pasted, &c.Destination, &clickID, &c.IsBot, &createdAt, &expiresAt)
+		&screen, &ua, &osVer, &pasted, &c.Destination, &clickID, &c.IsBot, &createdAt, &expiresAt,
+		&c.Kind, &firstSeen, &c.UASuspect, &c.IPHosting, &c.HitsIP, &c.HitsLink)
 	if err != nil {
 		return Click{}, err
 	}
@@ -720,6 +745,7 @@ func scanClickRows(row rowScanner) (Click, error) {
 	c.ClickID = clickID
 	c.CreatedAt = parseTime(createdAt)
 	c.ExpiresAt = parseTime(expiresAt)
+	c.FirstSeenAt = parseTime(firstSeen)
 	return c, nil
 }
 
@@ -735,6 +761,9 @@ type Install struct {
 	Method      string // Method*; "" = NULL
 	Score       int    // best score; < 0 = NULL
 	RunnerUp    int    // second-best; < 0 = NULL
+	Fraud       string // fired signals, comma list (fraud.Signal*); "" = clean (KTD7)
+	FraudAction string // FraudAction*; "" = attribution untouched
+	FraudLinkID string // excluded best click's link
 }
 
 // RecordInstall: upsert install attribution idempotently per app, device, click; empty click_id marks organic/unknown installs, deduped per app + device too. Only an unknown row is upgraded by a later real attribution.
@@ -745,14 +774,15 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	now := time.Now().UTC()
 	i.CreatedAt = now
 	_, err := s.db.Exec(
-		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at, link_id, platform, method, score, runner_up)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at, link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(app_id, device_hash, click_id) DO UPDATE SET attribution = excluded.attribution,
 			   link_id = excluded.link_id, platform = excluded.platform,
-			   method = excluded.method, score = excluded.score, runner_up = excluded.runner_up
+			   method = excluded.method, score = excluded.score, runner_up = excluded.runner_up,
+			   fraud = excluded.fraud, fraud_action = excluded.fraud_action, fraud_link_id = excluded.fraud_link_id
 			 WHERE installs.attribution = ?`,
 		i.ID, i.AppID, i.DeviceHash, i.ClickID, i.Attribution, rfc3339(now), nullStr(i.LinkID), nullStr(i.Platform),
-		nullStr(i.Method), i.nullScore(i.Score), i.nullScore(i.RunnerUp), AttributionUnknown,
+		nullStr(i.Method), i.nullScore(i.Score), i.nullScore(i.RunnerUp), nullStr(i.Fraud), nullStr(i.FraudAction), nullStr(i.FraudLinkID), AttributionUnknown,
 	)
 	if err != nil {
 		return Install{}, fmt.Errorf("record install: %w", err)
@@ -790,6 +820,15 @@ func addMissingColumns(db *sql.DB) error {
 		{"installs", "runner_up", "INTEGER"},
 		{"apps", "sdk_version", "TEXT"},
 		{"apps", "sdk_seen_at", "TEXT"},
+		{"clicks", "kind", "TEXT"},
+		{"clicks", "first_seen_at", "TEXT"},
+		{"clicks", "ua_suspect", "INTEGER NOT NULL DEFAULT 0"},
+		{"clicks", "ip_hosting", "INTEGER NOT NULL DEFAULT 0"},
+		{"clicks", "hits_ip", "INTEGER NOT NULL DEFAULT 0"},
+		{"clicks", "hits_link", "INTEGER NOT NULL DEFAULT 0"},
+		{"installs", "fraud", "TEXT"},
+		{"installs", "fraud_action", "TEXT"},
+		{"installs", "fraud_link_id", "TEXT"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {

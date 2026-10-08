@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS clicks (
     matched_at  TEXT
 );
 
+-- clicks.kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link: addMissingColumns.
+
 CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_clickid ON clicks (click_id);
@@ -68,7 +70,7 @@ CREATE TABLE IF NOT EXISTS installs (
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (app_id, device_hash, click_id)
 );
--- installs.link_id, platform, method, score, runner_up: addMissingColumns.
+-- installs.link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id: addMissingColumns.
 
 CREATE INDEX IF NOT EXISTS idx_installs_app_attribution ON installs (app_id, attribution);
 
@@ -103,3 +105,33 @@ CREATE TABLE IF NOT EXISTS event_days (
     n      INTEGER NOT NULL,
     PRIMARY KEY (app_id, day, event)
 );
+
+-- Fraud settings: one row per app; no row = fraud.Defaults (all tagged).
+CREATE TABLE IF NOT EXISTS fraud_settings (
+    app_id                  TEXT PRIMARY KEY,
+    velocity_mode           TEXT NOT NULL,
+    timing_mode             TEXT NOT NULL,
+    user_agent_mode         TEXT NOT NULL,
+    ip_mode                 TEXT NOT NULL,
+    velocity_ip_max         INTEGER NOT NULL,
+    velocity_link_max       INTEGER NOT NULL,
+    velocity_window_minutes INTEGER NOT NULL,
+    timing_short_seconds    INTEGER NOT NULL,
+    timing_long_hours       INTEGER NOT NULL,
+    fingerprint_max         INTEGER NOT NULL,
+    fingerprint_window_days INTEGER NOT NULL
+);
+
+-- Velocity hit counter: raw tracked taps per minute. key_type ip (key = hashed
+-- IP, IPv6 /64) | link (key = link id). bucket = YYYY-MM-DDTHH:MM (UTC).
+-- Holds device data: PurgeExpired drops buckets older than 24h.
+CREATE TABLE IF NOT EXISTS click_hits (
+    app_id   TEXT NOT NULL,
+    key_type TEXT NOT NULL,
+    key      TEXT NOT NULL,
+    bucket   TEXT NOT NULL,
+    n        INTEGER NOT NULL,
+    PRIMARY KEY (app_id, key_type, key, bucket)
+);
+
+CREATE INDEX IF NOT EXISTS idx_click_hits_bucket ON click_hits (bucket);

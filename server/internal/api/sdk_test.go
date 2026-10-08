@@ -15,6 +15,8 @@ import (
 
 	_ "modernc.org/sqlite" // SQLite driver: tests drop tables to inject backend errors
 
+	"detur.dev/server/internal/fraud"
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 )
 
@@ -584,5 +586,241 @@ func TestSDKAnalyticsLabels(t *testing.T) {
 	}
 	if len(android.Links) != 1 || android.Links[0].Matches != 1 {
 		t.Errorf("android links = %+v; want the link with 1 match", android.Links)
+	}
+}
+
+// Fraud UA signal skips opens (KTD3): native okhttp UA on a universal-link open is not flagged; kind persisted.
+func TestUniversalLinkOpenNotUASuspect(t *testing.T) {
+	ts, s, _ := newTestServer(t)
+	app, _ := setup(t, s)
+	hdr := authHeaders(app.ID)
+	hdr["User-Agent"] = "okhttp/4.12.0"
+	resp, b := doPost(t, ts, "/api/link/universal-link-click",
+		`{"url":"https://lnk.example/abc","platform":"android"}`, hdr)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body %s; want 200", resp.StatusCode, b)
+	}
+	clicks, err := s.ClicksSince(app.ID, time.Now().Add(-time.Hour))
+	if err != nil || len(clicks) != 1 {
+		t.Fatalf("clicks = %v, %v; want 1", clicks, err)
+	}
+	if clicks[0].UASuspect || clicks[0].Kind != store.KindOpen {
+		t.Errorf("click = suspect %v kind %q; want false, %q", clicks[0].UASuspect, clicks[0].Kind, store.KindOpen)
+	}
+}
+
+// installRows: every install row for app as "attribution|fraud|fraud_action|fraud_link_id".
+func installRows(t *testing.T, path, appID string) []string {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT attribution || '|' || COALESCE(fraud, '') || '|' || COALESCE(fraud_action, '') || '|' || COALESCE(fraud_link_id, '') FROM installs WHERE app_id = ?`, appID)
+	if err != nil {
+		t.Fatalf("query installs: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var r string
+		if err := rows.Scan(&r); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func activeFraud(t *testing.T, s *store.Store, appID string, mut func(*fraud.Settings)) {
+	t.Helper()
+	f := fraud.Defaults
+	mut(&f)
+	if err := s.UpdateFraudSettings(appID, f); err != nil {
+		t.Fatalf("UpdateFraudSettings: %v", err)
+	}
+}
+
+// AE5 end to end: active-flagged clickId -> 404, one organic install carrying labels.
+func TestMatchLinkFlaggedClickIDOrganic(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, link := setup(t, s)
+	activeFraud(t, s, app.ID, func(f *fraud.Settings) { f.UserAgentMode = fraud.ModeActive })
+	c, err := s.RecordClick(store.Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, ClickID: "play-bot", UASuspect: true,
+		Fingerprint: store.Fingerprint{IP: testIP, UserAgent: "curl/8.0"}}, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, b := doPost(t, ts, "/api/link/match-link", `{"clickId":"play-bot"}`, authHeaders(app.ID))
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, body %s; want 404", resp.StatusCode, b)
+	}
+	// clickId is fresh: short timing fires too
+	want := "organic|timing,user_agent|excluded|" + link.ID
+	if got := installRows(t, path, app.ID); len(got) != 1 || got[0] != want {
+		t.Errorf("installs = %v; want [%s]", got, want)
+	}
+	if _, err := s.ClickByClickID(app.ID, c.ClickID); err != nil {
+		t.Errorf("excluded click consumed: %v", err)
+	}
+}
+
+// Same-device retry after a re-attributed match: PriorMatch returns the same click, labels kept, one row.
+func TestMatchLinkRetryAfterReattributed(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, link := setup(t, s)
+	activeFraud(t, s, app.ID, func(f *fraud.Settings) { f.VelocityMode = fraud.ModeActive })
+	clean, err := s.RecordClick(store.Click{AppID: app.ID, LinkID: link.ID, Destination: "https://example.com/clean",
+		Fingerprint: store.Fingerprint{IP: otherIP, Device: "Pixel 7", Locale: "en", Timezone: "Europe/Warsaw", Screen: "393x852@3",
+			UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/TQ3A.230805.001)"}}, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flagged := recordAndroidClick(t, s, app, link) // newer: wins the 950 tie (TRUST_PROXY off, no IP match), so it is the excluded overall best
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano)
+	if _, err := db.Exec(`UPDATE clicks SET first_seen_at = ?`, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE clicks SET hits_ip = 50 WHERE id = ?`, flagged.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	hdr := authHeaders(app.ID)
+	for i := range 2 {
+		resp, b := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), hdr)
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), clean.Destination) {
+			t.Fatalf("attempt %d: status %d body %s; want clean destination", i, resp.StatusCode, b)
+		}
+	}
+	want := "non_organic|velocity|reattributed|" + link.ID
+	if got := installRows(t, path, app.ID); len(got) != 1 || got[0] != want {
+		t.Errorf("installs = %v; want [%s]", got, want)
+	}
+}
+
+// Same-device retry after an excluded match: PriorMatch misses (organic), matching re-runs to organic again, click unconsumed, one row.
+func TestMatchLinkRetryAfterExcluded(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, link := setup(t, s)
+	activeFraud(t, s, app.ID, func(f *fraud.Settings) { f.VelocityMode = fraud.ModeActive })
+	flagged := recordAndroidClick(t, s, app, link)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE clicks SET hits_ip = 50, first_seen_at = ? WHERE id = ?`, time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano), flagged.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	hdr := authHeaders(app.ID)
+	for i := range 2 {
+		if resp, b := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), hdr); resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("attempt %d: status %d body %s; want 404", i, resp.StatusCode, b)
+		}
+	}
+	want := "organic|velocity|excluded|" + link.ID
+	if got := installRows(t, path, app.ID); len(got) != 1 || got[0] != want {
+		t.Errorf("installs = %v; want [%s]", got, want)
+	}
+	if _, err := s.ClickByClickID(app.ID, flagged.ClickID); err != nil {
+		t.Errorf("excluded click consumed: %v", err)
+	}
+}
+
+// execSQL: raw statement via second connection (WAL allows it).
+func execSQL(t *testing.T, path, q string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(q, args...); err != nil {
+		t.Fatalf("exec %q: %v", q, err)
+	}
+}
+
+// Fingerprint concentration end to end, FingerprintMax 5: one device configuration installs five times, each from a real click whose
+// retention then lapses (so PriorMatch no longer answers). Installs 1-4 are clean; the 5th (4 priors on the link) is labeled, still attributed.
+func TestMatchLinkFingerprintConcentration(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, link := setup(t, s)
+	activeFraud(t, s, app.ID, func(f *fraud.Settings) { f.FingerprintMax = 5 })
+	for round := 1; round <= 5; round++ {
+		c := recordAndroidClick(t, s, app, link)
+		execSQL(t, path, `UPDATE clicks SET first_seen_at = ? WHERE id = ?`, time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano), c.ID)
+		resp, b := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), authHeaders(app.ID))
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), link.URL) {
+			t.Fatalf("round %d: status %d body %s; want 200 with link", round, resp.StatusCode, b)
+		}
+		execSQL(t, path, `UPDATE clicks SET expires_at = ? WHERE id = ?`, time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano), c.ID)
+
+		rows := installRows(t, path, app.ID)
+		labeled := 0
+		for _, r := range rows {
+			switch r {
+			case "non_organic|fingerprint||":
+				labeled++
+			case "non_organic|||":
+			default:
+				t.Errorf("round %d: install row %q; want non_organic, clean or fingerprint", round, r)
+			}
+		}
+		want := 0
+		if round == 5 {
+			want = 1
+		}
+		if len(rows) != round || labeled != want {
+			t.Errorf("round %d: %d installs, %d labeled; want %d, %d", round, len(rows), labeled, round, want)
+		}
+	}
+}
+
+// Universal-link open from a hosting range records ip_hosting (KTD3: IP still judged on opens); a documentation-range IP does not.
+func TestUniversalLinkOpenHostingIP(t *testing.T) {
+	httpx.TrustProxy = true
+	t.Cleanup(func() { httpx.TrustProxy = false })
+	ts, s, _ := newTestServer(t)
+	app, _ := setup(t, s)
+	for _, ip := range []string{"3.5.140.1", testIP} {
+		hdr := authHeaders(app.ID)
+		hdr["X-Forwarded-For"] = ip
+		if resp, b := doPost(t, ts, "/api/link/universal-link-click", `{"url":"https://lnk.example/abc"}`, hdr); resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status = %d, body %s; want 200", ip, resp.StatusCode, b)
+		}
+	}
+	clicks, err := s.ClicksSince(app.ID, time.Now().Add(-time.Hour))
+	if err != nil || len(clicks) != 2 {
+		t.Fatalf("clicks = %v, %v; want 2", clicks, err)
+	}
+	got := map[string]bool{}
+	for _, c := range clicks {
+		got[c.Fingerprint.IP] = c.IPHosting
+	}
+	if !got["3.5.140.1"] || got[testIP] {
+		t.Errorf("ip_hosting by IP = %v; want 3.5.140.1 true, %s false", got, testIP)
+	}
+}
+
+// Hit counter table gone: universal-link-click still answers the allow shape with a clickId (fail-open); no click is recorded.
+func TestUniversalLinkClickFailOpenOnHitsError(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, _ := setup(t, s)
+	dropTable(t, path, "click_hits")
+	resp, b := doPost(t, ts, "/api/link/universal-link-click", `{"url":"https://lnk.example/abc"}`, authHeaders(app.ID))
+	var out struct {
+		Allowed bool   `json:"allowed"`
+		ClickID string `json:"clickId"`
+	}
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(b, &out) != nil || !out.Allowed || out.ClickID == "" {
+		t.Fatalf("status %d body %s; want 200 allowed with a clickId", resp.StatusCode, b)
+	}
+	if n, err := s.CountClicks(app.ID); err != nil || n != 0 {
+		t.Errorf("clicks = %d, %v; want 0", n, err)
 	}
 }
