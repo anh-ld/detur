@@ -237,6 +237,51 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
+  it('link analytics flow: events from a tagged device reach Conversions by link; Retention by link counts the device, unreached marks show –', async () => {
+    const app = await api.createApp(uniq('tag-app'));
+    const key = uniq('tag');
+    await api.createLink(app.id, { key, url: 'https://example.com/t', ios: '', android: '', fallbackUrl: '' });
+    const sdk = (path: string, body: object) =>
+      fetch(`${SDK}/api/analytics/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${app.apiKey}`, 'X-App-ID': app.id, 'X-SDK': 'react-native/2.3.1' },
+        body: JSON.stringify(body),
+      });
+    expect((await sdk('event', { event_name: 'detur_link', data: { link: key }, device_id: 'dev-1' })).status).toBe(200);
+    expect((await sdk('event', { event_name: 'purchase', data: {}, device_id: 'dev-1' })).status).toBe(200);
+    expect((await sdk('retention', { event_name: 'app_open', device_id: 'dev-1' })).status).toBe(200);
+
+    location.hash = `#/apps/${app.id}/analytics`;
+    render(<App />);
+    const conv = await screen.findByRole('region', { name: 'Conversions by link' });
+    await waitFor(() => expect(within(conv).getAllByRole('row')).toHaveLength(2)); // header + purchase; the tag marker is not a conversion
+    expect(within(conv).getByText('purchase').closest('tr')!.querySelector('[data-label="Count"]')!.textContent).toBe('1');
+    const ret = screen.getByRole('region', { name: 'Retention by link' });
+    const tr = within(ret).getByText(key).closest('tr')!;
+    expect(tr.querySelector('[data-label="Devices"]')!.textContent).toBe('1');
+    expect(tr.querySelector('[data-label="Day 1"]')!.textContent).toBe('–');
+    await api.deleteApp(app.id);
+  });
+
+  it('tag links flow: the switch saves on press with a toast; match-link then hands the app detur_link=<key>', async () => {
+    const app = await api.createApp(uniq('tagset-app'));
+    const key = uniq('tagset');
+    await api.createLink(app.id, { key, url: 'https://example.com/d', ios: 'https://apps.apple.com/app/id123', android: '', fallbackUrl: '' });
+    location.hash = `#/apps/${app.id}/settings`;
+    render(<App />);
+    const sw = (await screen.findByLabelText('Tag deferred links')) as HTMLInputElement;
+    expect(sw.checked).toBe(false);
+    fireEvent.click(sw);
+    await findToast('Tag deferred links: on');
+    expect((await api.getApp(app.id)).tagLinks).toBe(true);
+
+    await click(key, IPHONE, true);
+    const res = await matchLink(app);
+    expect(res.status).toBe(200);
+    expect((await res.json()).link).toBe(`https://example.com/d?detur_link=${key}`);
+    await api.deleteApp(app.id);
+  });
+
   it('tab flow: Links lands first, each tab hash renders its own content, aria-selected follows the hash, filters only on Links/Analytics', async () => {
     const app = await api.createApp(uniq('tabs-app'));
     location.hash = `#/apps/${app.id}`;

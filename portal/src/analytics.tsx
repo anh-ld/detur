@@ -1,7 +1,7 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Card, Select, Table } from 'kinu';
-import { Analytics, DayStat, Platform } from './api';
+import { Analytics, DayStat, Mark, Platform } from './api';
 import { mono, muted, row } from './ui';
 
 // Series colors: a blue ramp around the brand cyan, one warm gray.
@@ -153,6 +153,8 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
   const clicks = sum(days, 'clicks');
   const viaLink = sum(days, 'nonOrganic');
   const sources = data?.sources ?? []; // older servers / fixtures omit it
+  const retention = data?.retention ?? [];
+  const conversions = data?.conversions ?? [];
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16 }}>
@@ -254,9 +256,88 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
           </Table>
         )}
       </section>
+
+      <section aria-label="Retention by link" style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'grid', gap: 4 }}>
+          <h3 style={{ margin: 0 }}>Retention by link</h3>
+          <p style={muted}>
+            Devices your app tagged with a link, and the share that opened the app again exactly 1, 7 and 30 days later. All
+            platforms.
+          </p>
+        </div>
+        {!data ? (
+          <Skeleton h={36} />
+        ) : retention.length === 0 ? (
+          <p style={muted}>No tagged devices in this range.</p>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <th>Link</th>
+                <th style={{ textAlign: 'right' }}>Devices</th>
+                <th style={{ textAlign: 'right' }}>Day 1</th>
+                <th style={{ textAlign: 'right' }}>Day 7</th>
+                <th style={{ textAlign: 'right' }}>Day 30</th>
+              </tr>
+            </thead>
+            <tbody>
+              {retention.map((r) => (
+                <tr key={r.linkId}>
+                  <td style={mono}>{r.key}</td>
+                  <td data-label="Devices" className="num">
+                    {fmt(r.devices)}
+                  </td>
+                  {(['d1', 'd7', 'd30'] as const).map((m) => (
+                    <td key={m} data-label={`Day ${m.slice(1)}`} className="num" title={markTitle(r[m])}>
+                      {rate(r[m])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </section>
+
+      <section aria-label="Conversions by link" style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'grid', gap: 4 }}>
+          <h3 style={{ margin: 0 }}>Conversions by link</h3>
+          <p style={muted}>Top events from devices your app tagged with a link. All platforms.</p>
+        </div>
+        {!data ? (
+          <Skeleton h={36} />
+        ) : conversions.length === 0 ? (
+          <p style={muted}>No events from tagged devices in this range.</p>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <th>Link</th>
+                <th>Event</th>
+                <th style={{ textAlign: 'right' }}>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {conversions.map((c) => (
+                <tr key={c.linkId + c.event}>
+                  <td style={mono}>{c.key}</td>
+                  <td style={mono}>{c.event}</td>
+                  <td data-label="Count" className="num">
+                    {fmt(c.count)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </section>
     </div>
   );
 }
+
+// Retention cell: share of the mark's devices that came back; – when no cohort has reached that mark in range.
+const rate = (m: Mark) => (m.devices === 0 ? '–' : `${Math.round((m.returned / m.devices) * 100)}%`);
+const markTitle = (m: Mark) => (m.devices === 0 ? 'No cohort reached this day in range' : `${fmt(m.returned)} of ${fmt(m.devices)} devices`);
 
 // Container width for the SVG, so axis text stays at real pixel size on any screen.
 function useWidth() {
