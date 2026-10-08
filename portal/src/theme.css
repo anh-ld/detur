@@ -425,6 +425,107 @@ header > div > a:first-child {
   }
 }
 
+/* App page tabs: segmented pills on the left, filters on the right */
+.tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+/* Fraud signals: one bordered list, a row per signal; text left, mode switch right */
+.signal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: var(--k-radius);
+  background: hsl(var(--k-card));
+}
+
+.signal-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 20px;
+}
+
+.signal-row + .signal-row {
+  border-top: 1px solid hsl(var(--k-border));
+}
+
+.signal-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.signal-text h3 {
+  margin: 0;
+  font-size: 15px !important;
+  font-weight: 500;
+}
+
+.signal-rule {
+  margin: 6px 0 0;
+  line-height: 2.4;
+}
+
+/* number fields sitting inside a sentence */
+.inline-num {
+  display: inline-block;
+  width: 84px;
+  height: 32px;
+  padding: 0 8px;
+  margin: 0 2px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  vertical-align: baseline;
+}
+
+.tag-only {
+  flex: none;
+  color: hsl(var(--k-muted-foreground));
+  font-size: 13px;
+  padding-top: 4px;
+}
+
+.mode-toggle {
+  flex: none;
+}
+
+/* tagged is the calm default: pressed but neutral; only active takes the accent */
+.mode-toggle [data-mode="tagged"][aria-pressed="true"] {
+  background: hsl(var(--k-secondary));
+  color: hsl(var(--k-foreground));
+  border-color: hsl(var(--k-input));
+  box-shadow: none;
+}
+
+/* flagged installs per signal: plain numbers above the table, no card */
+.signal-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0;
+}
+
+.signal-counts dt {
+  color: hsl(var(--k-muted-foreground));
+  font-size: 13px;
+}
+
+.signal-counts dd {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+
 @media (prefers-reduced-motion: reduce) {
   .skeleton,
   .spin {
@@ -568,6 +669,17 @@ header > div > a:first-child {
     margin-bottom: 0.5rem;
     border-radius: 9999px;
     background: hsl(var(--k-input));
+  }
+
+  /* signal rows: switch drops under the text so sentences keep their width */
+  .signal-row {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .inline-num {
+    width: 72px;
   }
 
   /* 16px inputs stop iOS from zooming on focus */

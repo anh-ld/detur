@@ -2,7 +2,7 @@ import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Card, Select, Table } from 'kinu';
 import { Analytics, DayStat, Platform } from './api';
-import { muted, row } from './ui';
+import { mono, muted, row } from './ui';
 
 // Series colors: a blue ramp around the brand cyan, one warm gray.
 const CYAN = 'hsl(205 87% 59%)';
@@ -32,7 +32,7 @@ const sum = (days: DayStat[], k: Metric) => days.reduce((n, d) => n + d[k], 0);
 export const fmt = (n: number) => n.toLocaleString('en');
 
 // Placeholder bar while data loads.
-const Skeleton = ({ w = '100%', h }: { w?: number | string; h: number }) => (
+export const Skeleton = ({ w = '100%', h }: { w?: number | string; h: number }) => (
   <span class="skeleton" style={{ width: w, height: h }} />
 );
 

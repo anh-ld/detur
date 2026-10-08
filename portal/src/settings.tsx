@@ -1,15 +1,11 @@
+import { JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import {
   Alert,
   Badge,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
   Button,
   Card,
   Dialog,
-  Empty,
   Field,
   Input,
   Label,
@@ -17,51 +13,17 @@ import {
   Table,
 } from 'kinu';
 import { api, App, CreatedApp, HealthCheck, MatchQuality } from './api';
-import { ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
+import { closeDialog, ConfirmDelete, CopyButton, mono, muted, row } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 
 const sectionTitle = { margin: '40px 0 16px', fontSize: 20 };
 
-// Per-app settings: app config (well-known files), API key, matching.
-export function SettingsPage({ id }: { id: string }) {
-  const [app, setApp] = useState<App | null>(null);
+// Settings tab: health, app config (well-known files), API key, matching, match quality.
+export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: App) => void; onReload: () => void }) {
   const [error, setError] = useState('');
-
-  const loadAll = () => {
-    setError('');
-    api
-      .getApp(id)
-      .then(setApp)
-      .catch((e) => setError(String(e)));
-  };
-  useEffect(loadAll, [id]);
-
-  if (app === null && error === '') return <Spinner />;
-  if (app === null)
-    return (
-      <Card style={{ marginTop: 32 }}>
-        <Empty>
-          <h3>App not found</h3>
-          <Button variant="outline" href="#/">
-            Back to apps
-          </Button>
-        </Empty>
-      </Card>
-    );
 
   return (
     <div>
-      <Breadcrumb style={{ ...muted, marginTop: 24, marginBottom: -16 }}>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="#/">Apps</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbItem>
-            <BreadcrumbLink href={`#/apps/${app.id}`}>{app.name}</BreadcrumbLink>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-      <PageHeader title="Settings" />
       {error && <Alert variant="destructive">{error}</Alert>}
 
       <h2 style={{ ...sectionTitle, marginTop: 0 }}>Health</h2>
@@ -70,7 +32,7 @@ export function SettingsPage({ id }: { id: string }) {
 
       <h2 style={sectionTitle}>App config</h2>
       <p style={{ ...muted, marginBottom: 16 }}>Used to serve the iOS and Android well-known files.</p>
-      <AppConfigTable app={app} onSaved={setApp} />
+      <AppConfigTable app={app} onSaved={onApp} />
 
       <h2 style={sectionTitle}>API key</h2>
       <Table>
@@ -98,7 +60,7 @@ export function SettingsPage({ id }: { id: string }) {
             </td>
             <td>
               <div style={{ ...row, justifyContent: 'flex-end' }}>
-                <RotateKeyDialog app={app} onChanged={loadAll} />
+                <RotateKeyDialog app={app} onChanged={onReload} />
                 <ConfirmDelete
                   title={`Remove the API key for ${app.name}?`}
                   body="The SDK stops accepting it. Rotate a new key to get access back."
@@ -106,7 +68,7 @@ export function SettingsPage({ id }: { id: string }) {
                     setError('');
                     try {
                       await api.revokeKey(app.id);
-                      loadAll();
+                      onReload();
                     } catch (e) {
                       setError(String(e));
                     }
@@ -120,7 +82,7 @@ export function SettingsPage({ id }: { id: string }) {
 
       <h2 style={sectionTitle}>Matching</h2>
       <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
-      <MatchingTable app={app} onSaved={setApp} />
+      <MatchingTable app={app} onSaved={onApp} />
 
       <h2 style={sectionTitle}>Match quality</h2>
       <p style={{ ...muted, marginBottom: 16 }}>Installs from the last 30 days: how each was attributed, and the score it got.</p>
@@ -149,7 +111,7 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
     }
   };
 
-  const field = (id: string, key: keyof typeof draft, placeholder: string, style?: object) => (
+  const field = (id: string, key: keyof typeof draft, placeholder: string, style?: JSX.CSSProperties) => (
     <Input
       id={id}
       value={draft[key]}
