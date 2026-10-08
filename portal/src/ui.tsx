@@ -1,6 +1,6 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Dialog } from 'kinu';
+import { Button, Dialog, Spinner } from 'kinu';
 
 // Shared layout bits: kinu token colors, no layout primitives.
 export const muted = { color: 'hsl(var(--k-muted-foreground))', fontSize: 14, margin: 0 };
@@ -40,6 +40,13 @@ export function openDialog(id: string) {
 export function closeDialog(id: string) {
   (document.getElementById(id) as HTMLDialogElement | null)?.close();
 }
+
+// Page/section loading state: kinu's Spinner is inline-block, so center it.
+export const Loading = () => (
+  <div style={{ display: 'grid', placeItems: 'center', padding: '48px 0' }}>
+    <Spinner />
+  </div>
+);
 
 export function PageHeader({
   title,

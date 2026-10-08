@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Spinner, Table } from 'kinu';
+import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Table } from 'kinu';
 import { api, App, CreatedApp } from './api';
-import { ConfirmDelete, CopyButton, mono, muted, PageHeader, row } from './ui';
+import { ConfirmDelete, CopyButton, Loading, mono, muted, PageHeader, row } from './ui';
 
 export function AppsPage() {
   const [apps, setApps] = useState<App[] | null>(null);
@@ -108,7 +108,7 @@ export function AppsPage() {
       <PageHeader title="Apps" description="Each app has its own API key, links and install stats." actions={createDialog} />
       {error && <Alert variant="destructive">{error}</Alert>}
       {apps === null ? (
-        <Spinner />
+        <Loading />
       ) : apps.length === 0 ? (
         <Card>
           <Empty>

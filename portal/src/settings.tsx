@@ -9,11 +9,10 @@ import {
   Field,
   Input,
   Label,
-  Spinner,
   Table,
 } from 'kinu';
 import { api, App, CreatedApp, HealthCheck, MatchQuality } from './api';
-import { closeDialog, ConfirmDelete, CopyButton, mono, muted, row } from './ui';
+import { closeDialog, ConfirmDelete, CopyButton, Loading, mono, muted, row } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 
 const sectionTitle = { margin: '40px 0 16px', fontSize: 20 };
@@ -271,7 +270,7 @@ function HealthTable({ app }: { app: App }) {
   useEffect(() => {
     api.getHealth(app.id).then(setChecks, () => setChecks([]));
   }, [app]);
-  if (!checks) return <Spinner />;
+  if (!checks) return <Loading />;
   return (
     <Table>
       <thead>
@@ -312,7 +311,7 @@ export function MatchQualityView({ app }: { app: App }) {
     api.getMatchQuality(app.id).then(setQ, () => setQ({ methods: {}, buckets: [] }));
   }, [app.id]);
   useEffect(() => setAt(app.matchThreshold), [app.matchThreshold]);
-  if (!q) return <Spinner />;
+  if (!q) return <Loading />;
 
   const top = Math.max(1, ...q.buckets.map((b) => b.matched + b.organic));
   const lose = q.buckets.filter((b) => b.from < at).reduce((n, b) => n + b.matched, 0);

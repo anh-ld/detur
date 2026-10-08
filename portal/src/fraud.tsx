@@ -1,10 +1,10 @@
 import { JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Alert, Badge, Card, Empty, Input, Select, Spinner, Table, toast, Toggle, ToggleGroup } from 'kinu';
+import { Alert, Badge, Card, Empty, Input, Select, Table, toast, Toggle, ToggleGroup } from 'kinu';
 import { api, FlaggedInstall, Fraud, FraudMode, FraudSettings } from './api';
 import { FRAUD_RANGES, FraudNumKey, SIGNALS } from './matching';
 import { fmt, Skeleton } from './analytics';
-import { mono, muted, row } from './ui';
+import { Loading, mono, muted, row } from './ui';
 
 type Signal = (typeof SIGNALS)[number];
 
@@ -48,7 +48,7 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
     };
   }, [appId, tick]);
 
-  if (!view) return loadError ? <Alert variant="destructive">{loadError}</Alert> : <Spinner />;
+  if (!view) return loadError ? <Alert variant="destructive">{loadError}</Alert> : <Loading />;
 
   // Patch one field on top of the saved settings; unsaved edits elsewhere never ride along.
   const save = async (what: string, patch: Partial<FraudSettings>) => {
