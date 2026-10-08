@@ -143,7 +143,26 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.st.RecordInstall(inst); err != nil {
 		s.log.Printf("match-link install record failed (link still returned): %v", err)
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{"link": res.Destination})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"link": s.withLinkTag(appID, res.Destination, func() string {
+		link, err := s.st.GetLink(res.Click.LinkID)
+		if err != nil {
+			return ""
+		}
+		return link.Key
+	})})
+}
+
+// withLinkTag: dest + detur_link=<key> (add-only) when the app tags links, so the app learns its link key (SDK hands it only the destination). key is read only then; lookup failure or "" key: dest unchanged.
+func (s *sdkServer) withLinkTag(appID, dest string, key func() string) string {
+	app, err := s.st.GetApp(appID)
+	if err != nil || !app.TagLinks {
+		return dest
+	}
+	k := key()
+	if k == "" {
+		return dest
+	}
+	return httpx.AddParams(dest, url.Values{store.LinkTag: {k}}, func(string, string) bool { return true })
 }
 
 // resolveShort serves POST /api/link/resolve-short: map short URL to destination. SDK casts raw body to {link, route, parameters}, reads only link; 404 -> null (client falls back to original URL).
@@ -185,7 +204,7 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 		dest = link.ExpiredURL
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{
-		"link":       dest,
+		"link":       s.withLinkTag(appID, dest, func() string { return link.Key }),
 		"route":      u.Path,
 		"parameters": u.RawQuery,
 	})
@@ -239,15 +258,15 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 }
 
 func (s *sdkServer) analyticsEvent(w http.ResponseWriter, r *http.Request) {
-	s.recordAnalytics(w, r, "")
+	s.recordAnalytics(w, r, false)
 }
 
 func (s *sdkServer) analyticsRetention(w http.ResponseWriter, r *http.Request) {
-	s.recordAnalytics(w, r, "retention")
+	s.recordAnalytics(w, r, true)
 }
 
-// recordAnalytics persists analytics body: event name from event_name (SDK verbatim), task-spec "event" key or endpoint default as fallback; full body JSON stored as metadata.
-func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defaultName string) {
+// recordAnalytics persists analytics body: event name from event_name (SDK verbatim), task-spec "event" key or "retention" (retention endpoint) as fallback; full body JSON stored as metadata. Then feeds per-link rollups from device_id + data.link (best-effort: raw event already stored).
+func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, retention bool) {
 	appID := r.Header.Get("X-App-ID")
 	var body map[string]json.RawMessage
 	if err := decodeJSON(w, r, &body); err != nil {
@@ -255,8 +274,8 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defa
 		return
 	}
 	name := firstString(body, "event_name", "event")
-	if name == "" {
-		name = defaultName
+	if name == "" && retention {
+		name = "retention"
 	}
 	md, err := json.Marshal(body)
 	if err != nil {
@@ -267,6 +286,15 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, defa
 		s.log.Printf("%s backend error: %v", r.URL.Path, err)
 		httpx.WriteJSON(w, http.StatusInternalServerError, errorBody("internal error"))
 		return
+	}
+	var data struct {
+		Link string `json:"link"`
+	}
+	_ = json.Unmarshal(body["data"], &data) // absent or non-object data: no tag
+	if err := s.st.RecordLinkEvent(store.LinkEvent{
+		AppID: appID, Device: firstString(body, "device_id"), LinkKey: linkKey(data.Link), Event: name, Retention: retention,
+	}, time.Now()); err != nil {
+		s.log.Printf("%s link analytics failed (event kept): %v", r.URL.Path, err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }

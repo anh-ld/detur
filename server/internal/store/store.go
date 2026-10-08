@@ -117,6 +117,7 @@ type App struct {
 	AndroidCertFingerprint string
 	MatchThreshold         int
 	MatchWindowMinutes     int
+	TagLinks               bool // match-link + resolve-short destinations carry detur_link=<key>
 }
 
 // CreateApp: insert app; apiKey returned once from portal, only hash stored.
@@ -135,9 +136,9 @@ func (s *Store) CreateApp(name, apiKey string) (App, error) {
 func (s *Store) GetApp(id string) (App, error) {
 	var a App
 	err := s.db.QueryRow(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes, tag_links
 		 FROM apps WHERE id = ?`, id,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes)
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -174,6 +175,18 @@ func (s *Store) UpdateAppMatchSettings(id string, threshold, windowMinutes int) 
 	return nil
 }
 
+// UpdateAppTagLinks: turn destination link tagging on or off; ErrNotFound if app unknown.
+func (s *Store) UpdateAppTagLinks(id string, on bool) error {
+	res, err := s.db.Exec(`UPDATE apps SET tag_links = ? WHERE id = ?`, boolInt(on), id)
+	if err != nil {
+		return fmt.Errorf("update app tag links: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // DeleteApp: remove app; links cascade (schema ON DELETE CASCADE), clicks/installs/events have no FK so deleted explicitly. New app_id tables go here.
 func (s *Store) DeleteApp(id string) error {
 	tx, err := s.db.Begin()
@@ -199,7 +212,7 @@ func (s *Store) DeleteApp(id string) error {
 
 func (s *Store) ListApps() ([]App, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes, tag_links
 		 FROM apps ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list apps: %w", err)
@@ -208,7 +221,7 @@ func (s *Store) ListApps() ([]App, error) {
 	var apps []App
 	for rows.Next() {
 		var a App
-		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks); err != nil {
 			return nil, err
 		}
 		apps = append(apps, a)
@@ -896,6 +909,7 @@ func addMissingColumns(db *sql.DB) error {
 		{"installs", "fraud", "TEXT"},
 		{"installs", "fraud_action", "TEXT"},
 		{"installs", "fraud_link_id", "TEXT"},
+		{"apps", "tag_links", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {

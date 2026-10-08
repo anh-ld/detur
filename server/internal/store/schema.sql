@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS apps (
     match_window_minutes    INTEGER NOT NULL DEFAULT 15,
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
--- apps.sdk_version, sdk_seen_at: addMissingColumns.
+-- apps.sdk_version, sdk_seen_at, tag_links: addMissingColumns.
 
 CREATE TABLE IF NOT EXISTS links (
     id             TEXT PRIMARY KEY,
