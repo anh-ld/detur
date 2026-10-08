@@ -24,6 +24,7 @@ import { closeDialog, ConfirmDelete, Loading, mono, muted, PageHeader, row } fro
 import { AnalyticsView, Filters, fmt } from './analytics';
 import { FraudPanel } from './fraud';
 import { SettingsPanel } from './settings';
+import { WebhooksPanel } from './webhooks';
 
 interface LinkDraft {
   key: string;
@@ -57,13 +58,14 @@ const Icon = ({ d, spin }: { d: string; spin?: boolean }) => (
   </svg>
 );
 
-export type AppTab = 'links' | 'analytics' | 'fraud' | 'settings';
+export type AppTab = 'links' | 'analytics' | 'fraud' | 'settings' | 'webhooks';
 
 const TABS: { tab: AppTab; label: string }[] = [
   { tab: 'links', label: 'Links' },
   { tab: 'analytics', label: 'Analytics' },
   { tab: 'fraud', label: 'Fraud' },
   { tab: 'settings', label: 'Settings' },
+  { tab: 'webhooks', label: 'Webhooks' },
 ];
 
 const tabHref = (id: string, tab: AppTab) => `#/apps/${encodeURIComponent(id)}${tab === 'links' ? '' : '/' + tab}`;
@@ -258,6 +260,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
       {tab === 'analytics' && <AnalyticsView data={stats} />}
       {tab === 'fraud' && <FraudPanel appId={app.id} tick={tick} />}
       {tab === 'settings' && <SettingsPanel app={app} onApp={setApp} onReload={loadAll} />}
+      {tab === 'webhooks' && <WebhooksPanel app={app} tick={tick} />}
     </div>
   );
 }

@@ -160,4 +160,36 @@ export const api = {
     req<FraudSettings>('PATCH', `/api/apps/${appId}/fraud/settings`, s),
   getAnalytics: (appId: string, days: number, platform: Platform) =>
     req<Analytics>('GET', `/api/apps/${appId}/analytics?days=${days}${platform ? `&platform=${platform}` : ''}`),
+  listWebhooks: (appId: string) => req<Webhook[]>('GET', `/api/apps/${appId}/webhooks`),
+  createWebhook: (appId: string, w: { url: string; types: string[] }) =>
+    req<Webhook>('POST', `/api/apps/${appId}/webhooks`, w),
+  updateWebhook: (id: string, patch: { url?: string; types?: string[]; enabled?: boolean }) =>
+    req<Webhook>('PATCH', `/api/webhooks/${id}`, patch),
+  deleteWebhook: (id: string) => req<void>('DELETE', `/api/webhooks/${id}`),
+  rotateWebhookSecret: (id: string) => req<{ secret: string }>('POST', `/api/webhooks/${id}/rotate-secret`),
+  replayWebhook: (id: string, from: string) => req<{ ok: boolean }>('POST', `/api/webhooks/${id}/replay`, { from }),
 };
+
+export type WebhookEventType = 'installs' | 'events' | 'clicks';
+
+export interface Webhook {
+  id: string;
+  appId: string;
+  url: string;
+  secret: string;
+  types: WebhookEventType[];
+  cursorInstalls: number;
+  cursorClicks: number;
+  cursorEvents: number;
+  failsInstalls: number;
+  failsClicks: number;
+  failsEvents: number;
+  backoffInstalls?: string;
+  backoffClicks?: string;
+  backoffEvents?: string;
+  replayUntilInstalls: number;
+  replayUntilClicks: number;
+  replayUntilEvents: number;
+  enabled: boolean;
+  createdAt: string;
+}

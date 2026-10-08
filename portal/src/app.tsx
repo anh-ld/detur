@@ -8,7 +8,7 @@ import { AppPage, AppTab } from './detail';
 type Route = { name: 'apps' } | { name: 'app'; id: string; tab: AppTab };
 
 export function parseHash(h: string = location.hash): Route {
-  const m = h.match(/^#\/apps\/([^/?#]+)(?:\/(analytics|fraud|settings))?/);
+  const m = h.match(/^#\/apps\/([^/?#]+)(?:\/(analytics|fraud|settings|webhooks))?/);
   if (m) {
     try {
       return { name: 'app', id: decodeURIComponent(m[1]), tab: (m[2] as AppTab | undefined) ?? 'links' };

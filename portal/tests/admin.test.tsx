@@ -297,4 +297,51 @@ describe('portal admin flows (gated)', () => {
     expect(await api.getAdminSession()).toMatchObject({ admin: true });
     await api.deleteApp(app.id); // session is valid now
   });
+
+  it('webhooks tab as viewer prompts for elevation; elevated admin can create and manage webhooks', async () => {
+    const app = await makeApp('wh-flow');
+    location.hash = '#/';
+    render(<App />);
+    await screen.findByRole('button', { name: 'Enter admin' });
+    go(`#/apps/${app.id}/webhooks`);
+
+    // In viewer mode: shows the shared admin-required notice
+    await screen.findByText('Admin required');
+    expect(selectedTab()).toEqual(['Webhooks']);
+
+    // Unlock admin
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
+    const dlg = await waitFor(pwDialog);
+    fireEvent.input(within(dlg).getByLabelText('Password'), { target: { value: PW } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
+
+    // Now elevated: shows "No webhook endpoints configured" empty state and "Add webhook" button
+    await screen.findByText('No webhook endpoints configured for this app.');
+    expect(screen.getByRole('button', { name: 'Add webhook' })).toBeTruthy();
+
+    // Create a webhook via dialog
+    fireEvent.click(screen.getByRole('button', { name: 'Add webhook' }));
+    const addDlg = await waitFor(() => {
+      const d = openDialog();
+      if (!within(d).queryByLabelText('Destination URL')) throw new Error('not add webhook dialog');
+      return d;
+    });
+    fireEvent.input(within(addDlg).getByLabelText('Destination URL'), { target: { value: 'https://example.com/detur-hook' } });
+    fireEvent.click(within(addDlg).getByRole('button', { name: 'Create Webhook' }));
+
+    // Created secret dialog appears
+    const secretDlg = await waitFor(() => {
+      const d = openDialog();
+      if (!within(d).queryByText('Webhook Created')) throw new Error('not created secret dialog');
+      return d;
+    });
+    fireEvent.click(within(secretDlg).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull());
+
+    // Endpoint is now listed in the table
+    await screen.findByText('https://example.com/detur-hook');
+    await screen.findByText('Active');
+
+    await adminCleanup(() => api.deleteApp(app.id));
+  });
 });
