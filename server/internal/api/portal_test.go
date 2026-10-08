@@ -275,6 +275,9 @@ func TestPortalAnalytics(t *testing.T) {
 	if len(a.Links) != 1 || a.Links[0].Key != link.Key || a.Links[0].Matches != 1 {
 		t.Fatalf("analytics links mismatch: %+v", a.Links)
 	}
+	if !strings.Contains(string(b), `"sources":[]`) {
+		t.Fatalf("analytics sources: want empty list for browser-only traffic, got %s", b)
+	}
 
 	// platform filter over HTTP: the matched install is Android, nothing is iOS
 	for _, tc := range []struct {

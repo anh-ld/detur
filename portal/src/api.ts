@@ -35,6 +35,8 @@ export interface Analytics {
   days: DayStat[];
   links: { linkId: string; key: string; clicks: number; matches: number }[];
   events: { event: string; count: number }[];
+  // Browser clicks per in-app source (messenger, zalo, …, unknown-inapp); all platforms.
+  sources: { source: string; count: number }[];
 }
 
 // Installs per match method ('' = pre-receipt) + 50-pt score buckets.

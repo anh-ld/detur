@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS clicks (
     matched_at  TEXT
 );
 
--- clicks.kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link: addMissingColumns.
+-- clicks.kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source: addMissingColumns.
 
 CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
@@ -100,6 +100,17 @@ CREATE TABLE IF NOT EXISTS click_days (
     kind     TEXT NOT NULL,
     n        INTEGER NOT NULL,
     PRIMARY KEY (app_id, day, link_id, platform, kind)
+);
+
+-- click_sources: new browser clicks per in-app source (messenger, zalo, ...,
+-- unknown-inapp). Own table: a source column in click_days would change its key.
+CREATE TABLE IF NOT EXISTS click_sources (
+    app_id  TEXT NOT NULL,
+    link_id TEXT NOT NULL,
+    day     TEXT NOT NULL,
+    source  TEXT NOT NULL,
+    n       INTEGER NOT NULL,
+    PRIMARY KEY (app_id, day, link_id, source)
 );
 
 CREATE TABLE IF NOT EXISTS event_days (

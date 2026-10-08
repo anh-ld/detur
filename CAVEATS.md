@@ -26,6 +26,13 @@ Read before prod. Sources: [DECISIONS.md](DECISIONS.md).
   Lost if paste denied. SDK sending `pastedLink`: unverified on device.
 - Bots: Dub `UA_BOTS`, HEAD + `?bot=`, Google webview exempt.
 - Dedup: link + IP + UA per hour. Re-tap refreshes time/signals, re-enters window.
+- In-app browsers: +1 tap (Get the app). Installed iOS app opens home, not the link (no way out of the webview).
+- Android in-app: opens the app at the link only with package + App Links (cert). Else Play.
+- App open from the tap page = 1 click + 1 installed open (separate counters).
+- Reopen merge: real browser, same platform, same link + IP within 1h of an in-app click. Shared IP (office, carrier) → 2 people can count as 1.
+- X / Telegram mostly use Safari view / Custom Tabs: plain browser UA, no source name, safety net only.
+- Safety net catches blocked hand-offs only. Webview rendering the store's web page = not ours.
+- Tap page: English only. `detur-no-track` skips it (testing).
 - Stored destination = link URL + params, not store URL. Like Dub.
 - Keys case-insensitive.
 

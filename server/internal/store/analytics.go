@@ -32,16 +32,23 @@ type EventStat struct {
 	Count int64  `json:"count"`
 }
 
+// SourceStat: browser clicks from one in-app source.
+type SourceStat struct {
+	Source string `json:"source"`
+	Count  int64  `json:"count"`
+}
+
 type Analytics struct {
-	Days   []DayStat   `json:"days"`
-	Links  []LinkStat  `json:"links"`
-	Events []EventStat `json:"events"`
+	Days    []DayStat    `json:"days"`
+	Links   []LinkStat   `json:"links"`
+	Events  []EventStat  `json:"events"`
+	Sources []SourceStat `json:"sources"`
 }
 
 // Analytics: app stats for the last `days` UTC days ending today, every day present (zeros filled). platform "" = all; events ignore platform (SDK events carry none).
 func (s *Store) Analytics(appID string, days int, platform string, now time.Time) (Analytics, error) {
 	from := now.UTC().AddDate(0, 0, -(days - 1))
-	a := Analytics{Days: make([]DayStat, days), Links: []LinkStat{}, Events: []EventStat{}}
+	a := Analytics{Days: make([]DayStat, days), Links: []LinkStat{}, Events: []EventStat{}, Sources: []SourceStat{}}
 	idx := map[string]int{}
 	for i := range a.Days {
 		d := day(from.AddDate(0, 0, i))
@@ -136,21 +143,51 @@ func (s *Store) Analytics(appID string, days int, platform string, now time.Time
 	}
 	rows.Close()
 
-	rows, err = s.db.Query(
+	if a.Events, err = s.analyticsEvents(appID, lo, hi); err != nil {
+		return a, err
+	}
+	a.Sources, err = s.analyticsSources(appID, lo, hi)
+	return a, err
+}
+
+// analyticsEvents: top 10 SDK events in the day range.
+func (s *Store) analyticsEvents(appID, lo, hi string) ([]EventStat, error) {
+	rows, err := s.db.Query(
 		`SELECT event, SUM(n) FROM event_days WHERE app_id = ? AND day BETWEEN ? AND ?
 		 GROUP BY event ORDER BY 2 DESC, event LIMIT 10`, appID, lo, hi)
 	if err != nil {
-		return a, fmt.Errorf("analytics events: %w", err)
+		return nil, fmt.Errorf("analytics events: %w", err)
 	}
 	defer rows.Close()
+	events := []EventStat{}
 	for rows.Next() {
 		var e EventStat
 		if err := rows.Scan(&e.Event, &e.Count); err != nil {
-			return a, err
+			return nil, err
 		}
-		a.Events = append(a.Events, e)
+		events = append(events, e)
 	}
-	return a, rows.Err()
+	return events, rows.Err()
+}
+
+// analyticsSources: in-app source counts in the day range; app-wide (the rollup carries no platform).
+func (s *Store) analyticsSources(appID, lo, hi string) ([]SourceStat, error) {
+	rows, err := s.db.Query(
+		`SELECT source, SUM(n) FROM click_sources WHERE app_id = ? AND day BETWEEN ? AND ?
+		 GROUP BY source ORDER BY 2 DESC, source`, appID, lo, hi)
+	if err != nil {
+		return nil, fmt.Errorf("analytics sources: %w", err)
+	}
+	defer rows.Close()
+	sources := []SourceStat{}
+	for rows.Next() {
+		var st SourceStat
+		if err := rows.Scan(&st.Source, &st.Count); err != nil {
+			return nil, err
+		}
+		sources = append(sources, st)
+	}
+	return sources, rows.Err()
 }
 
 // MatchQuality: last `days` UTC days. Methods: installs per method ("" = pre-receipt).

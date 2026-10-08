@@ -555,7 +555,7 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 	}
 	defer s.Close()
 	for _, c := range [][2]string{{"clicks", "matched_at"}, {"clicks", "kind"}, {"clicks", "first_seen_at"}, {"clicks", "ua_suspect"}, {"clicks", "ip_hosting"},
-		{"clicks", "hits_ip"}, {"clicks", "hits_link"}, {"installs", "fraud"}, {"installs", "fraud_action"}, {"installs", "fraud_link_id"}} {
+		{"clicks", "hits_ip"}, {"clicks", "hits_link"}, {"clicks", "source"}, {"installs", "fraud"}, {"installs", "fraud_action"}, {"installs", "fraud_link_id"}} {
 		if !columnExists(s.db, c[0], c[1]) {
 			t.Errorf("%s.%s missing after Open", c[0], c[1])
 		}
@@ -592,6 +592,18 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 	}
 	if gc, err := s.GetClick(fc.ID); err != nil || gc.Kind != KindApp || !gc.IPHosting || gc.HitsIP != 1 || gc.HitsLink != 2 {
 		t.Errorf("GetClick = kind %q hosting %v hits %d/%d, %v; want app, true, 1/2", gc.Kind, gc.IPHosting, gc.HitsIP, gc.HitsLink, err)
+	}
+	// in-app source writes, reads back and rolls up on the upgraded database
+	sc, err := s.RecordClick(Click{AppID: "legacy-app", LinkID: "legacy-link", Destination: "x", Kind: KindApp, Source: "zalo",
+		Fingerprint: Fingerprint{IP: "198.51.100.77", UserAgent: "ua-zalo"}}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick with source: %v", err)
+	}
+	if gc, _ := s.GetClick(sc.ID); gc.Source != "zalo" {
+		t.Errorf("GetClick Source = %q; want zalo", gc.Source)
+	}
+	if a, err := s.Analytics("legacy-app", 1, "", time.Now()); err != nil || len(a.Sources) != 1 || a.Sources[0].Source != "zalo" {
+		t.Errorf("legacy Analytics Sources = %+v, %v; want zalo 1", a.Sources, err)
 	}
 	if _, err := s.RecordInstall(Install{AppID: "legacy-app", DeviceHash: "d1", Attribution: AttributionOrganic, Method: MethodOrganic,
 		Fraud: "velocity,install_ip", FraudAction: FraudActionExcluded, FraudLinkID: "legacy-link"}); err != nil {
@@ -1375,5 +1387,142 @@ func TestRecordClickRefreshKeepsHitMax(t *testing.T) {
 	again, err := s.RecordClick(c, 24)
 	if err != nil || again.ID != first.ID || again.HitsIP != 51 || again.HitsLink != 51 {
 		t.Errorf("refresh = id %s hits %d/%d, %v; want %s, hits kept at 51/51", again.ID, again.HitsIP, again.HitsLink, err, first.ID)
+	}
+}
+
+// In-app reopen merge: a real-browser reload of an in-app click on the same link + IP within the window is the same click and keeps its destination; second in-app browsers, other platforms, IPs, links and SDK opens stay separate.
+func TestRecordClickInAppReopenMerge(t *testing.T) {
+	const webview, chrome, okhttp = "Mozilla/5.0 (Linux; Android 14; wv) [FB_IAB/MESSENGER;]", "Mozilla/5.0 (Linux; Android 14) Chrome/125.0", "okhttp/4.12.0"
+	ip := "203.0.113.7"
+	for _, tc := range []struct {
+		name      string
+		firstSrc  string
+		second    Click
+		otherLink bool
+		age       time.Duration
+		wantRows  int
+	}{
+		{name: "reopen in real browser merges", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: chrome}, Kind: KindApp}, wantRows: 1},
+		{name: "sdk open never merges", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: okhttp}, Kind: KindOpen}, wantRows: 2},
+		{name: "no source on first click", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: chrome}, Kind: KindApp}, wantRows: 2},
+		{name: "second in-app browser stays separate", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: "Mozilla/5.0 (Linux; Android 14; wv) Zalo"}, Kind: KindApp, Source: "zalo"}, wantRows: 2},
+		{name: "other platform stays separate", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) Safari/604.1"}, Kind: KindApp}, wantRows: 2},
+		{name: "different ip", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: "198.51.100.1", UserAgent: chrome}, Kind: KindApp}, wantRows: 2},
+		{name: "different link", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: chrome}, Kind: KindApp}, otherLink: true, wantRows: 2},
+		{name: "outside window", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: chrome}, Kind: KindApp}, age: 2 * time.Hour, wantRows: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			app, link := setupApp(t, s)
+			first, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Kind: KindApp, Platform: "android",
+				Source: tc.firstSrc, Fingerprint: Fingerprint{IP: ip, UserAgent: webview}}, 24)
+			if err != nil {
+				t.Fatalf("RecordClick first: %v", err)
+			}
+			if tc.age > 0 {
+				if _, err := s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(time.Now().Add(-tc.age)), first.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lid := link.ID
+			if tc.otherLink {
+				l2, err := s.CreateLink(Link{AppID: app.ID, Key: "other", URL: "https://example.com/o"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				lid = l2.ID
+			}
+			c := tc.second
+			c.AppID, c.LinkID, c.Destination, c.Platform = app.ID, lid, "https://evil.example/other", "android"
+			c.Fingerprint.PastedLink = "https://evil.example/paste"
+			second, err := s.RecordClick(c, 24)
+			if err != nil {
+				t.Fatalf("RecordClick second: %v", err)
+			}
+			if n, _ := s.CountClicks(app.ID); n != int64(tc.wantRows) {
+				t.Fatalf("clicks = %d; want %d", n, tc.wantRows)
+			}
+			if tc.wantRows == 1 {
+				if second.Destination != link.URL || second.Fingerprint.PastedLink != "" {
+					t.Errorf("reopen overwrote destination/pasted link: %q %q", second.Destination, second.Fingerprint.PastedLink)
+				}
+				if second.ID != first.ID || second.Source != "messenger" {
+					t.Errorf("merged click = %s source %q; want %s source messenger", second.ID, second.Source, first.ID)
+				}
+				a, err := s.Analytics(app.ID, 1, "", time.Now())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if a.Days[0].Clicks != 1 || len(a.Sources) != 1 || a.Sources[0].Count != 1 {
+					t.Errorf("rollups = %d clicks, sources %+v; want 1 click, messenger 1", a.Days[0].Clicks, a.Sources)
+				}
+			}
+		})
+	}
+}
+
+// Sources: per-source rollup of new in-app clicks for the range; none without in-app traffic; removed with the app and link.
+func TestAnalyticsSources(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	for i, src := range []string{"messenger", "messenger", "zalo", ""} {
+		fp := Fingerprint{IP: fmt.Sprintf("203.0.113.%d", i), UserAgent: "ua"}
+		if _, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Kind: KindApp, Source: src, Fingerprint: fp}, 24); err != nil {
+			t.Fatalf("RecordClick: %v", err)
+		}
+	}
+	a, err := s.Analytics(app.ID, 7, "", time.Now())
+	if err != nil {
+		t.Fatalf("Analytics: %v", err)
+	}
+	want := []SourceStat{{Source: "messenger", Count: 2}, {Source: "zalo", Count: 1}}
+	if !reflect.DeepEqual(a.Sources, want) {
+		t.Errorf("Sources = %+v; want %+v", a.Sources, want)
+	}
+	other, _ := s.CreateApp("quiet", "quiet-key-1")
+	if q, _ := s.Analytics(other.ID, 7, "", time.Now()); q.Sources == nil || len(q.Sources) != 0 {
+		t.Errorf("quiet app Sources = %#v; want empty slice", q.Sources)
+	}
+	if err := s.DeleteLink(link.ID); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := s.Analytics(app.ID, 7, "", time.Now()); len(a.Sources) != 0 {
+		t.Errorf("Sources after DeleteLink = %+v; want none", a.Sources)
+	}
+	l2, _ := s.CreateLink(Link{AppID: app.ID, Key: "again", URL: "https://example.com/a"})
+	if _, err := s.RecordClick(Click{AppID: app.ID, LinkID: l2.ID, Destination: l2.URL, Kind: KindApp, Source: "zalo", Fingerprint: Fingerprint{IP: "198.51.100.9", UserAgent: "ua"}}, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteApp(app.ID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM click_sources WHERE app_id = ?`, app.ID).Scan(&n)
+	if n != 0 {
+		t.Errorf("click_sources rows after DeleteApp = %d; want 0", n)
+	}
+}
+
+// Reopen picks the newest in-app click on the visitor's platform, even when a newer one from the other platform shares the IP.
+func TestRecordClickReopenSkipsOtherPlatform(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	ip := "203.0.113.7"
+	rec := func(ua, src string) Click {
+		t.Helper()
+		c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Kind: KindApp, Source: src, Fingerprint: Fingerprint{IP: ip, UserAgent: ua}}, 24)
+		if err != nil {
+			t.Fatalf("RecordClick: %v", err)
+		}
+		return c
+	}
+	iosInApp := rec("Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) Mobile/15E148 [FBAN/MessengerForiOS]", "messenger")
+	rec("Mozilla/5.0 (Linux; Android 14; wv) [FB_IAB/MESSENGER;]", "messenger")
+	reopen := rec("Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) Version/17.2 Mobile/15E148 Safari/604.1", "")
+	if reopen.ID != iosInApp.ID {
+		t.Errorf("iOS reopen = %s; want merged into iOS in-app click %s", reopen.ID, iosInApp.ID)
+	}
+	if n, _ := s.CountClicks(app.ID); n != 2 {
+		t.Errorf("clicks = %d; want 2", n)
 	}
 }

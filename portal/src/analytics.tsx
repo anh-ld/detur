@@ -23,6 +23,23 @@ const BARS: { key: Metric; label: string; color: string }[] = [
   { key: 'organic', label: 'Organic', color: 'hsl(204 77% 86%)' },
 ];
 
+// In-app source ids (server ua.InApp) → display names.
+const SOURCE_NAMES: Record<string, string> = {
+  messenger: 'Messenger',
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  threads: 'Threads',
+  zalo: 'Zalo',
+  tiktok: 'TikTok',
+  linkedin: 'LinkedIn',
+  snapchat: 'Snapchat',
+  line: 'LINE',
+  x: 'X',
+  telegram: 'Telegram',
+  wechat: 'WeChat',
+  'unknown-inapp': 'Unknown in-app',
+};
+
 const fmtDay = (d: string) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
@@ -135,6 +152,7 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
   const days = data?.days ?? [];
   const clicks = sum(days, 'clicks');
   const viaLink = sum(days, 'nonOrganic');
+  const sources = data?.sources ?? []; // older servers / fixtures omit it
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16 }}>
@@ -205,6 +223,37 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
           )}
         </Card>
       </div>
+
+      <section aria-label="In-app sources" style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'grid', gap: 4 }}>
+          <h3 style={{ margin: 0 }}>In-app sources</h3>
+          <p style={muted}>Clicks from in-app browsers such as Messenger or Zalo, on all platforms.</p>
+        </div>
+        {!data ? (
+          <Skeleton h={36} />
+        ) : sources.length === 0 ? (
+          <p style={muted}>No in-app clicks in this range.</p>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <th>App</th>
+                <th style={{ textAlign: 'right' }}>Clicks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => (
+                <tr key={s.source}>
+                  <td>{SOURCE_NAMES[s.source] ?? s.source}</td>
+                  <td data-label="Clicks" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmt(s.count)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </section>
     </div>
   );
 }

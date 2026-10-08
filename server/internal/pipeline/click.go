@@ -27,6 +27,7 @@ const (
 	paramTimezone = "tz"
 	paramPasted   = "pasted_link"
 	paramNoTrack  = "detur-no-track" // Dub's dub-no-track
+	paramTap      = "_tap"           // safety-net reload: hop 2 answers with the tap page
 )
 
 type pipelineServer struct {
@@ -71,8 +72,15 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	_, noTrackH := r.Header[http.CanonicalHeaderKey(paramNoTrack)]
 	track := !ua.IsBot(r) && !noTrackQ && !noTrackH // presence, not value (Dub record-click.ts has())
 	mobile := ua.IsIOS(agent) || ua.IsAndroid(agent)
-	if track && mobile && q.Get(paramDone) == "" {
-		serveInterstitial(w, q, ua.IsIOS(agent) && isAppStoreURL(link.IOS))
+	trackedMobile := track && mobile
+	source := "" // in-app browser that sent the tap (ua.InApp)
+	if trackedMobile {
+		source = ua.InApp(agent)
+	}
+	named := source != "" && source != ua.SourceUnknownInApp
+	if trackedMobile && q.Get(paramDone) == "" {
+		// recognized in-app: auto reload, never the copy page — hop 2 serves the tap page
+		serveInterstitial(w, q, ua.IsIOS(agent) && isAppStoreURL(link.IOS) && !named, safetyNetDelay(source))
 		return
 	}
 	// clickId minted first, embedded in redirect (Dub link.ts). Click stores link.URL + params as deferred destination, not store URL. Dedup hit returns earlier click's id
@@ -87,6 +95,7 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 			ID: clickID, AppID: link.AppID, LinkID: link.ID, Destination: deepLinkURL(link, q),
 			Fingerprint: fp, Platform: clickPlatform(agent), Kind: clickKind(dest),
 			UASuspect: fraud.SuspectUA(agent), IPHosting: fraud.Hosting(fp.IP), // raw facts, judged at match (KTD1)
+			Source: source,
 		}, p.retentionHours)
 		if err != nil {
 			p.log.Printf("click record failed (redirect continues): %v", err)
@@ -95,39 +104,60 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 			dest = redirectTarget(link, agent, rec.ID, q)
 		}
 	}
+	// in-app browsers block the automatic hand-off: recognized ones, and the safety-net reload, get a link to tap instead
+	if _, tap := q[paramTap]; trackedMobile && (named || tap) && hasStoreTarget(link, agent) {
+		p.serveTap(w, r, link, dest, source, q)
+		return
+	}
 	http.Redirect(w, r, dest, http.StatusFound)
 }
 
 // interstitialTmpl: reloads short link once with screen + timezone appended (no-JS browsers fall through with neither); Accept-CH: Chromium sends device model + OS version on reload.
-// Copy mode (iOS + App Store target): waits for a tap, copies short link to pasteboard (needs user gesture), reloads with pasted_link. SDK reads pasteboard on first launch: pasteboard signal (350/175).
+// Copy mode (iOS + App Store target): waits for a tap, copies short link to pasteboard (needs user gesture), reloads with pasted_link in the same tap. SDK reads pasteboard on first launch: pasteboard signal (350/175).
+// Safety net: page still visible after delay ms = the browser blocked the hand-off -> reload with _tap, hop 2 serves the tap page. Hidden/pagehide or a late timer (frozen in background) cancels; 0 = off.
 var interstitialTmpl = template.Must(template.New("i").Parse(`<!doctype html>
 <meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1">
 <noscript><meta http-equiv="refresh" content="0;url={{.Next}}"></noscript>
 {{if .Copy}}<style>body{font:17px -apple-system,system-ui,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center}button{font:inherit;font-weight:600;color:#fff;background:#0a66ff;border:0;border-radius:12px;padding:16px 28px}</style>
 <button id="go" type="button">Open in App Store</button>{{end}}
 <script>
-function go(pasted) {
+var delay = {{.Delay}}, left = false;
+document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") left = true; });
+window.addEventListener("pagehide", function () { left = true; });
+function buildQuery(pasted) {
   var q = new URLSearchParams(location.search);
   q.set("_dt", "1");
   q.set("screen", screen.width + "x" + screen.height + "@" + (window.devicePixelRatio || 1));
   try { q.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone || ""); } catch (e) {}
   if (pasted) q.set("pasted_link", pasted);
+  return q;
+}
+function go(pasted) {
+  var q = buildQuery(pasted), t0 = Date.now();
+  if (delay) setTimeout(function () {
+    if (left || document.visibilityState !== "visible" || Date.now() - t0 > delay + 1000) return;
+    q.set("_tap", "1");
+    location.replace(location.pathname + "?" + q.toString());
+  }, delay);
   location.replace(location.pathname + "?" + q.toString());
 }
-function copy(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
-  var t = document.createElement("textarea");
-  t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
-  document.body.appendChild(t); t.select();
-  var ok = document.execCommand("copy");
-  document.body.removeChild(t);
-  return ok ? Promise.resolve() : Promise.reject();
-}
+` + copyJS + `
 {{if .Copy}}document.getElementById("go").onclick = function () {
   var link = location.origin + location.pathname;
-  copy(link).then(function () { go(link); }, function () { go(""); });
+  go(copy(link) ? link : "");
 };{{else}}go("");{{end}}
 </script>`))
+
+// safetyNetDelay: ms before the hop-1 page assumes a blocked hand-off. Generic webviews 1.5s; real-browser UAs 4s so a slow hop 2 is not mistaken for a block; recognized in-app 0 (hop 2 serves the tap page).
+func safetyNetDelay(source string) int {
+	switch {
+	case source == ua.SourceUnknownInApp:
+		return 1500
+	case source != "":
+		return 0
+	}
+	return 4000
+}
 
 // isAppStoreURL: s parses as an App Store URL
 func isAppStoreURL(s string) bool {
@@ -135,8 +165,14 @@ func isAppStoreURL(s string) bool {
 	return err == nil && isAppStore(u)
 }
 
-// serveInterstitial: one-hop page; copy = tap-to-copy page (iOS App Store targets), else auto reload.
-func serveInterstitial(w http.ResponseWriter, q url.Values, copy bool) {
+// isPlayStoreURL: s parses as a Play Store URL
+func isPlayStoreURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && isPlayStore(u)
+}
+
+// serveInterstitial: one-hop page; copy = tap-to-copy page (iOS App Store targets), else auto reload. delay: safety-net ms (0 = off).
+func serveInterstitial(w http.ResponseWriter, q url.Values, copy bool, delay int) {
 	next := url.Values{}
 	for k, v := range q {
 		next[k] = v
@@ -147,9 +183,10 @@ func serveInterstitial(w http.ResponseWriter, q url.Values, copy bool) {
 	h.Set("Cache-Control", "no-store")
 	h.Set("Accept-CH", "Sec-CH-UA-Model, Sec-CH-UA-Platform-Version")
 	_ = interstitialTmpl.Execute(w, struct {
-		Next string
-		Copy bool
-	}{"?" + next.Encode(), copy})
+		Next  string
+		Copy  bool
+		Delay int
+	}{"?" + next.Encode(), copy, delay})
 }
 
 // fingerprint: click-time device signals — IP, device model (client hint, else UA), OS version hint, first Accept-Language tag, user-agent, screen/timezone/pasted_link from interstitial
