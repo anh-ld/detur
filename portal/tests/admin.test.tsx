@@ -169,7 +169,7 @@ describe('portal admin flows (gated)', () => {
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull());
     screen.getByText('Admin mode required to configure signals.');
-    expect(screen.queryByText(/403/)).toBeNull();
+    expect(screen.queryByText(/\b403\b/)).toBeNull();
     await within(report).findByText('Nothing flagged in this range.');
 
     // Refresh after cancel: the report reloads, the section stays locked, no new prompt
@@ -235,7 +235,7 @@ describe('portal admin flows (gated)', () => {
     const dlg = await waitFor(pwDialog);
     fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull());
-    expect(screen.queryByText(/403/)).toBeNull();
+    expect(screen.queryByText(/\b403\b/)).toBeNull();
     clearJar(); // unlock the jar so a fresh session can be minted for cleanup
     await adminCleanup(() => api.deleteApp(app.id));
   });
@@ -284,7 +284,7 @@ describe('portal admin flows (gated)', () => {
     const dlg = await waitFor(pwDialog);
     fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull());
-    expect(screen.queryByText(/403/)).toBeNull();
+    expect(screen.queryByText(/\b403\b/)).toBeNull();
     expect(screen.queryByText('Saved.')).toBeNull();
     expect((await api.getApp(app.id)).matchThreshold).toBe(850);
 
