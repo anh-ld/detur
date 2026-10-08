@@ -659,7 +659,7 @@ describe('portal client flows', () => {
     location.hash = '#/';
     render(<App />);
     await screen.findByRole('heading', { name: 'Apps' });
-    expect(screen.queryByRole('button', { name: 'Enter admin mode' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Enter admin' })).toBeNull();
     expect(screen.queryByText(/Admin · until/)).toBeNull();
 
     // nothing to elevate from: POST rejects, GET stays inactive

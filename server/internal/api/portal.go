@@ -30,7 +30,7 @@ type portalServer struct {
 	log    *log.Logger
 	dir    string // portal static dir (built UI)
 	logout string // LOGOUT_URL, served to the UI via /api/config
-	// admin gating: adminPassword "" = no gating, every route behaves as before admin mode existed.
+	// admin gating: adminPassword "" = no gating, every route behaves as before admin existed.
 	adminPassword string
 	adminHours    int
 	adminMu       sync.Mutex           // guards adminLocks

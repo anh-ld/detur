@@ -115,6 +115,32 @@ export function gateOpen(dialogId: string) {
   }
 }
 
+// Locked-section notice: the one look every admin-gated panel shows before elevation.
+// Elevating notifies subscribeAdmin, so panels reload themselves.
+export function AdminRequired({ children }: { children: ComponentChildren }) {
+  return (
+    <div
+      style={{
+        ...row,
+        justifyContent: 'space-between',
+        gap: 16,
+        padding: 16,
+        background: 'hsl(var(--k-card))',
+        border: '1px solid hsl(var(--k-border))',
+        borderRadius: 'var(--k-radius)',
+      }}
+    >
+      <div>
+        <strong>Admin required</strong>
+        <p style={{ ...muted, marginTop: 4 }}>{children}</p>
+      </div>
+      <Button variant="outline" onClick={() => ensureAdmin()}>
+        Unlock admin
+      </Button>
+    </div>
+  );
+}
+
 // The prompt was canceled: the gated action must not run (callers return quietly).
 export class AdminGateAborted extends Error {}
 
@@ -185,7 +211,7 @@ export function AdminPasswordDialog() {
           }}
         >
           <div style={{ display: 'grid', gap: 4 }}>
-            <h2 style={{ margin: 0 }}>Enter admin mode</h2>
+            <h2 style={{ margin: 0 }}>Enter admin</h2>
             <p style={muted}>A master password unlocks app management for this browser session.</p>
           </div>
           <Field>

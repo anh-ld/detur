@@ -72,9 +72,9 @@ describe('portal admin flows (gated)', () => {
   it('admin entry flow: wrong password shows an error and stays viewer; the right password lifts the chip', async () => {
     location.hash = '#/';
     render(<App />);
-    await screen.findByRole('button', { name: 'Enter admin mode' });
+    await screen.findByRole('button', { name: 'Enter admin' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Enter admin mode' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter admin' }));
     let dlg = await waitFor(pwDialog);
     fireEvent.input(within(dlg).getByLabelText('Password'), { target: { value: 'wrong-pw' } });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
@@ -91,8 +91,8 @@ describe('portal admin flows (gated)', () => {
 
     // exit, then re-enter: the prompt opens empty, without the old error
     fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
-    await screen.findByRole('button', { name: 'Enter admin mode' });
-    fireEvent.click(screen.getByRole('button', { name: 'Enter admin mode' }));
+    await screen.findByRole('button', { name: 'Enter admin' });
+    fireEvent.click(screen.getByRole('button', { name: 'Enter admin' }));
     dlg = await waitFor(pwDialog);
     expect((within(dlg).getByLabelText('Password') as HTMLInputElement).value).toBe('');
     expect(within(dlg).queryByRole('alert')).toBeNull();
@@ -142,7 +142,7 @@ describe('portal admin flows (gated)', () => {
 
     location.hash = '#/';
     render(<App />);
-    await screen.findByRole('button', { name: 'Enter admin mode' }); // config + session loaded
+    await screen.findByRole('button', { name: 'Enter admin' }); // config + session loaded
     go(`#/apps/${app.id}/settings`);
     await screen.findByText(/No SDK call yet/); // Health (viewer-safe)
     await screen.findByText('No installs yet.'); // Match quality (viewer-safe)
@@ -157,7 +157,7 @@ describe('portal admin flows (gated)', () => {
 
     location.hash = '#/';
     render(<App />);
-    await screen.findByRole('button', { name: 'Enter admin mode' });
+    await screen.findByRole('button', { name: 'Enter admin' });
     go(`#/apps/${app.id}/fraud`);
 
     // the viewer-open report loads; the gated Signals load 403s and routes to the password prompt
@@ -168,7 +168,7 @@ describe('portal admin flows (gated)', () => {
     // cancel: the report survives, the section stays locked, no raw 403 text anywhere
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull());
-    screen.getByText('Admin mode required to configure signals.');
+    screen.getByText('Enter your admin password to configure signals.');
     expect(screen.queryByText(/\b403\b/)).toBeNull();
     await within(report).findByText('Nothing flagged in this range.');
 
@@ -177,7 +177,7 @@ describe('portal admin flows (gated)', () => {
     await within(report).findByText('Nothing flagged in this range.');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' }).getAttribute('aria-busy')).not.toBe('true'));
     expect(document.querySelector('dialog[open]')).toBeNull();
-    screen.getByText('Admin mode required to configure signals.');
+    screen.getByText('Enter your admin password to configure signals.');
     await adminCleanup(() => api.deleteApp(app.id));
   });
 
@@ -185,8 +185,8 @@ describe('portal admin flows (gated)', () => {
     const app = await makeApp('exit-app');
     location.hash = '#/';
     render(<App />);
-    await screen.findByRole('button', { name: 'Enter admin mode' });
-    fireEvent.click(screen.getByRole('button', { name: 'Enter admin mode' }));
+    await screen.findByRole('button', { name: 'Enter admin' });
+    fireEvent.click(screen.getByRole('button', { name: 'Enter admin' }));
     let dlg = await waitFor(pwDialog);
     fireEvent.input(within(dlg).getByLabelText('Password'), { target: { value: PW } });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
@@ -194,7 +194,7 @@ describe('portal admin flows (gated)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
     await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
-    await screen.findByRole('button', { name: 'Enter admin mode' });
+    await screen.findByRole('button', { name: 'Enter admin' });
     expect(await api.getAdminSession()).toMatchObject({ admin: false });
 
     // a direct Settings render as the now-viewer: saves prompt again

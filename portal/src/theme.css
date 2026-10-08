@@ -89,6 +89,54 @@ header > div > a:first-child {
   color: hsl(var(--k-foreground));
 }
 
+button.nav-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Elevated-session chip: one pill, Exit sits inside after a hairline */
+.admin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding-left: 10px;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: 999px;
+  font-size: 13px;
+  color: hsl(var(--k-foreground));
+  white-space: nowrap;
+}
+
+.admin-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(142 71% 45%);
+}
+
+.admin-chip button {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-left: 1px solid hsl(var(--k-border));
+  border-radius: 0 999px 999px 0;
+  background: none;
+  font: inherit;
+  color: hsl(var(--k-destructive));
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.admin-chip button:hover {
+  background: hsl(var(--k-destructive) / 0.1);
+}
+
 [k="separator"] {
   background: hsl(var(--k-border));
 }
@@ -176,10 +224,28 @@ header > div > a:first-child {
 
 /* Inputs: white fill, 6px radius */
 [k="input"],
-[k="select"],
 [k="textarea"] {
   background-color: hsl(var(--k-card));
   border-radius: 6px;
+}
+
+/* Filter selects: same height and grey fill as the tab group beside them; muted chevron
+   (kinu's uses currentColor, which a data-URI image can't inherit, so it renders black) */
+[k="select"] {
+  height: 36px;
+  padding: 0 30px 0 12px;
+  border-color: transparent;
+  border-radius: 10px;
+  background-color: hsl(var(--k-muted));
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><path d='M6 8l4 4 4-4' stroke='%2378716c' stroke-width='1.75' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-position: right 10px center;
+  background-size: 14px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+[k="select"]:hover {
+  background-color: hsl(var(--k-border));
 }
 
 [k="input"]::placeholder,
