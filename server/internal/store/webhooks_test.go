@@ -179,6 +179,7 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 			PastedLink: "https://secret.pasted.com",
 		},
 		Destination: "https://example.com",
+		Source:      "messenger",
 	}, 24)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
@@ -247,6 +248,9 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 	// Platform comes from the UA (Android device labels carry only the model name); the UA itself stays out
 	if clickPayload.Platform == nil || *clickPayload.Platform != "android" {
 		t.Errorf("click Platform = %v, want android", clickPayload.Platform)
+	}
+	if clickPayload.Source == nil || *clickPayload.Source != "messenger" {
+		t.Errorf("click Source = %v, want messenger", clickPayload.Source)
 	}
 	if clickPayload.LinkKey == nil || *clickPayload.LinkKey != "secret-key" {
 		t.Errorf("expected LinkKey = secret-key, got %v", clickPayload.LinkKey)

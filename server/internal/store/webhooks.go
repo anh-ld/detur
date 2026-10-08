@@ -107,6 +107,7 @@ type WebhookClickPayload struct {
 	Locale      *string `json:"locale,omitempty"`
 	Timezone    *string `json:"timezone,omitempty"`
 	Screen      *string `json:"screen,omitempty"`
+	Source      *string `json:"source,omitempty"` // in-app browser (messenger, zalo, ..., unknown-inapp)
 	IsBot       bool    `json:"isBot"`
 	CreatedAt   string  `json:"createdAt"`
 }
@@ -494,7 +495,7 @@ func (s *Store) fetchClicksBatch(appID string, cursor, until int64, limit int) (
 	rows, err := s.db.Query(`
 		SELECT c.rowid, c.id, c.app_id, c.link_id, l.key, c.device, c.locale,
 		       c.timezone, c.screen, c.os_version, c.destination, c.click_id,
-		       c.is_bot, c.created_at, c.kind, c.user_agent
+		       c.is_bot, c.created_at, c.kind, c.user_agent, c.source
 		FROM clicks c
 		LEFT JOIN links l ON l.id = c.link_id
 		WHERE c.app_id = ? AND c.rowid > ? AND c.rowid <= ?
@@ -508,15 +509,15 @@ func (s *Store) fetchClicksBatch(appID string, cursor, until int64, limit int) (
 	var records []WebhookRecord
 	for rows.Next() {
 		var (
-			rowID                                                                          int64
-			id, aID, linkID, destination, createdAt                                        string
-			linkKey, device, locale, timezone, screen, osVersion, clickID, kind, userAgent sql.NullString
-			isBot                                                                          int
+			rowID                                                                                  int64
+			id, aID, linkID, destination, createdAt                                                string
+			linkKey, device, locale, timezone, screen, osVersion, clickID, kind, userAgent, source sql.NullString
+			isBot                                                                                  int
 		)
 		if err := rows.Scan(
 			&rowID, &id, &aID, &linkID, &linkKey, &device, &locale,
 			&timezone, &screen, &osVersion, &destination, &clickID,
-			&isBot, &createdAt, &kind, &userAgent,
+			&isBot, &createdAt, &kind, &userAgent, &source,
 		); err != nil {
 			return nil, err
 		}
@@ -547,6 +548,7 @@ func (s *Store) fetchClicksBatch(appID string, cursor, until int64, limit int) (
 		payload.Locale = nonEmpty(locale)
 		payload.Timezone = nonEmpty(timezone)
 		payload.Screen = nonEmpty(screen)
+		payload.Source = nonEmpty(source)
 
 		records = append(records, WebhookRecord{RowID: rowID, Payload: payload})
 	}

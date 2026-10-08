@@ -19,6 +19,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go driver, no cgo, static builds
+
+	"detur.dev/server/internal/ua"
 )
 
 //go:embed schema.sql
@@ -186,7 +188,7 @@ func (s *Store) DeleteApp(id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	for _, t := range []string{"clicks", "installs", "events", "click_days", "event_days", "fraud_settings", "click_hits"} {
+	for _, t := range []string{"clicks", "installs", "events", "click_days", "click_sources", "event_days", "fraud_settings", "click_hits"} {
 		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE app_id = ?`, id); err != nil {
 			return fmt.Errorf("delete app %s: %w", t, err)
 		}
@@ -449,6 +451,9 @@ func (s *Store) DeleteLink(id string) error {
 	if _, err := tx.Exec(`DELETE FROM click_days WHERE link_id = ?`, id); err != nil {
 		return fmt.Errorf("delete link rollups: %w", err)
 	}
+	if _, err := tx.Exec(`DELETE FROM click_sources WHERE link_id = ?`, id); err != nil {
+		return fmt.Errorf("delete link source rollups: %w", err)
+	}
 	if _, err := tx.Exec(`DELETE FROM click_hits WHERE key_type = 'link' AND key = ?`, id); err != nil {
 		return fmt.Errorf("delete link hits: %w", err)
 	}
@@ -508,6 +513,8 @@ type Click struct {
 	// Platform (ios | android | desktop | ""): click_days rollup only, not stored. Kind (KindApp | KindWeb | KindOpen): rollup + stored (open clicks skip UA/short-timing, KTD3).
 	Platform string
 	Kind     string
+	// Source: in-app browser that sent the click (ua.InApp name or "unknown-inapp"), "" = real browser or SDK. Stored + click_sources rollup; not device data, survives the scrub.
+	Source string
 	// Fraud facts (KTD1), judged at match time. FirstSeenAt: first tap (refresh keeps it). HitsIP/HitsLink: max hits seen over the velocity window, set by RecordClick.
 	FirstSeenAt      time.Time
 	UASuspect        bool
@@ -551,6 +558,18 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	if !errors.Is(err, ErrNotFound) {
 		return Click{}, fmt.Errorf("record click dedup: %w", err)
 	}
+	// in-app reopen: "Open in browser" reloads the link in a real browser (no source) on the same network and platform. SDK opens stay their own counter.
+	if c.Kind != KindOpen && c.Source == "" && c.Fingerprint.IP != "" {
+		existing, err = reopenCandidate(tx, c, now)
+		if err == nil {
+			// a reopen carries the same URL: keep the in-app click's destination and pasteboard signal
+			c.Destination, c.Fingerprint.PastedLink = "", ""
+			return s.refreshClick(tx, existing, c, now, now.Add(expires))
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return Click{}, fmt.Errorf("record click reopen: %w", err)
+		}
+	}
 	if c.ID == "" {
 		c.ID = Nanoid(16)
 	}
@@ -562,13 +581,13 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	c.ExpiresAt = now.Add(expires)
 	_, err = tx.Exec(
 		`INSERT INTO clicks (id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at,
-		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.AppID, c.LinkID, nullStr(c.Fingerprint.IP), nullStr(c.Fingerprint.Device),
 		nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone), nullStr(c.Fingerprint.Screen),
 		nullStr(c.Fingerprint.UserAgent), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink), c.Destination,
 		nullStr(c.ClickID), boolInt(c.IsBot), rfc3339(c.CreatedAt), rfc3339(c.ExpiresAt),
-		nullStr(c.Kind), rfc3339(c.CreatedAt), boolInt(c.UASuspect), boolInt(c.IPHosting), c.HitsIP, c.HitsLink,
+		nullStr(c.Kind), rfc3339(c.CreatedAt), boolInt(c.UASuspect), boolInt(c.IPHosting), c.HitsIP, c.HitsLink, nullStr(c.Source),
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
@@ -583,6 +602,15 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 		if err != nil {
 			return Click{}, fmt.Errorf("record click rollup: %w", err)
 		}
+		if c.Source != "" {
+			if _, err := tx.Exec(
+				`INSERT INTO click_sources (app_id, link_id, day, source, n) VALUES (?, ?, ?, ?, 1)
+				 ON CONFLICT DO UPDATE SET n = n + 1`,
+				c.AppID, c.LinkID, day(now), c.Source,
+			); err != nil {
+				return Click{}, fmt.Errorf("record click source rollup: %w", err)
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
@@ -591,6 +619,35 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	c.ExpiresAt = parseTime(rfc3339(c.ExpiresAt))
 	c.FirstSeenAt = c.CreatedAt
 	return c, nil
+}
+
+// reopenCandidate: newest in-app click on the same link + IP within the dedup window, from a different UA on the visitor's platform. Platform lives only in the UA, so candidates are filtered here, newest first.
+func reopenCandidate(tx *sql.Tx, c Click, now time.Time) (Click, error) {
+	rows, err := tx.Query(
+		`SELECT `+clickCols+` FROM clicks
+		 WHERE link_id = ? AND ip = ? AND COALESCE(source, '') != '' AND COALESCE(user_agent, '') != ? AND COALESCE(kind, '') != ?
+		   AND created_at >= ? AND expires_at >= ?
+		 ORDER BY created_at DESC LIMIT 20`,
+		c.LinkID, c.Fingerprint.IP, c.Fingerprint.UserAgent, KindOpen, rfc3339(now.Add(-clickDedupWindow)), rfc3339(now),
+	)
+	if err != nil {
+		return Click{}, err
+	}
+	defer rows.Close()
+	platform := ua.Platform(c.Fingerprint.UserAgent)
+	for rows.Next() {
+		cand, err := scanClickRows(rows)
+		if err != nil {
+			return Click{}, err
+		}
+		if ua.Platform(cand.Fingerprint.UserAgent) == platform {
+			return cand, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return Click{}, err
+	}
+	return Click{}, ErrNotFound
 }
 
 // refreshClick: dedup hit. Same id, created_at = now, expiry only extends, non-empty new signals overwrite, hit maxima only grow; first_seen_at kept.
@@ -621,10 +678,10 @@ func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (
 }
 
 const clickCols = `id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(os_version, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at,
-  COALESCE(kind, ''), COALESCE(first_seen_at, created_at), ua_suspect, ip_hosting, hits_ip, hits_link`
+  COALESCE(kind, ''), COALESCE(first_seen_at, created_at), ua_suspect, ip_hosting, hits_ip, hits_link, COALESCE(source, '')`
 
 const clickColsC = `c.id, c.app_id, c.link_id, COALESCE(c.ip, ''), COALESCE(c.device, ''), COALESCE(c.locale, ''), COALESCE(c.timezone, ''), COALESCE(c.screen, ''), COALESCE(c.user_agent, ''), COALESCE(c.os_version, ''), COALESCE(c.pasted_link, ''), c.destination, COALESCE(c.click_id, ''), c.is_bot, c.created_at, c.expires_at,
-  COALESCE(c.kind, ''), COALESCE(c.first_seen_at, c.created_at), c.ua_suspect, c.ip_hosting, c.hits_ip, c.hits_link`
+  COALESCE(c.kind, ''), COALESCE(c.first_seen_at, c.created_at), c.ua_suspect, c.ip_hosting, c.hits_ip, c.hits_link, COALESCE(c.source, '')`
 
 func (s *Store) GetClick(id string) (Click, error) {
 	return scanClick(s.db.QueryRow(
@@ -737,7 +794,7 @@ func scanClickRows(row rowScanner) (Click, error) {
 	)
 	err := row.Scan(&c.ID, &c.AppID, &c.LinkID, &ip, &device, &locale, &timezone,
 		&screen, &ua, &osVer, &pasted, &c.Destination, &clickID, &c.IsBot, &createdAt, &expiresAt,
-		&c.Kind, &firstSeen, &c.UASuspect, &c.IPHosting, &c.HitsIP, &c.HitsLink)
+		&c.Kind, &firstSeen, &c.UASuspect, &c.IPHosting, &c.HitsIP, &c.HitsLink, &c.Source)
 	if err != nil {
 		return Click{}, err
 	}
@@ -826,6 +883,7 @@ func addMissingColumns(db *sql.DB) error {
 		{"clicks", "ip_hosting", "INTEGER NOT NULL DEFAULT 0"},
 		{"clicks", "hits_ip", "INTEGER NOT NULL DEFAULT 0"},
 		{"clicks", "hits_link", "INTEGER NOT NULL DEFAULT 0"},
+		{"clicks", "source", "TEXT"},
 		{"installs", "fraud", "TEXT"},
 		{"installs", "fraud_action", "TEXT"},
 		{"installs", "fraud_link_id", "TEXT"},
