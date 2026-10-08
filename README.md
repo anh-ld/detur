@@ -10,6 +10,7 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 - One binary: Go + SQLite + Preact portal. No outbound calls unless webhooks on.
 - Analytics: clicks, installs, events, charts, match quality.
 - Fraud: floods, fast opens, bots, datacenter IPs, repeat devices. Tag or block.
+- In-app browsers (Messenger, Zalo, TikTok, …): tap page to the store. Never stuck.
 - Webhooks: installs, events, clicks → your URL. Signed, retried, replayable.
 - Admin: one password to manage apps. Everyone else: links + stats.
 
