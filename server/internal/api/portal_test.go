@@ -33,9 +33,15 @@ func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) 
 
 // newPortalEnvAt: newPortalEnv on a caller-chosen DB path (tests that edit rows directly).
 func newPortalEnvAt(t *testing.T, path string) (portal, sdk *httptest.Server, st *store.Store) {
+	t.Helper()
+	return newPortalEnvWith(t, path, "", 12)
+}
+
+// newPortalEnvWith: newPortalEnv with admin gating configured (adminPassword "" = AE1, no gating).
+func newPortalEnvWith(t *testing.T, path, adminPassword string, adminHours int) (portal, sdk *httptest.Server, st *store.Store) {
+	t.Helper()
 	httpx.TrustProxy = true // api tests simulate the trusted-proxy deployment via X-Forwarded-For
 	t.Cleanup(func() { httpx.TrustProxy = false })
-	t.Helper()
 	st, err := store.Open(path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -47,7 +53,7 @@ func newPortalEnvAt(t *testing.T, path string) (portal, sdk *httptest.Server, st
 		[]byte("<!doctype html><title>detur portal</title>"), 0o644); err != nil {
 		t.Fatalf("write index.html: %v", err)
 	}
-	portal = httptest.NewServer(RegisterPortal(st, staticDir, []string{portalAddr}, "/cdn-cgi/access/logout"))
+	portal = httptest.NewServer(RegisterPortal(st, staticDir, []string{portalAddr}, "/cdn-cgi/access/logout", adminPassword, adminHours))
 	t.Cleanup(portal.Close)
 
 	sdkMux := http.NewServeMux()
@@ -55,6 +61,12 @@ func newPortalEnvAt(t *testing.T, path string) (portal, sdk *httptest.Server, st
 	sdk = httptest.NewServer(sdkMux)
 	t.Cleanup(sdk.Close)
 	return portal, sdk, st
+}
+
+// newPortalEnvAdmin: portal env with admin gating ON for the given password and session TTL.
+func newPortalEnvAdmin(t *testing.T, password string, hours int) (portal, sdk *httptest.Server, st *store.Store) {
+	t.Helper()
+	return newPortalEnvWith(t, filepath.Join(t.TempDir(), "detur-portal.db"), password, hours)
 }
 
 // portalReq issues request to test server with optional headers; Host defaults to server's own (loopback) address.
@@ -359,7 +371,7 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), []string{portalAddr}, ""))
+	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), []string{portalAddr}, "", "", 12))
 	t.Cleanup(ts.Close)
 
 	resp, b := portalReq(t, ts, "POST", "/api/apps", `{"name":"still-works"}`, nil)
@@ -740,5 +752,261 @@ func TestPortalDefaultRanges(t *testing.T) {
 	mustJSON(t, b, &a)
 	if len(a.Days) != 7 {
 		t.Errorf("analytics (default range) days = %d; want 7", len(a.Days))
+	}
+}
+
+// U2: elevate. Wrong password → 401 after >= 1s; right password → cookie with HttpOnly/SameSite=Lax/Path=/ and Max-Age = TTL, response carries expiresAt.
+func TestPortalAdminSessionElevate(t *testing.T) {
+	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
+
+	start := time.Now()
+	resp, b := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"wrong"}`, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong password: %d %s; want 401", resp.StatusCode, b)
+	}
+	if d := time.Since(start); d < time.Second {
+		t.Errorf("wrong-password response after %v; want >= 1s delay", d)
+	}
+
+	resp, b = portalReq(t, portal, "POST", "/api/admin/session", `{"password":"s3cret-pw"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("right password: %d %s; want 200", resp.StatusCode, b)
+	}
+	var got struct {
+		Admin     bool   `json:"admin"`
+		ExpiresAt string `json:"expiresAt"`
+	}
+	mustJSON(t, b, &got)
+	if !got.Admin {
+		t.Errorf("login must respond {admin:true}, got %q", b)
+	}
+	if _, err := time.Parse(time.RFC3339, got.ExpiresAt); err != nil {
+		t.Fatalf("login must respond {expiresAt} RFC3339, got %q", b)
+	}
+	cks := resp.Cookies()
+	if len(cks) != 1 || cks[0].Name != adminCookie {
+		t.Fatalf("login must set %s cookie, got %+v", adminCookie, cks)
+	}
+	c := cks[0]
+	if !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Path != "/" {
+		t.Errorf("cookie flags = %+v; want HttpOnly, SameSite=Lax, Path=/", c)
+	}
+	if c.MaxAge != 12*3600 {
+		t.Errorf("cookie MaxAge = %d; want %d (12h TTL)", c.MaxAge, 12*3600)
+	}
+}
+
+// U2: session status. GET reflects active with a valid cookie, inactive without or with a tampered cookie.
+func TestPortalAdminSessionStatus(t *testing.T) {
+	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
+
+	resp, b := portalReq(t, portal, "GET", "/api/admin/session", "", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"admin":false`) {
+		t.Fatalf("no cookie: %d %s; want admin false", resp.StatusCode, b)
+	}
+
+	resp, b = portalReq(t, portal, "POST", "/api/admin/session", `{"password":"s3cret-pw"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login: %d %s", resp.StatusCode, b)
+	}
+	token := resp.Cookies()[0].Value
+
+	resp, b = portalReq(t, portal, "GET", "/api/admin/session", "", map[string]string{"Cookie": adminCookie + "=" + token})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"admin":true`) {
+		t.Fatalf("with cookie: %d %s; want admin true", resp.StatusCode, b)
+	}
+
+	// flip one hex char after the dot: signature no longer matches
+	i := strings.IndexByte(token, '.') + 1
+	alt := token[i]
+	if alt == '0' {
+		alt = '1'
+	} else {
+		alt = '0'
+	}
+	tampered := token[:i] + string(alt) + token[i+1:]
+	resp, b = portalReq(t, portal, "GET", "/api/admin/session", "", map[string]string{"Cookie": adminCookie + "=" + tampered})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"admin":false`) {
+		t.Fatalf("tampered cookie: %d %s; want admin false", resp.StatusCode, b)
+	}
+}
+
+// U2: exit. DELETE clears the cookie (Max-Age=0); a cookie-less GET afterwards reports inactive.
+func TestPortalAdminSessionExit(t *testing.T) {
+	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
+	resp, _ := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"s3cret-pw"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+
+	resp, b := portalReq(t, portal, "DELETE", "/api/admin/session", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("exit: %d %s; want 200", resp.StatusCode, b)
+	}
+	if sc := resp.Header.Get("Set-Cookie"); !strings.Contains(sc, "Max-Age=0") {
+		t.Errorf("exit must clear the cookie (Max-Age=0), got %q", sc)
+	}
+	resp, b = portalReq(t, portal, "GET", "/api/admin/session", "", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"admin":false`) {
+		t.Fatalf("after exit: %d %s; want admin false", resp.StatusCode, b)
+	}
+}
+
+// U2/AE1: ADMIN_PASSWORD unset → POST 403 (nothing to elevate from), GET inactive, config.adminSet false; configured → adminSet true.
+func TestPortalAdminSessionUnset(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	resp, b := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"anything"}`, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("POST with unset password: %d %s; want 403", resp.StatusCode, b)
+	}
+	resp, b = portalReq(t, portal, "GET", "/api/admin/session", "", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"admin":false`) {
+		t.Fatalf("GET with unset password: %d %s; want admin false", resp.StatusCode, b)
+	}
+	var cfg struct {
+		AdminSet bool `json:"adminSet"`
+	}
+	resp, b = portalReq(t, portal, "GET", "/api/config", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("config: %d %s", resp.StatusCode, b)
+	}
+	mustJSON(t, b, &cfg)
+	if cfg.AdminSet {
+		t.Errorf("config with unset password must report adminSet false: %s", b)
+	}
+
+	portalAdmin, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
+	resp, b = portalReq(t, portalAdmin, "GET", "/api/config", "", nil)
+	mustJSON(t, b, &cfg)
+	if resp.StatusCode != http.StatusOK || !cfg.AdminSet {
+		t.Fatalf("config with password must report adminSet true: %s", b)
+	}
+}
+
+// U3: admin route gate (KTD3). Gating ON: every admin route 403 without a cookie, succeeds with a valid session; viewer routes stay open. DELETE last: it removes the shared app.
+func TestPortalAdminRouteGate(t *testing.T) {
+	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
+	resp, b := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"s3cret-pw"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("elevate: %d %s", resp.StatusCode, b)
+	}
+	admin := map[string]string{"Cookie": adminCookie + "=" + resp.Cookies()[0].Value}
+
+	resp, b = portalReq(t, portal, "POST", "/api/apps", `{"name":"gated"}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create app as admin: %d %s", resp.StatusCode, b)
+	}
+	var app struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &app)
+
+	cases := []struct {
+		method, path, body string
+		want               int
+	}{
+		{"POST", "/api/apps", `{"name":"gated2"}`, http.StatusCreated},
+		{"POST", "/api/apps/" + app.ID + "/rotate-key", "", http.StatusOK},
+		{"DELETE", "/api/apps/" + app.ID + "/key", "", http.StatusNoContent},
+		{"PATCH", "/api/apps/" + app.ID, `{"iosAppId":"ABC123.com.example"}`, http.StatusOK},
+		{"PATCH", "/api/apps/" + app.ID + "/matching", `{"threshold":850,"windowMinutes":15}`, http.StatusOK},
+		{"GET", "/api/apps/" + app.ID + "/fraud/settings", "", http.StatusOK},
+		{"PATCH", "/api/apps/" + app.ID + "/fraud/settings", validFraudBody, http.StatusOK},
+		{"DELETE", "/api/apps/" + app.ID, "", http.StatusNoContent},
+	}
+	// gate first: every admin route 403 without a cookie
+	for _, tc := range cases {
+		resp, b := portalReq(t, portal, tc.method, tc.path, tc.body, nil)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("%s %s without cookie: %d %s; want 403", tc.method, tc.path, resp.StatusCode, b)
+		}
+	}
+	// then the same routes with a valid session behave as today
+	for _, tc := range cases {
+		resp, b := portalReq(t, portal, tc.method, tc.path, tc.body, admin)
+		if resp.StatusCode != tc.want {
+			t.Errorf("%s %s with cookie: %d %s; want %d", tc.method, tc.path, resp.StatusCode, b, tc.want)
+		}
+	}
+}
+
+// U3: viewer routes keep working without a cookie while gating is ON (link + monitoring workflow, zero 403s).
+func TestPortalAdminGateViewerRoutesOpen(t *testing.T) {
+	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
+	resp, b := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"s3cret-pw"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("elevate: %d %s", resp.StatusCode, b)
+	}
+	admin := map[string]string{"Cookie": adminCookie + "=" + resp.Cookies()[0].Value}
+	resp, b = portalReq(t, portal, "POST", "/api/apps", `{"name":"viewer"}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create app: %d %s", resp.StatusCode, b)
+	}
+	var app struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &app)
+	resp, b = portalReq(t, portal, "POST", "/api/apps/"+app.ID+"/links", `{"key":"v1","url":"https://example.com"}`, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create link as viewer: %d %s", resp.StatusCode, b)
+	}
+	var link struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &link)
+
+	cases := []struct {
+		method, path, body string
+		want               int
+	}{
+		{"GET", "/api/config", "", http.StatusOK},
+		{"GET", "/api/apps", "", http.StatusOK},
+		{"GET", "/api/apps/" + app.ID, "", http.StatusOK},
+		{"GET", "/api/apps/" + app.ID + "/links", "", http.StatusOK},
+		{"POST", "/api/apps/" + app.ID + "/links", `{"key":"v2","url":"https://example.com/x"}`, http.StatusCreated},
+		{"PATCH", "/api/links/" + link.ID, `{"url":"https://example.com/y"}`, http.StatusOK},
+		{"DELETE", "/api/links/" + link.ID, "", http.StatusNoContent},
+		{"GET", "/api/apps/" + app.ID + "/analytics", "", http.StatusOK},
+		{"GET", "/api/apps/" + app.ID + "/match-quality", "", http.StatusOK},
+		{"GET", "/api/apps/" + app.ID + "/health", "", http.StatusOK},
+		{"GET", "/api/apps/" + app.ID + "/fraud", "", http.StatusOK},
+	}
+	for _, tc := range cases {
+		resp, b := portalReq(t, portal, tc.method, tc.path, tc.body, nil)
+		if resp.StatusCode != tc.want {
+			t.Errorf("%s %s as viewer: %d %s; want %d", tc.method, tc.path, resp.StatusCode, b, tc.want)
+		}
+	}
+}
+
+// U3: expired cookie on an admin route → 403.
+func TestPortalAdminGateExpiredCookie(t *testing.T) {
+	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
+	expired, _ := mintToken("s3cret-pw", 1, time.Now().Add(-2*time.Hour)) // expired an hour ago
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x"}`,
+		map[string]string{"Cookie": adminCookie + "=" + expired})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expired cookie: %d %s; want 403", resp.StatusCode, b)
+	}
+}
+
+// U3/AE1: ADMIN_PASSWORD unset → admin routes succeed without a cookie (today's behavior).
+func TestPortalAdminGateUnsetPassword(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"open"}`, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/apps without cookie: %d %s; want 201", resp.StatusCode, b)
+	}
+	var app struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &app)
+	resp, b = portalReq(t, portal, "POST", "/api/apps/"+app.ID+"/rotate-key", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("rotate-key without cookie: %d %s; want 200", resp.StatusCode, b)
+	}
+	resp, _ = portalReq(t, portal, "DELETE", "/api/apps/"+app.ID, "", nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete app without cookie: %d; want 204", resp.StatusCode)
 	}
 }

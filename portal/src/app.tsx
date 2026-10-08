@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
-import { ToastContainer } from 'kinu';
+import { Button, ToastContainer } from 'kinu';
 import { api } from './api';
-import { row } from './ui';
+import { AdminPasswordDialog, ensureAdmin, getAdmin, getAdminSet, getAdminUntil, refreshAdminSession, row, setAdminAvailable, setElevated, subscribeAdmin } from './ui';
 import { AppsPage } from './apps';
 import { AppPage, AppTab } from './detail';
 
@@ -19,14 +19,41 @@ export function parseHash(h: string = location.hash): Route {
   return { name: 'apps' };
 }
 
-// Thin SPA shell: hash routing (refresh keeps the page), no auth.
+// "Admin · until HH:MM" in the top bar (local clock; the server enforces expiry).
+const fmtUntil = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+const adminSnapshot = () => ({ adminSet: getAdminSet(), admin: getAdmin(), until: getAdminUntil() });
+
+// Thin SPA shell: hash routing (refresh keeps the page), no auth — the gateway
+// decides who enters, admin mode decides who manages.
 export function App() {
   const [route, setRoute] = useState<Route>(parseHash);
   // LOGOUT_URL from the server; '' (unset or fetch failed) hides Log out.
   const [logoutUrl, setLogoutUrl] = useState('');
+  const [ui, setUi] = useState(adminSnapshot);
+  useEffect(() => subscribeAdmin(() => setUi(adminSnapshot())), []);
   useEffect(() => {
-    api.getConfig().then((c) => setLogoutUrl(c.logoutUrl), () => {});
+    api.getConfig().then((c) => {
+      setLogoutUrl(c.logoutUrl);
+      setAdminAvailable(c.adminSet);
+    }, () => {});
+    refreshAdminSession();
   }, []);
+  // The chip is a local estimate: clear it at the session's own expiry; a mid-use
+  // 403 clears it earlier via refreshAdminSession.
+  useEffect(() => {
+    if (!ui.admin || !ui.until) return;
+    const ms = new Date(ui.until).getTime() - Date.now();
+    if (ms <= 0) {
+      setElevated(false);
+      return;
+    }
+    const t = setTimeout(() => setElevated(false), ms);
+    return () => clearTimeout(t);
+  }, [ui.admin, ui.until]);
   useEffect(() => {
     const on = () => {
       setRoute(parseHash());
@@ -35,6 +62,15 @@ export function App() {
     addEventListener('hashchange', on);
     return () => removeEventListener('hashchange', on);
   }, []);
+
+  const exitAdmin = async () => {
+    try {
+      await api.exitAdminMode();
+      setElevated(false); // the DELETE response already carries admin:false
+    } catch {
+      await refreshAdminSession();
+    }
+  };
 
   return (
     <>
@@ -50,6 +86,21 @@ export function App() {
               </svg>
               GitHub
             </a>
+            {ui.adminSet && !ui.admin && (
+              <Button size="sm" variant="outline" onClick={() => ensureAdmin()}>
+                Enter admin mode
+              </Button>
+            )}
+            {ui.admin && (
+              <span role="status" style={{ ...row, gap: 8, fontSize: 13 }}>
+                <span style={{ ...row, gap: 6, color: 'hsl(var(--k-muted-foreground))', fontSize: 13 }}>
+                  Admin · until {fmtUntil(ui.until)}
+                </span>
+                <Button size="sm" variant="outline" onClick={exitAdmin}>
+                  Exit
+                </Button>
+              </span>
+            )}
             {logoutUrl && (
               <a class="nav-link" href={logoutUrl}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
@@ -66,6 +117,7 @@ export function App() {
         {route.name === 'apps' && <AppsPage />}
         {route.name === 'app' && <AppPage id={route.id} tab={route.tab} />}
       </main>
+      <AdminPasswordDialog />
       <ToastContainer />
     </>
   );

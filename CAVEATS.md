@@ -4,7 +4,9 @@ Read before prod. Sources: [DECISIONS.md](DECISIONS.md).
 
 ## Security
 
-- Portal: no auth. Reach = full control. Protect: loopback or zero-trust gateway.
+- Portal: no auth. Reach = links + stats; `ADMIN_PASSWORD` unset = full control. Protect: loopback or zero-trust gateway.
+- Admin cookie = password-equivalent (offline-crackable). Long random password + gateway TLS. Rotate password = sign everyone out.
+- Wrong-password delay serialized per peer. Behind one gateway IP: a guess burst queues every login.
 - `LOGOUT_URL`: link only. IdP may re-login instantly. Tailscale: nothing to end.
 - No TLS enforcement. Plain http leaks API key + fingerprints. HTTPS = operator.
 - API keys: unsalted SHA-256. OK only because keys ~131-bit random.

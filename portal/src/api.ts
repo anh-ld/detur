@@ -95,6 +95,16 @@ export function setApiBase(url: string) {
   apiBase = url;
 }
 
+// HTTP error carrying the status: the UI distinguishes 401 (wrong password) from
+// 403 (missing/expired admin session) without parsing the message.
+export class HttpError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 export async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(apiBase + path, {
     method,
@@ -103,7 +113,7 @@ export async function req<T>(method: string, path: string, body?: unknown): Prom
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${method} ${path}: ${res.status} ${text.trim() || res.statusText}`);
+    throw new HttpError(`${method} ${path}: ${res.status} ${text.trim() || res.statusText}`, res.status);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
@@ -115,10 +125,19 @@ export interface CreatedApp {
   apiKeyHash: string;
 }
 
+// Admin elevation session (GET /api/admin/session); expiresAt present only when admin.
+export interface AdminSession {
+  admin: boolean;
+  expiresAt?: string;
+}
+
 export const api = {
   getMatchQuality: (id: string) => req<MatchQuality>('GET', `/api/apps/${id}/match-quality?days=30`),
   getHealth: (id: string) => req<HealthCheck[]>('GET', `/api/apps/${id}/health`),
-  getConfig: () => req<{ logoutUrl: string }>('GET', '/api/config'),
+  getConfig: () => req<{ logoutUrl: string; adminSet: boolean }>('GET', '/api/config'),
+  getAdminSession: () => req<AdminSession>('GET', '/api/admin/session'),
+  enterAdminMode: (password: string) => req<{ expiresAt: string }>('POST', '/api/admin/session', { password }),
+  exitAdminMode: () => req<AdminSession>('DELETE', '/api/admin/session'),
   listApps: () => req<App[]>('GET', '/api/apps'),
   getApp: (id: string) => req<App>('GET', `/api/apps/${id}`),
   createApp: (name: string) => req<CreatedApp>('POST', '/api/apps', { name }),

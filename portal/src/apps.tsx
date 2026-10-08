@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Table } from 'kinu';
 import { api, App, CreatedApp } from './api';
-import { ConfirmDelete, CopyButton, Loading, mono, muted, PageHeader, row } from './ui';
+import { AdminGateAborted, adminCall, closeDialog, ConfirmDelete, CopyButton, gateOpen, Loading, mono, muted, PageHeader, row } from './ui';
+
+const CREATE_ID = 'dlg-create-app';
 
 export function AppsPage() {
   const [apps, setApps] = useState<App[] | null>(null);
@@ -17,19 +19,24 @@ export function AppsPage() {
   };
   useEffect(load, []);
 
-  // Runs when trigger clicked, before dialog opens.
+  // Runs when trigger clicked, before the dialog opens (elevation first when gated).
   const resetCreate = () => {
     setCreated(null);
     setName('');
+  };
+  const createClick = () => {
+    resetCreate();
+    gateOpen(CREATE_ID);
   };
 
   const submitCreate = async () => {
     setError('');
     try {
-      const app = await api.createApp(name.trim());
+      const app = await adminCall(() => api.createApp(name.trim()));
       setCreated(app); // show-once panel: plaintext key from this one response
       load();
     } catch (e) {
+      if (e instanceof AdminGateAborted) return;
       setError(String(e));
     }
   };
@@ -37,18 +44,17 @@ export function AppsPage() {
   const del = async (a: App) => {
     setError('');
     try {
-      await api.deleteApp(a.id);
+      await adminCall(() => api.deleteApp(a.id));
       load();
     } catch (e) {
+      if (e instanceof AdminGateAborted) return;
       setError(String(e));
     }
   };
 
   const createDialog = (
     <Dialog id="dlg-create-app">
-      <Dialog.Trigger>
-        <Button onClick={resetCreate}>Create app</Button>
-      </Dialog.Trigger>
+      <Button onClick={createClick}>Create app</Button>
       <Dialog.Content>
         {created ? (
           <div style={{ display: 'grid', gap: 16 }}>
@@ -67,9 +73,9 @@ export function AppsPage() {
               <Field.Description>EXPO_PUBLIC_DETOUR_API_KEY in the SDK config.</Field.Description>
             </Field>
             <div style={{ ...row, justifyContent: 'flex-end' }}>
-              <Dialog.Close>
-                <Button variant="outline">Done</Button>
-              </Dialog.Close>
+              <Button variant="outline" onClick={() => closeDialog(CREATE_ID)}>
+                Done
+              </Button>
               <CopyButton value={created.id} label="Copy app ID" />
               <CopyButton value={created.apiKey} label="Copy API key" />
             </div>
@@ -92,9 +98,9 @@ export function AppsPage() {
             </Field>
             {error && <Alert variant="destructive">{error}</Alert>}
             <div style={{ ...row, justifyContent: 'flex-end' }}>
-              <Dialog.Close>
-                <Button variant="outline">Cancel</Button>
-              </Dialog.Close>
+              <Button type="button" variant="outline" onClick={() => closeDialog(CREATE_ID)}>
+                Cancel
+              </Button>
               <Button type="submit">Create</Button>
             </div>
           </form>
@@ -154,6 +160,8 @@ export function AppsPage() {
                 <td>
                   <div style={{ ...row, justifyContent: 'flex-end' }}>
                     <ConfirmDelete
+                      id={`dlg-del-${a.id}`}
+                      requireAdmin
                       title={`Delete ${a.name}?`}
                       body="Its links are deleted too, and the SDK stops accepting this API key."
                       onConfirm={() => del(a)}

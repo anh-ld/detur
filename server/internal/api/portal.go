@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"detur.dev/server/internal/fraud"
@@ -29,27 +30,34 @@ type portalServer struct {
 	log    *log.Logger
 	dir    string // portal static dir (built UI)
 	logout string // LOGOUT_URL, served to the UI via /api/config
+	// admin gating: adminPassword "" = no gating, every route behaves as before admin mode existed.
+	adminPassword string
+	adminHours    int
+	adminMu       sync.Mutex           // guards adminLocks
+	adminLocks    map[string]*peerLock // per socket peer: serializes password compare + wrong-password delay
 }
 
 // RegisterPortal builds portal handler: apps/links CRUD, app matching, analytics routes, plus static UI
 // from staticDir (missing files/dir 404 plain text, never crash). Mux wrapped in origin/host guard;
-// allowedHosts = listener's own address, loopback always accepted, others 403. No auth: a zero-trust
-// gateway in front does access control; logoutURL is its sign-out URL ("" = none).
-func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, logoutURL string) http.Handler {
-	p := &portalServer{st: st, log: log.Default(), dir: staticDir, logout: logoutURL}
+// allowedHosts = listener's own address, loopback always accepted, others 403. Viewer routes open to
+// anyone the gateway admits; app-management routes gated by requireAdmin. adminPassword "" = no gating
+// (today's single-operator behavior); adminSessionHours bounds the elevated session TTL (config-bounded 1-72).
+func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, logoutURL string, adminPassword string, adminSessionHours int) http.Handler {
+	p := &portalServer{st: st, log: log.Default(), dir: staticDir, logout: logoutURL,
+		adminPassword: adminPassword, adminHours: adminSessionHours, adminLocks: map[string]*peerLock{}}
 	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
 		p.log.Printf("portal static dir %q missing: portal API only, UI will 404", staticDir)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/config", p.config)
 	mux.HandleFunc("GET /api/apps", p.listApps)
-	mux.HandleFunc("POST /api/apps", p.createApp)
-	mux.HandleFunc("POST /api/apps/{id}/rotate-key", p.rotateAppKey)
-	mux.HandleFunc("DELETE /api/apps/{id}/key", p.revokeAppKey)
-	mux.HandleFunc("PATCH /api/apps/{id}", p.updateApp)
-	mux.HandleFunc("PATCH /api/apps/{id}/matching", p.updateMatching)
+	mux.HandleFunc("POST /api/apps", p.requireAdmin(p.createApp))
+	mux.HandleFunc("POST /api/apps/{id}/rotate-key", p.requireAdmin(p.rotateAppKey))
+	mux.HandleFunc("DELETE /api/apps/{id}/key", p.requireAdmin(p.revokeAppKey))
+	mux.HandleFunc("PATCH /api/apps/{id}", p.requireAdmin(p.updateApp))
+	mux.HandleFunc("PATCH /api/apps/{id}/matching", p.requireAdmin(p.updateMatching))
 	mux.HandleFunc("GET /api/apps/{id}", p.getApp)
-	mux.HandleFunc("DELETE /api/apps/{id}", p.deleteApp)
+	mux.HandleFunc("DELETE /api/apps/{id}", p.requireAdmin(p.deleteApp))
 	mux.HandleFunc("GET /api/apps/{id}/links", p.listLinks)
 	mux.HandleFunc("POST /api/apps/{id}/links", p.createLink)
 	mux.HandleFunc("PATCH /api/links/{id}", p.updateLink)
@@ -58,8 +66,11 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	mux.HandleFunc("GET /api/apps/{id}/match-quality", p.matchQuality)
 	mux.HandleFunc("GET /api/apps/{id}/health", p.health)
 	mux.HandleFunc("GET /api/apps/{id}/fraud", p.fraud)
-	mux.HandleFunc("GET /api/apps/{id}/fraud/settings", p.fraudSettings)
-	mux.HandleFunc("PATCH /api/apps/{id}/fraud/settings", p.updateFraudSettings)
+	mux.HandleFunc("GET /api/apps/{id}/fraud/settings", p.requireAdmin(p.fraudSettings))
+	mux.HandleFunc("PATCH /api/apps/{id}/fraud/settings", p.requireAdmin(p.updateFraudSettings))
+	mux.HandleFunc("GET /api/admin/session", p.sessionStatus)
+	mux.HandleFunc("POST /api/admin/session", p.elevate)
+	mux.HandleFunc("DELETE /api/admin/session", p.clearSession)
 	mux.HandleFunc("GET /", p.static) // SPA shell + assets (catch-all)
 	return guard(mux, allowedHosts)
 }
@@ -175,9 +186,9 @@ func parseExpiry(v *string) (*time.Time, error) {
 	return &t, nil
 }
 
-// config: UI settings from env. logoutUrl "" = no Log out link.
+// config: UI settings from env. logoutUrl "" = no Log out link; adminSet tells the UI whether admin elevation exists (ADMIN_PASSWORD configured).
 func (p *portalServer) config(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{"logoutUrl": p.logout})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"logoutUrl": p.logout, "adminSet": p.adminPassword != ""})
 }
 
 func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {

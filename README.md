@@ -10,6 +10,7 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 - One binary: Go + SQLite + portal. No outbound calls.
 - Analytics: clicks, installs, events, charts, match quality.
 - Fraud: floods, fast opens, bots, datacenter IPs, repeat devices. Tag or block.
+- Admin: one password to manage apps. Everyone else: links + stats.
 
 <table>
   <tr>
@@ -66,6 +67,8 @@ Prod: pin version (`:0.1.0`).
 | `CLICK_ID_DAYS` | no | `30` (1–90) | Play referrer clickId TTL |
 | `TRUST_PROXY` | no | `0` | Trust rightmost XFF / X-Real-IP (real proxy only; else spoofable) |
 | `LOGOUT_URL` | no | empty | Gateway sign-out URL; empty hides link |
+| `ADMIN_PASSWORD` | no | empty | Admin password; empty = everyone can manage apps |
+| `ADMIN_SESSION_HOURS` | no | `12` (1–72) | Admin session length |
 
 | Port | Description |
 |---|---|
@@ -82,6 +85,7 @@ Portal: `:8081`.
 - Add links: `/key` → URL, optional iOS / Android / fallback.
 - App details: iOS app ID, Android package, cert fingerprint → well-known
   files.
+- `ADMIN_PASSWORD` set → app changes need admin (top bar).
 
 ## 3. Patch SDK
 

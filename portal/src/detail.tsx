@@ -241,6 +241,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
                           }
                         />
                         <ConfirmDelete
+                          id={`dlg-del-link-${l.id}`}
                           title={`Delete ${l.key}?`}
                           body="The short link stops working."
                           onConfirm={() => del(l)}
