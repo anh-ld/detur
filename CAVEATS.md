@@ -57,6 +57,11 @@ Read before prod. Sources: [DECISIONS.md](DECISIONS.md).
 - Analytics: UTC days. Pre-rollup clicks uncounted; pre-rollup installs lack
   link/platform. Link delete drops its counts.
 - Event names: cut to 64 chars, kept forever. No user/device ids in them.
+- Per-link conversions + retention: tagged devices only (one event with `data.link`). SDK 2.3.1: app sees the key only with Tag deferred links on.
+- Cohort day = tag day, not install day.
+- D1/D7/D30 = SDK cold start (`app_open`) on that exact UTC day. Warm resumes missed unless the app calls `logRetention`.
+- Tag mapping purged 90d after tag. Tagged again later → new cohort, maybe another link.
+- Per-link conversions + retention ignore the platform filter.
 - Installs never purged, by design.
 - Single operator. No orgs/teams.
 - Health proxy check: counts since start, resets on restart.
