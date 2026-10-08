@@ -23,6 +23,7 @@ const SDK = 'http://127.0.0.1:8080';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
 // A second iPhone on the same iOS version behind the same IP (its own UA, so the server doesn't merge it into the first click).
 const IPHONE_B = IPHONE.replace('15E148', '15E149');
+const MESSENGER = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBSN/iOS]';
 const DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36';
 
 async function click(key: string, ua: string, done = false): Promise<Response> {
@@ -194,6 +195,7 @@ describe('portal client flows', () => {
     expect(tileValue('Installs via link')).toBe(1);
     expect(tileValue('Already installed opens')).toBe(0);
     expect(screen.getByText('purchase').closest('tr')!.querySelector('[data-label="Count"]')!.textContent).toBe('1');
+    screen.getByText('No in-app clicks in this range.');
 
     fireEvent.change(screen.getByLabelText('Platform'), { target: { value: 'ios' } });
     await waitFor(() => expect(tileValue('Clicks')).toBe(1));
@@ -211,6 +213,27 @@ describe('portal client flows', () => {
     await waitFor(() => expect(linkCounts()).toEqual(['0', '0']));
     fireEvent.change(screen.getByLabelText('Platform'), { target: { value: '' } });
     await waitFor(() => expect(linkCounts()).toEqual(['2', '1']));
+    await api.deleteApp(app.id);
+  });
+
+  it('in-app sources flow: a Messenger tap gets the tap page and shows up as one Messenger row', async () => {
+    const app = await api.createApp(uniq('inapp-app'));
+    const key = uniq('social');
+    await api.createLink(app.id, {
+      key,
+      url: 'https://example.com/social',
+      ios: 'https://apps.apple.com/app/id123',
+      android: '',
+      fallbackUrl: '',
+    });
+    const res = await click(key, MESSENGER, true);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Get the app');
+
+    location.hash = `#/apps/${app.id}/analytics`;
+    render(<App />);
+    const name = await screen.findByText('Messenger');
+    expect(name.closest('tr')!.querySelector('[data-label="Clicks"]')!.textContent).toBe('1');
     await api.deleteApp(app.id);
   });
 
