@@ -7,10 +7,12 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 
 - No tiers, no click limits. Your data.
 - Same 5 SDK endpoints, same matching.
-- One binary: Go + SQLite + portal. No outbound calls.
+- One binary: Go + SQLite + Preact portal. No outbound calls.
 - Analytics: clicks, installs, events, charts, match quality.
 - Fraud: floods, fast opens, bots, datacenter IPs, repeat devices. Tag or block.
 - Admin: one password to manage apps. Everyone else: links + stats.
+
+[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
 
 <table>
   <tr>
@@ -148,5 +150,3 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 - [Detour matching docs](https://detour.swmansion.com/docs/platform/architecture/matching/): weights, threshold, window.
 - [@swmansion/react-native-detour](https://github.com/software-mansion-labs/react-native-detour): the SDK.
 - [kinu](https://github.com/developit/kinu): portal UI.
-
-[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
