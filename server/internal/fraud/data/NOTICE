@@ -1,0 +1,40 @@
+Bundled fraud datasets. Generated 2026-10-08 by server/internal/fraud/gen (run by hand: cd server/internal/fraud && go run ./gen).
+
+hosting4.bin, hosting6.bin
+  Source:  ipverse as-ip-blocks, https://github.com/ipverse/as-ip-blocks
+           (release archive as-ip-blocks.tar.gz, ASNs with metadata.category "hosting")
+  License: CC0 1.0 Universal (public domain dedication)
+  Changes: ASNs whose org is Akamai, Cloudflare or Fastly dropped (Linode kept);
+           prefixes merged into sorted, non-overlapping intervals;
+           Apple iCloud Private Relay egress ranges subtracted.
+  Format:  big-endian lo,hi address pairs, 8 bytes (v4) / 32 bytes (v6) per interval.
+
+  Apple iCloud Private Relay egress list, https://mask-api.icloud.com/egress-ip-ranges.csv
+  Used only at generation time to subtract ranges. Not redistributed.
+
+bots.txt
+  Source:  PostHog bot definitions, livestream/bot/definitions.json
+           https://github.com/PostHog/posthog (outside ee/, MIT Expat)
+  Changes: "pattern" field only, deduplicated case-insensitively.
+
+PostHog license:
+
+Copyright (c) 2020-2026 PostHog Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

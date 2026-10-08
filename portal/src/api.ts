@@ -50,6 +50,43 @@ export interface HealthCheck {
   detail: string;
 }
 
+export type FraudMode = 'tagged' | 'active';
+
+// Per-app fraud config (server fraud.Settings). Fingerprint has no mode: tag only.
+export interface FraudSettings {
+  velocityMode: FraudMode;
+  timingMode: FraudMode;
+  userAgentMode: FraudMode;
+  ipMode: FraudMode;
+  velocityIpMax: number;
+  velocityLinkMax: number;
+  velocityWindowMinutes: number;
+  timingShortSeconds: number;
+  timingLongHours: number;
+  fingerprintMax: number;
+  fingerprintWindowDays: number;
+}
+
+
+// Flagged install. linkKey/fraudLinkKey '' = organic or link deleted; fraudAction '' = tagged only.
+export interface FlaggedInstall {
+  id: string;
+  createdAt: string;
+  attribution: 'organic' | 'non_organic' | 'unknown';
+  method: string;
+  linkKey: string;
+  platform: string;
+  fraud: string[];
+  fraudAction: '' | 'reattributed' | 'excluded';
+  fraudLinkKey: string;
+}
+
+// Per-signal counts + latest 100 flagged installs, newest first.
+export interface Fraud {
+  signals: Record<string, number>;
+  installs: FlaggedInstall[];
+}
+
 export type Platform = '' | 'ios' | 'android' | 'desktop';
 
 // Base URL override: '' = same origin; integration tests point client at live server.
@@ -98,6 +135,10 @@ export const api = {
   deleteLink: (id: string) => req<void>('DELETE', `/api/links/${id}`),
   saveMatching: (id: string, m: { threshold: number; windowMinutes: number }) =>
     req<App>('PATCH', `/api/apps/${id}/matching`, m),
+  getFraud: (appId: string, days: number) => req<Fraud>('GET', `/api/apps/${appId}/fraud?days=${days}`),
+  getFraudSettings: (appId: string) => req<FraudSettings>('GET', `/api/apps/${appId}/fraud/settings`),
+  saveFraudSettings: (appId: string, s: FraudSettings) =>
+    req<FraudSettings>('PATCH', `/api/apps/${appId}/fraud/settings`, s),
   getAnalytics: (appId: string, days: number, platform: Platform) =>
     req<Analytics>('GET', `/api/apps/${appId}/analytics?days=${days}${platform ? `&platform=${platform}` : ''}`),
 };

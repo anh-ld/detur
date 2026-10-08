@@ -618,3 +618,115 @@ func TestClickRollupLabels(t *testing.T) {
 		t.Errorf("ios today = %+v; want 1 store click", got)
 	}
 }
+
+// Fraud UA signal (R3): UA outside Dub's list but on bundled bot list -> recorded, flagged, kept out of click counts.
+func TestNewBotListUARecordedSuspect(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	_, link := setupPipeline(t, s)
+	resp, _ := doGET(t, ts, "/"+link.Key, map[string]string{
+		"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/538.1 (KHTML, like Gecko) PhantomJS/2.1.1 Safari/538.1",
+	})
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d; want 302", resp.StatusCode)
+	}
+	clicks := latestClicks(t, s, link.AppID)
+	if len(clicks) != 1 || !clicks[0].UASuspect {
+		t.Fatalf("clicks = %+v; want one UA-suspect click", clicks)
+	}
+	a, err := s.Analytics(link.AppID, 7, "", time.Now())
+	if err != nil {
+		t.Fatalf("Analytics: %v", err)
+	}
+	var n int64
+	for _, d := range a.Days {
+		n += d.Clicks
+	}
+	if n != 0 {
+		t.Errorf("analytics clicks = %d; want 0 (suspect UA out of rollup)", n)
+	}
+}
+
+// Fraud UA signal (R3): empty UA -> recorded, flagged.
+func TestEmptyUARecordedSuspect(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	_, link := setupPipeline(t, s)
+	doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": ""})
+	clicks := latestClicks(t, s, link.AppID)
+	if len(clicks) != 1 || !clicks[0].UASuspect {
+		t.Fatalf("clicks = %+v; want one UA-suspect click", clicks)
+	}
+}
+
+// Fraud IP signal (R4): hosting IP flagged; documentation-range IP not.
+func TestClickHostingIPFlagged(t *testing.T) {
+	httpx.TrustProxy = true
+	t.Cleanup(func() { httpx.TrustProxy = false })
+	ts, s, _ := newPipelineServer(t)
+	_, link := setupPipeline(t, s)
+	desktop := "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+	doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": desktop, "X-Forwarded-For": "3.5.140.1"})
+	doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": desktop, "X-Forwarded-For": testIP})
+	got := map[string]bool{}
+	for _, c := range latestClicks(t, s, link.AppID) {
+		got[c.Fingerprint.IP] = c.IPHosting
+	}
+	if !got["3.5.140.1"] || got[testIP] {
+		t.Fatalf("ip_hosting by IP = %v; want 3.5.140.1 true, %s false", got, testIP)
+	}
+}
+
+// Velocity counter (KTD2): mobile interstitial round trip is one hit, not two.
+func TestInterstitialRoundTripCountsOneHit(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	_, link := setupPipeline(t, s)
+	mobileClick(t, ts, "/"+link.Key, map[string]string{
+		"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+	})
+	clicks := latestClicks(t, s, link.AppID)
+	if len(clicks) != 1 || clicks[0].HitsLink != 1 {
+		t.Fatalf("clicks = %+v; want one click with hits_link 1", clicks)
+	}
+}
+
+// Fraud settings unreadable (table gone): the click is still recorded, velocity counted under Defaults (fail-open), and the Play
+// referrer carries its click_id.
+func TestClickRecordedWhenFraudSettingsUnreadable(t *testing.T) {
+	httpx.TrustProxy = true
+	t.Cleanup(func() { httpx.TrustProxy = false })
+	ts, s, path := newPipelineServer(t)
+	app, link := setupPipeline(t, s)
+	dropTable(t, path, "fraud_settings")
+	resp, _ := mobileClick(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA, "X-Forwarded-For": testIP})
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d; want 302", resp.StatusCode)
+	}
+	clicks := latestClicks(t, s, app.ID)
+	if len(clicks) != 1 || clicks[0].HitsIP != 1 || clicks[0].HitsLink != 1 {
+		t.Fatalf("clicks = %+v; want one click with hits 1/1", clicks)
+	}
+	u, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("Location %q: %v", resp.Header.Get("Location"), err)
+	}
+	if values, _ := url.ParseQuery(u.Query().Get("referrer")); values.Get("click_id") != clicks[0].ID {
+		t.Errorf("referrer = %q; want click_id %s", u.Query().Get("referrer"), clicks[0].ID)
+	}
+}
+
+// Hit counter table gone: the click is not recorded but the redirect still goes out, with no referrer to an unrecorded click.
+func TestRecordHitsFailureDoesNotBlockRedirect(t *testing.T) {
+	ts, s, path := newPipelineServer(t)
+	app, link := setupPipeline(t, s)
+	dropTable(t, path, "click_hits")
+	resp, _ := mobileClick(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA})
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d; want 302", resp.StatusCode)
+	}
+	u, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil || u.Host != "play.google.com" || u.Query().Get("referrer") != "" {
+		t.Errorf("Location = %q; want Play host, no referrer", resp.Header.Get("Location"))
+	}
+	if n, err := s.CountClicks(app.ID); err != nil || n != 0 {
+		t.Errorf("clicks = %d, %v; want 0", n, err)
+	}
+}

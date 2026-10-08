@@ -5,11 +5,14 @@ package match
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	_ "modernc.org/sqlite" // SQLite driver: tests backdate click timestamps directly
 
+	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/store"
 )
 
@@ -645,5 +648,545 @@ func TestMatchReceipts(t *testing.T) {
 	}
 	if res, _ := Match(s, link.AppID, Request{ClickID: "nope"}); res.Method != store.MethodOrganic {
 		t.Errorf("unknown clickId method = %s; want organic", res.Method)
+	}
+}
+
+// execDB: raw statement via second connection (WAL allows it).
+func execDB(t *testing.T, dbPath, q string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(q, args...); err != nil {
+		t.Fatalf("exec %q: %v", q, err)
+	}
+}
+
+// setClick: raw click column edit; facts RecordClick derives itself (hits, first_seen_at) can't be passed in.
+func setClick(t *testing.T, dbPath, id, set string, args ...any) {
+	t.Helper()
+	execDB(t, dbPath, `UPDATE clicks SET `+set+` WHERE id = ?`, append(args, id)...)
+}
+
+// ago: stored timestamp d before now.
+func ago(d time.Duration) string { return time.Now().UTC().Add(-d).Format(time.RFC3339Nano) }
+
+// recordAged: click first seen a minute ago, clear of the 10 s short-timing cutoff.
+func recordAged(t *testing.T, s *store.Store, dbPath string, c store.Click) store.Click {
+	t.Helper()
+	got := recordClick(t, s, c)
+	setClick(t, dbPath, got.ID, `first_seen_at = ?`, ago(time.Minute))
+	return got
+}
+
+// setFraud: defaults with mut applied.
+func setFraud(t *testing.T, s *store.Store, appID string, mut func(*fraud.Settings)) {
+	t.Helper()
+	f := fraud.Defaults
+	mut(&f)
+	if err := s.UpdateFraudSettings(appID, f); err != nil {
+		t.Fatalf("UpdateFraudSettings: %v", err)
+	}
+}
+
+func secondLink(t *testing.T, s *store.Store, appID string) store.Link {
+	t.Helper()
+	l, err := s.CreateLink(store.Link{AppID: appID, Key: "def", URL: "https://example.com/other"})
+	if err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	return l
+}
+
+func unconsumed(t *testing.T, s *store.Store, appID, clickID string) bool {
+	t.Helper()
+	_, err := s.ClickByClickID(appID, clickID)
+	return err == nil
+}
+
+// modeOf: the settings field holding sig's mode.
+func modeOf(f *fraud.Settings, sig string) *string {
+	switch sig {
+	case fraud.SignalVelocity:
+		return &f.VelocityMode
+	case fraud.SignalTiming:
+		return &f.TimingMode
+	case fraud.SignalUserAgent:
+		return &f.UserAgentMode
+	case fraud.SignalIP:
+		return &f.IPMode
+	}
+	panic("no mode for " + sig)
+}
+
+// flaggedAndClean: best click (IP match, 1450) on link plus a clean candidate (950) on a second link, both first seen a minute ago.
+func flaggedAndClean(t *testing.T, s *store.Store, path string, link store.Link) (flagged, clean store.Click) {
+	t.Helper()
+	flagged = recordAged(t, s, path, androidClick(link))
+	c := androidClick(secondLink(t, s, link.AppID))
+	c.Fingerprint.IP = otherIP
+	clean = recordAged(t, s, path, c)
+	fp := androidFP()
+	if a, b := Score(flagged, fp, testIP), Score(clean, fp, testIP); a != 1450 || b != 950 {
+		t.Fatalf("scores %d/%d; want 1450/950", a, b)
+	}
+	return flagged, clean
+}
+
+// Per signal path: active mode moves credit to the clean candidate (reattributed, flagged click left unconsumed); tagged mode, with every
+// other signal active or under defaults, leaves the flagged click winning with the same receipt and only a label (AE1-AE3).
+func TestFraudSignalModes(t *testing.T) {
+	cases := []struct {
+		name, sig, set string
+		arg            any
+	}{
+		{"velocity via ip hits", fraud.SignalVelocity, `hits_ip = ?`, fraud.Defaults.VelocityIPMax},
+		{"velocity via link hits", fraud.SignalVelocity, `hits_link = ?`, fraud.Defaults.VelocityLinkMax},
+		{"timing short", fraud.SignalTiming, `first_seen_at = ?`, ago(3 * time.Second)},
+		{"user agent", fraud.SignalUserAgent, `ua_suspect = ?`, 1},
+		{"ip hosting", fraud.SignalIP, `ip_hosting = ?`, 1},
+	}
+	for _, tc := range cases {
+		for _, mode := range []string{"active", "tagged", "defaults"} {
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				s, path := newTestStore(t)
+				app, link := setupApp(t, s)
+				flagged, clean := flaggedAndClean(t, s, path, link)
+				setClick(t, path, flagged.ID, tc.set, tc.arg)
+				switch mode {
+				case "active":
+					setFraud(t, s, app.ID, func(f *fraud.Settings) { *modeOf(f, tc.sig) = fraud.ModeActive })
+				case "tagged":
+					setFraud(t, s, app.ID, func(f *fraud.Settings) {
+						f.VelocityMode, f.TimingMode, f.UserAgentMode, f.IPMode = fraud.ModeActive, fraud.ModeActive, fraud.ModeActive, fraud.ModeActive
+						*modeOf(f, tc.sig) = fraud.ModeTagged
+					})
+				}
+				res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
+				if err != nil {
+					t.Fatalf("Match: %v", err)
+				}
+				if res.Fraud != tc.sig {
+					t.Errorf("fraud = %q; want %q", res.Fraud, tc.sig)
+				}
+				if mode != "active" {
+					if !res.Matched || res.Click.ID != flagged.ID || res.Score != 1450 || res.RunnerUp != 950 || res.FraudAction != "" || res.FraudLinkID != "" {
+						t.Errorf("got %v %s %d/%d action %q link %q; want flagged click 1450/950, no action", res.Matched, res.Click.ID, res.Score, res.RunnerUp, res.FraudAction, res.FraudLinkID)
+					}
+					return
+				}
+				if !res.Matched || res.Click.ID != clean.ID || res.Score != 950 || res.RunnerUp != -1 {
+					t.Errorf("got %v %s %d/%d; want clean click %s 950/-1", res.Matched, res.Click.ID, res.Score, res.RunnerUp, clean.ID)
+				}
+				if res.FraudAction != store.FraudActionReattributed || res.FraudLinkID != link.ID {
+					t.Errorf("action %q link %q; want reattributed, %s", res.FraudAction, res.FraudLinkID, link.ID)
+				}
+				if !unconsumed(t, s, app.ID, flagged.ClickID) || unconsumed(t, s, app.ID, clean.ClickID) {
+					t.Error("want flagged click unconsumed, clean click consumed")
+				}
+			})
+		}
+	}
+}
+
+// Velocity fires at the threshold, not one below, for both counters.
+func TestFraudVelocityThresholds(t *testing.T) {
+	for _, tc := range []struct {
+		set  string
+		n    int
+		want string
+	}{
+		{`hits_ip = ?`, fraud.Defaults.VelocityIPMax - 1, ""},
+		{`hits_ip = ?`, fraud.Defaults.VelocityIPMax, fraud.SignalVelocity},
+		{`hits_link = ?`, fraud.Defaults.VelocityLinkMax - 1, ""},
+		{`hits_link = ?`, fraud.Defaults.VelocityLinkMax, fraud.SignalVelocity},
+	} {
+		s, path := newTestStore(t)
+		_, link := setupApp(t, s)
+		c := recordAged(t, s, path, androidClick(link))
+		setClick(t, path, c.ID, tc.set, tc.n)
+		res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
+		if err != nil || !res.Matched || res.Fraud != tc.want {
+			t.Errorf("%s %d: matched %v fraud %q, %v; want matched, fraud %q", tc.set, tc.n, res.Matched, res.Fraud, err, tc.want)
+		}
+	}
+}
+
+// Active-flagged clickId -> organic, excluded, click not consumed; a clean clickId under the same mode still matches (AE5).
+func TestFraudClickIDExcluded(t *testing.T) {
+	s, _ := newTestStore(t)
+	app, link := setupApp(t, s)
+	setFraud(t, s, app.ID, func(f *fraud.Settings) { f.UserAgentMode = fraud.ModeActive })
+	c := androidClick(link)
+	c.ClickID, c.UASuspect = "play-bot", true
+	recordClick(t, s, c)
+	res, err := Match(s, app.ID, Request{ClickID: "play-bot"})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	// fresh click: short timing fires too (tagged)
+	if res.Matched || res.Method != store.MethodOrganic || res.FraudAction != store.FraudActionExcluded || res.FraudLinkID != link.ID ||
+		res.Fraud != "timing,user_agent" {
+		t.Errorf("flagged clickId = %+v; want organic, excluded, timing,user_agent", res)
+	}
+	if !unconsumed(t, s, app.ID, "play-bot") {
+		t.Error("excluded click consumed")
+	}
+
+	ok := androidClick(link)
+	ok.Fingerprint.IP, ok.ClickID = otherIP, "play-ok"
+	recordClick(t, s, ok)
+	if res, _ := Match(s, app.ID, Request{ClickID: "play-ok"}); !res.Matched || res.Method != store.MethodClickID || res.FraudAction != "" {
+		t.Errorf("clean clickId = %+v; want click_id match", res)
+	}
+}
+
+// Velocity active, only the flagged click -> organic, excluded, no valid score (AE4).
+func TestFraudActiveOnlyFlaggedOrganic(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	setFraud(t, s, app.ID, func(f *fraud.Settings) { f.VelocityMode = fraud.ModeActive })
+	c := recordAged(t, s, path, androidClick(link))
+	setClick(t, path, c.ID, `hits_ip = 50`)
+	res, _ := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
+	if res.Matched || res.FraudAction != store.FraudActionExcluded || res.FraudLinkID != link.ID || res.Fraud != fraud.SignalVelocity || res.Score != -1 {
+		t.Errorf("only flagged = %+v; want organic, excluded, velocity, score -1", res)
+	}
+	if !unconsumed(t, s, app.ID, c.ClickID) {
+		t.Error("excluded click consumed")
+	}
+}
+
+// Short timing: fires just under the cutoff, not at it; open clicks exempt; a re-tap counts from the first tap; a client clock running
+// ahead (capture 50 s in the future) is clamped to server now, so it cannot stretch "too soon" away.
+func TestFraudTimingShort(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	capture := now.Add(-time.Second)
+	cutoff := time.Duration(fraud.Defaults.TimingShortSeconds) * time.Second
+	for _, tc := range []struct {
+		name, kind string
+		capture    time.Time
+		firstSeen  time.Time
+		retap      bool
+		want       bool
+	}{
+		{"just under cutoff", store.KindApp, capture, capture.Add(-cutoff + time.Millisecond), false, true},
+		{"at cutoff", store.KindApp, capture, capture.Add(-cutoff), false, false},
+		{"open kind exempt", store.KindOpen, capture, capture.Add(-3 * time.Second), false, false},
+		{"retap measured from first tap", store.KindApp, now, now.Add(-time.Minute), true, false},
+		{"future capture clamped", store.KindApp, now.Add(50 * time.Second), now.Add(-3 * time.Second), false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, path := newTestStore(t)
+			_, link := setupApp(t, s)
+			c := androidClick(link)
+			c.Kind = tc.kind
+			got := recordClick(t, s, c)
+			first := tc.firstSeen.Format(time.RFC3339Nano)
+			setClick(t, path, got.ID, `first_seen_at = ?, created_at = ?`, first, first)
+			if tc.retap { // dedup refresh: created_at -> now, first_seen_at kept
+				if again := recordClick(t, s, c); again.ID != got.ID {
+					t.Fatal("re-tap made a new click")
+				}
+			}
+			fp := androidFP()
+			fp.CapturedAt = tc.capture
+			res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fp})
+			if err != nil || !res.Matched {
+				t.Fatalf("Match = %+v, %v; want matched", res, err)
+			}
+			if fired := strings.Contains(res.Fraud, fraud.SignalTiming); fired != tc.want {
+				t.Errorf("fraud %q; want timing fired = %v", res.Fraud, tc.want)
+			}
+		})
+	}
+}
+
+// Long timing: clickId click first tapped past TimingLongHours fires, under it does not; long never fires on the probabilistic path.
+func TestFraudTimingLongClickIDOnly(t *testing.T) {
+	long := time.Duration(fraud.Defaults.TimingLongHours) * time.Hour
+	for _, tc := range []struct {
+		name    string
+		clickID bool
+		age     time.Duration
+		want    bool
+	}{
+		{"clickId past long", true, long + time.Minute, true},
+		{"clickId under long", true, long - time.Minute, false},
+		{"probabilistic past long", false, long + time.Minute, false},
+	} {
+		s, path := newTestStore(t)
+		_, link := setupApp(t, s)
+		c := recordClick(t, s, androidClick(link)) // created now (re-tapped), first tap age ago
+		setClick(t, path, c.ID, `first_seen_at = ?`, ago(tc.age))
+		req := Request{IP: testIP, Fingerprint: fpPtr(androidFP())}
+		if tc.clickID {
+			req = Request{ClickID: c.ClickID}
+		}
+		res, err := Match(s, link.AppID, req)
+		if err != nil || !res.Matched {
+			t.Fatalf("%s: Match = %+v, %v; want matched", tc.name, res, err)
+		}
+		if fired := strings.Contains(res.Fraud, fraud.SignalTiming); fired != tc.want {
+			t.Errorf("%s: fraud %q; want timing fired = %v", tc.name, res.Fraud, tc.want)
+		}
+	}
+}
+
+// Active IP mode, best candidate clean, flagged one below it -> attribution unchanged, no action; runner-up comes from the valid set only.
+func TestFraudActiveCleanBestUnchanged(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	setFraud(t, s, app.ID, func(f *fraud.Settings) { f.IPMode = fraud.ModeActive })
+	best := recordAged(t, s, path, androidClick(link))
+	h := androidClick(link)
+	h.Fingerprint.IP, h.IPHosting = otherIP, true
+	recordAged(t, s, path, h)
+	res, _ := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
+	if !res.Matched || res.Click.ID != best.ID || res.Score != 1450 || res.RunnerUp != -1 || res.FraudAction != "" || res.Fraud != "" {
+		t.Errorf("clean best = %+v; want best click 1450/-1, no labels", res)
+	}
+}
+
+// Flagged best and clean candidate both below threshold -> organic, no action (nothing was taken away).
+func TestFraudBelowThresholdNoAction(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	if err := s.UpdateAppMatchSettings(app.ID, 1200, 15); err != nil {
+		t.Fatal(err)
+	}
+	setFraud(t, s, app.ID, func(f *fraud.Settings) { f.VelocityMode = fraud.ModeActive })
+	clean := androidClick(link)
+	clean.Fingerprint.IP = otherIP
+	recordAged(t, s, path, clean)
+	flagged := recordAged(t, s, path, androidClick(link)) // 1450 at IP match, but request IP matches neither
+	setClick(t, path, flagged.ID, `hits_ip = 50`)
+	res, _ := Match(s, app.ID, Request{IP: "192.0.2.99", Fingerprint: fpPtr(androidFP())})
+	if res.Matched || res.FraudAction != "" || res.FraudLinkID != "" || res.Fraud != "" || res.Score != 950 {
+		t.Errorf("below threshold = %+v; want organic 950, no labels", res)
+	}
+}
+
+// Claim race after an exclusion: the clean winner is taken between scan and claim (a trigger turns the claim UPDATE into a no-op, the
+// same zero-row result another device's claim produces) -> organic, but the excluded click still took credit away, so excluded + its link.
+func TestFraudClaimRaceKeepsExcluded(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	setFraud(t, s, app.ID, func(f *fraud.Settings) { f.VelocityMode = fraud.ModeActive })
+	flagged, clean := flaggedAndClean(t, s, path, link)
+	setClick(t, path, flagged.ID, `hits_ip = 50`)
+	execDB(t, path, `CREATE TRIGGER lost_race BEFORE UPDATE OF matched_at ON clicks WHEN OLD.id = '`+clean.ID+`' BEGIN SELECT RAISE(IGNORE); END`)
+	res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	if res.Matched || res.Method != store.MethodOrganic || res.Score != 950 || res.RunnerUp != -1 {
+		t.Errorf("got %v %s %d/%d; want organic 950/-1", res.Matched, res.Method, res.Score, res.RunnerUp)
+	}
+	if res.FraudAction != store.FraudActionExcluded || res.FraudLinkID != link.ID || res.Fraud != fraud.SignalVelocity {
+		t.Errorf("labels %q %q %q; want velocity, excluded, %s", res.Fraud, res.FraudAction, res.FraudLinkID, link.ID)
+	}
+	if !unconsumed(t, s, app.ID, flagged.ClickID) {
+		t.Error("excluded click consumed")
+	}
+}
+
+// Install request from a hosting range gets its own tag-only label: install_ip, never ip, never excludes even with IP mode active;
+// a hosting click plus a hosting install carries both labels.
+func TestFraudInstallIPTagOnly(t *testing.T) {
+	const aws = "3.5.140.1"
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	setFraud(t, s, app.ID, func(f *fraud.Settings) { f.IPMode = fraud.ModeActive })
+	c := recordAged(t, s, path, androidClick(link))
+	res, _ := Match(s, app.ID, Request{IP: aws, Fingerprint: fpPtr(androidFP())})
+	if !res.Matched || res.Click.ID != c.ID || res.Fraud != fraud.SignalInstallIP || res.FraudAction != "" {
+		t.Errorf("hosting install IP, IP mode active = %+v; want matched, install_ip label only", res)
+	}
+
+	s2, path2 := newTestStore(t)
+	_, link2 := setupApp(t, s2)
+	h := androidClick(link2)
+	h.IPHosting = true
+	recordAged(t, s2, path2, h)
+	res, _ = Match(s2, link2.AppID, Request{IP: aws, Fingerprint: fpPtr(androidFP())})
+	if !res.Matched || res.Fraud != "ip,install_ip" {
+		t.Errorf("hosting click + install = %q matched %v; want ip,install_ip", res.Fraud, res.Matched)
+	}
+}
+
+// Fingerprint concentration, FingerprintMax 5: this install plus 4 prior probabilistic installs (same hash, same link) labels it, 3 do not;
+// priors older than FingerprintWindowDays do not count. Tag only: still attributed.
+func TestFraudFingerprintConcentration(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		recent, stale int
+		want          string
+	}{
+		{"3 priors", 3, 0, ""},
+		{"4 priors", 4, 0, fraud.SignalFingerprint},
+		{"3 priors + 1 outside window", 3, 1, ""},
+	} {
+		s, path := newTestStore(t)
+		app, link := setupApp(t, s)
+		setFraud(t, s, app.ID, func(f *fraud.Settings) { f.FingerprintMax, f.FingerprintWindowDays = 5, 7 })
+		for i := range tc.recent + tc.stale {
+			if _, err := s.RecordInstall(store.Install{AppID: app.ID, DeviceHash: "h", ClickID: fmt.Sprint("old", i), LinkID: link.ID,
+				Attribution: store.AttributionNonOrganic, Method: store.MethodProbabilistic}); err != nil {
+				t.Fatal(err)
+			}
+			if i >= tc.recent {
+				execDB(t, path, `UPDATE installs SET created_at = ? WHERE click_id = ?`, ago(8*24*time.Hour), fmt.Sprint("old", i))
+			}
+		}
+		recordAged(t, s, path, androidClick(link))
+		res, err := Match(s, app.ID, Request{IP: testIP, DeviceHash: "h", Fingerprint: fpPtr(androidFP())})
+		if err != nil || !res.Matched || res.Fraud != tc.want || res.FraudAction != "" {
+			t.Errorf("%s: matched %v fraud %q action %q, %v; want matched, fraud %q", tc.name, res.Matched, res.Fraud, res.FraudAction, err, tc.want)
+		}
+	}
+}
+
+// Settings read failure (table dropped) -> every signal tagged; a flagged clickId still matches (KTD4).
+func TestFraudSettingsErrorClickIDMatches(t *testing.T) {
+	s, path := newTestStore(t)
+	_, link := setupApp(t, s)
+	c := androidClick(link)
+	c.ClickID, c.UASuspect = "play-1", true
+	recordClick(t, s, c)
+	execDB(t, path, `DROP TABLE fraud_settings`)
+	res, err := Match(s, link.AppID, Request{ClickID: "play-1"})
+	if err != nil || !res.Matched || res.Method != store.MethodClickID || res.FraudAction != "" {
+		t.Errorf("settings error: %+v, %v; want clickId match, no action", res, err)
+	}
+}
+
+// Backend errors surface as errors, never as a match or an organic answer: clickId lookup, unknown app, window scan, and the claim
+// UPDATE on both paths (a trigger aborts it).
+func TestMatchBackendErrors(t *testing.T) {
+	const abortClaim = `CREATE TRIGGER no_claim BEFORE UPDATE OF matched_at ON clicks BEGIN SELECT RAISE(ABORT, 'claim failed'); END`
+	for _, tc := range []struct {
+		name  string
+		fault string
+		req   func(store.Click) Request
+		appID string // "" = the test app
+	}{
+		{"clickId lookup", `DROP TABLE clicks`, func(c store.Click) Request { return Request{ClickID: c.ClickID, DeviceHash: "h"} }, ""},
+		{"unknown app", "", func(store.Click) Request { return Request{IP: testIP, Fingerprint: fpPtr(androidFP())} }, "missing"},
+		{"window scan", `ALTER TABLE clicks DROP COLUMN hits_link`, func(store.Click) Request { return Request{IP: testIP, Fingerprint: fpPtr(androidFP())} }, ""},
+		{"clickId claim", abortClaim, func(c store.Click) Request { return Request{ClickID: c.ClickID} }, ""},
+		{"probabilistic claim", abortClaim, func(store.Click) Request { return Request{IP: testIP, Fingerprint: fpPtr(androidFP())} }, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, path := newTestStore(t)
+			app, link := setupApp(t, s)
+			c := recordAged(t, s, path, androidClick(link))
+			if tc.fault != "" {
+				execDB(t, path, tc.fault)
+			}
+			id := app.ID
+			if tc.appID != "" {
+				id = tc.appID
+			}
+			res, err := Match(s, id, tc.req(c))
+			if err == nil || res.Matched || res.Method != "" {
+				t.Errorf("Match = %+v, %v; want zero result and an error", res, err)
+			}
+		})
+	}
+}
+
+// Fingerprint count failure (installs table gone): the match still succeeds, just without the fingerprint label (R5, R7). Stored max 1
+// (below Validate's floor, written directly) so a failed count (0) would label if the error were ignored.
+func TestFraudFingerprintCountErrorStillMatches(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	setFraud(t, s, app.ID, func(*fraud.Settings) {})
+	execDB(t, path, `UPDATE fraud_settings SET fingerprint_max = 1`)
+	c := recordAged(t, s, path, androidClick(link))
+	execDB(t, path, `DROP TABLE installs`)
+	res, err := Match(s, app.ID, Request{IP: testIP, DeviceHash: "h", Fingerprint: fpPtr(androidFP())})
+	if err != nil || !res.Matched || res.Click.ID != c.ID || res.Method != store.MethodProbabilistic || res.Fraud != "" {
+		t.Errorf("Match = %+v, %v; want probabilistic match on %s, no labels", res, err, c.ID)
+	}
+}
+
+// Threshold is inclusive on both sides of an exclusion: a valid winner scoring exactly the threshold matches, and an excluded top click
+// scoring exactly the threshold counts as credit taken away (organic, excluded + its link).
+func TestFraudThresholdInclusive(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		hits   int
+		action string
+	}{
+		{"clean at threshold matches", 0, ""},
+		{"excluded at threshold", 50, store.FraudActionExcluded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, path := newTestStore(t)
+			app, link := setupApp(t, s)
+			if err := s.UpdateAppMatchSettings(app.ID, 950, 15); err != nil {
+				t.Fatal(err)
+			}
+			setFraud(t, s, app.ID, func(f *fraud.Settings) { f.VelocityMode = fraud.ModeActive })
+			c := recordAged(t, s, path, androidClick(link))
+			setClick(t, path, c.ID, `hits_ip = ?`, tc.hits)
+			res, err := Match(s, app.ID, Request{IP: otherIP, Fingerprint: fpPtr(androidFP())}) // no IP match: 950
+			if err != nil {
+				t.Fatalf("Match: %v", err)
+			}
+			if tc.action == "" {
+				if !res.Matched || res.Score != 950 || res.FraudAction != "" {
+					t.Errorf("got %+v; want matched at 950, no action", res)
+				}
+				return
+			}
+			if res.Matched || res.FraudAction != tc.action || res.FraudLinkID != link.ID || res.Fraud != fraud.SignalVelocity {
+				t.Errorf("got %+v; want organic, excluded, velocity, link %s", res, link.ID)
+			}
+		})
+	}
+}
+
+// Runner-up comes from the valid set in any scan order: newest clean 1450 wins, the older active-excluded 950 is skipped, the oldest
+// clean 750 is the runner-up.
+func TestFraudRunnerUpFromValidSet(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	setFraud(t, s, app.ID, func(f *fraud.Settings) { f.IPMode = fraud.ModeActive })
+	low := androidClick(link)
+	low.Fingerprint.IP, low.Fingerprint.Timezone = otherIP, "Asia/Tokyo"
+	recordAged(t, s, path, low)
+	flagged := androidClick(link)
+	flagged.Fingerprint.IP, flagged.IPHosting = otherIP, true
+	flagged.Fingerprint.UserAgent += " flagged" // separate device: no dedup into low's row
+	recordAged(t, s, path, flagged)
+	best := recordAged(t, s, path, androidClick(link))
+	fp := androidFP()
+	if a, b, c := Score(best, fp, testIP), Score(flagged, fp, testIP), Score(low, fp, testIP); a != 1450 || b != 950 || c != 750 {
+		t.Fatalf("scores %d/%d/%d; want 1450/950/750", a, b, c)
+	}
+	res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: &fp})
+	if err != nil || !res.Matched || res.Click.ID != best.ID || res.Score != 1450 || res.RunnerUp != 750 || res.FraudAction != "" {
+		t.Errorf("Match = %+v, %v; want %s at 1450, runner-up 750, no action", res, err, best.ID)
+	}
+}
+
+// No device hash on the request: no fingerprint count, so no label even when hash-less probabilistic installs on the link pass the max.
+func TestFraudFingerprintNeedsDeviceHash(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	for i := range fraud.Defaults.FingerprintMax {
+		if _, err := s.RecordInstall(store.Install{AppID: app.ID, ClickID: fmt.Sprint("old", i), LinkID: link.ID,
+			Attribution: store.AttributionNonOrganic, Method: store.MethodProbabilistic}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recordAged(t, s, path, androidClick(link))
+	res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
+	if err != nil || !res.Matched || res.Fraud != "" {
+		t.Errorf("Match = %+v, %v; want matched, no labels", res, err)
 	}
 }

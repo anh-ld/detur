@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'preact/hooks';
+import { ToastContainer } from 'kinu';
 import { api } from './api';
 import { row } from './ui';
 import { AppsPage } from './apps';
-import { DetailPage } from './detail';
-import { SettingsPage } from './settings';
+import { AppPage, AppTab } from './detail';
 
-type Route = { name: 'apps' } | { name: 'detail' | 'settings'; id: string };
+type Route = { name: 'apps' } | { name: 'app'; id: string; tab: AppTab };
 
 export function parseHash(h: string = location.hash): Route {
-  const m = h.match(/^#\/apps\/([^/?#]+)(\/settings)?/);
+  const m = h.match(/^#\/apps\/([^/?#]+)(?:\/(analytics|fraud|settings))?/);
   if (m) {
     try {
-      return { name: m[2] ? 'settings' : 'detail', id: decodeURIComponent(m[1]) };
+      return { name: 'app', id: decodeURIComponent(m[1]), tab: (m[2] as AppTab | undefined) ?? 'links' };
     } catch {
       // malformed %-encoding in id: treat as unknown route
     }
@@ -64,9 +64,9 @@ export function App() {
       </header>
       <main style={{ maxWidth: 1040, margin: '0 auto', padding: '0 24px 64px' }}>
         {route.name === 'apps' && <AppsPage />}
-        {route.name === 'detail' && <DetailPage id={route.id} />}
-        {route.name === 'settings' && <SettingsPage id={route.id} />}
+        {route.name === 'app' && <AppPage id={route.id} tab={route.tab} />}
       </main>
+      <ToastContainer />
     </>
   );
 }

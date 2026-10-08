@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/match"
 	"detur.dev/server/internal/store"
@@ -127,7 +128,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	}
 	if !res.Matched {
 		if _, err := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: dh, Attribution: store.AttributionOrganic, Platform: installPlatform(body),
-			Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp}); err != nil {
+			Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp, Fraud: res.Fraud, FraudAction: res.FraudAction, FraudLinkID: res.FraudLinkID}); err != nil {
 			s.backendError(appID, dh, err)
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -135,7 +136,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	}
 	// failed install write: analytics row lost, link still returned (backend errors never deny link)
 	inst := store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic, LinkID: res.Click.LinkID, Platform: installPlatform(body),
-		Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp}
+		Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp, Fraud: res.Fraud, FraudAction: res.FraudAction, FraudLinkID: res.FraudLinkID}
 	if inst.Platform == "" { // clickId-only payload: matched click's browser tells the platform
 		inst.Platform = ua.Platform(res.Click.Fingerprint.UserAgent)
 	}
@@ -223,10 +224,12 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 		}
 		return store.Nanoid(16)
 	}
+	ip := httpx.RemoteIP(r)
 	rec, err := s.st.RecordClick(store.Click{
 		AppID: appID, LinkID: link.ID, Destination: link.URL,
-		Fingerprint: store.Fingerprint{IP: httpx.RemoteIP(r), UserAgent: r.UserAgent()},
+		Fingerprint: store.Fingerprint{IP: ip, UserAgent: r.UserAgent()},
 		Platform:    ua.AppPlatform(r.UserAgent()), Kind: store.KindOpen,
+		IPHosting: fraud.Hosting(ip), // native app UA: no UA screening on opens (KTD3)
 	}, s.retentionHours)
 	if err != nil {
 		s.log.Printf("universal-link-click backend error (click not recorded): %v", err)

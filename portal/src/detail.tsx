@@ -16,11 +16,15 @@ import {
   Label,
   Separator,
   Spinner,
+  Tab,
   Table,
+  TabList,
 } from 'kinu';
 import { Analytics, api, App, Link, Platform } from './api';
 import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
 import { AnalyticsView, Filters, fmt } from './analytics';
+import { FraudPanel } from './fraud';
+import { SettingsPanel } from './settings';
 
 interface LinkDraft {
   key: string;
@@ -54,7 +58,19 @@ const Icon = ({ d, spin }: { d: string; spin?: boolean }) => (
   </svg>
 );
 
-export function DetailPage({ id }: { id: string }) {
+export type AppTab = 'links' | 'analytics' | 'fraud' | 'settings';
+
+const TABS: { tab: AppTab; label: string }[] = [
+  { tab: 'links', label: 'Links' },
+  { tab: 'analytics', label: 'Analytics' },
+  { tab: 'fraud', label: 'Fraud' },
+  { tab: 'settings', label: 'Settings' },
+];
+
+const tabHref = (id: string, tab: AppTab) => `#/apps/${encodeURIComponent(id)}${tab === 'links' ? '' : '/' + tab}`;
+
+// App page: one header, one tab per job. Links land first: they are what an operator touches most.
+export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [app, setApp] = useState<App | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
   const [stats, setStats] = useState<Analytics | null>(null);
@@ -75,8 +91,8 @@ export function DetailPage({ id }: { id: string }) {
         .catch((e) => setError(String(e))),
     ]);
   };
-  // Analytics: one request per id/filter/refresh; a superseded response is dropped (stale flag).
-  const [statsTick, setStatsTick] = useState(0);
+  // Analytics (also feeds link counts): one request per id/filter/refresh; a superseded response is dropped (stale flag).
+  const [tick, setTick] = useState(0);
   const [statsLoading, setStatsLoading] = useState(false);
   useEffect(() => {
     let stale = false;
@@ -89,15 +105,18 @@ export function DetailPage({ id }: { id: string }) {
     return () => {
       stale = true;
     };
-  }, [id, days, platform, statsTick]);
+  }, [id, days, platform, tick]);
   // Refresh icon spins until app, links and analytics load; min 600ms so a fast reload stays visible.
   const [refreshing, setRefreshing] = useState(false);
   const refresh = () => {
     setRefreshing(true);
-    setStatsTick((t) => t + 1);
+    setTick((t) => t + 1);
     Promise.all([loadAll(), new Promise((r) => setTimeout(r, 600))]).then(() => setRefreshing(false));
   };
   useEffect(() => {
+    setApp(null);
+    setLinks(null);
+    setStats(null);
     loadAll();
   }, [id]);
 
@@ -125,6 +144,7 @@ export function DetailPage({ id }: { id: string }) {
   };
 
   const linkStats = new Map(stats?.links.map((l) => [l.linkId, l]));
+  const filtered = tab === 'links' || tab === 'analytics';
 
   return (
     <div>
@@ -135,105 +155,109 @@ export function DetailPage({ id }: { id: string }) {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <PageHeader title={app.name} actions={
-          <>
+      <PageHeader
+        title={app.name}
+        actions={
+          tab !== 'settings' && (
             <Button variant="secondary" onClick={refresh} aria-busy={refreshing || statsLoading}>
               <Icon d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" spin={refreshing || statsLoading} />
               Refresh
             </Button>
-            <Button variant="secondary" href={`#/apps/${app.id}/settings`}>
-              <Icon d="M4 7h10M18 7h2M4 17h2M10 17h10M18 7a2 2 0 1 1-4 0a2 2 0 1 1 4 0M10 17a2 2 0 1 1-4 0a2 2 0 1 1 4 0" />
-              Settings
-            </Button>
-          </>
+          )
         }
       />
+      <div class="tab-bar">
+        <TabList role="tablist" aria-label="App sections">
+          {TABS.map((t) => (
+            <Tab key={t.tab} role="tab" aria-selected={t.tab === tab} onClick={() => (location.hash = tabHref(app.id, t.tab))}>
+              {t.label}
+            </Tab>
+          ))}
+        </TabList>
+        {filtered && <Filters days={days} platform={platform} onDays={setDays} onPlatform={setPlatform} />}
+      </div>
       {error && <Alert variant="destructive">{error}</Alert>}
 
-      <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>Analytics</h2>
-        <Filters days={days} platform={platform} onDays={setDays} onPlatform={setPlatform} />
-      </div>
-      <AnalyticsView data={stats} />
-
-      <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, margin: '40px 0 16px' }}>
-        <div style={{ display: 'grid', gap: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 20 }}>Links</h2>
-          <p style={muted}>Clicks and matches follow the analytics filters.</p>
-        </div>
-        <LinkDialog appId={app.id} link={null} onSaved={refresh} trigger={<Button>New link</Button>} />
-      </div>
-      {links === null ? (
-        <Spinner />
-      ) : links.length === 0 ? (
-        <Card>
-          <Empty>
-            <h3>No links yet</h3>
-            Create a link to start tracking clicks and installs.
-          </Empty>
-        </Card>
-      ) : (
-        <Table>
-          <thead>
-            <tr>
-              <th>Link</th>
-              <th>Platforms</th>
-              <th style={{ textAlign: 'right' }}>Clicks</th>
-              <th style={{ textAlign: 'right' }}>Matches</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {links.map((l) => (
-              <tr key={l.id}>
-                <td>
-                  <div style={{ display: 'grid', gap: 2 }}>
-                    <strong style={mono}>{l.key}</strong>
-                    <a href={l.url} target="_blank" rel="noreferrer" style={{ ...muted, textDecoration: 'none' }}>
-                      {l.url}
-                    </a>
-                  </div>
-                </td>
-                <td>
-                  <div style={row}>
-                    {l.ios && <Badge variant="secondary">iOS</Badge>}
-                    {l.android && <Badge variant="secondary">Android</Badge>}
-                    {l.fallbackUrl && <Badge variant="secondary">Web</Badge>}
-                    {!l.ios && !l.android && !l.fallbackUrl && <Badge variant="outline">URL only</Badge>}
-                  </div>
-                </td>
-                <td data-label="Clicks" className="num">
-                  {fmt(linkStats.get(l.id)?.clicks ?? 0)}
-                </td>
-                <td data-label="Matches" className="num">
-                  {fmt(linkStats.get(l.id)?.matches ?? 0)}
-                </td>
-                <td>
-                  <div style={{ ...row, justifyContent: 'flex-end' }}>
-                    <LinkDialog
-                      appId={app.id}
-                      link={l}
-                      onSaved={refresh}
-                      trigger={
-                        <Button size="sm" variant="outline">
-                          Edit
-                        </Button>
-                      }
-                    />
-                    <ConfirmDelete
-                      title={`Delete ${l.key}?`}
-                      body="The short link stops working."
-                      onConfirm={() => del(l)}
-                    />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+      {tab === 'links' && (
+        <section aria-label="Links" style={{ display: 'grid', gap: 16 }}>
+          <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <p style={muted}>Clicks and matches follow the filters above.</p>
+            <LinkDialog appId={app.id} link={null} onSaved={refresh} trigger={<Button>New link</Button>} />
+          </div>
+          {links === null ? (
+            <Spinner />
+          ) : links.length === 0 ? (
+            <Card>
+              <Empty>
+                <h3>No links yet</h3>
+                Create a link to start tracking clicks and installs.
+              </Empty>
+            </Card>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <th>Link</th>
+                  <th>Platforms</th>
+                  <th style={{ textAlign: 'right' }}>Clicks</th>
+                  <th style={{ textAlign: 'right' }}>Matches</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {links.map((l) => (
+                  <tr key={l.id}>
+                    <td>
+                      <div style={{ display: 'grid', gap: 2 }}>
+                        <strong style={mono}>{l.key}</strong>
+                        <a href={l.url} target="_blank" rel="noreferrer" style={{ ...muted, textDecoration: 'none' }}>
+                          {l.url}
+                        </a>
+                      </div>
+                    </td>
+                    <td>
+                      <div style={row}>
+                        {l.ios && <Badge variant="secondary">iOS</Badge>}
+                        {l.android && <Badge variant="secondary">Android</Badge>}
+                        {l.fallbackUrl && <Badge variant="secondary">Web</Badge>}
+                        {!l.ios && !l.android && !l.fallbackUrl && <Badge variant="outline">URL only</Badge>}
+                      </div>
+                    </td>
+                    <td data-label="Clicks" className="num">
+                      {fmt(linkStats.get(l.id)?.clicks ?? 0)}
+                    </td>
+                    <td data-label="Matches" className="num">
+                      {fmt(linkStats.get(l.id)?.matches ?? 0)}
+                    </td>
+                    <td>
+                      <div style={{ ...row, justifyContent: 'flex-end' }}>
+                        <LinkDialog
+                          appId={app.id}
+                          link={l}
+                          onSaved={refresh}
+                          trigger={
+                            <Button size="sm" variant="outline">
+                              Edit
+                            </Button>
+                          }
+                        />
+                        <ConfirmDelete
+                          title={`Delete ${l.key}?`}
+                          body="The short link stops working."
+                          onConfirm={() => del(l)}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </section>
       )}
-
-
+      {tab === 'analytics' && <AnalyticsView data={stats} />}
+      {tab === 'fraud' && <FraudPanel appId={app.id} tick={tick} />}
+      {tab === 'settings' && <SettingsPanel app={app} onApp={setApp} onReload={loadAll} />}
     </div>
   );
 }

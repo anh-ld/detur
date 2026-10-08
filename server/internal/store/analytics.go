@@ -2,7 +2,10 @@ package store
 
 import (
 	"fmt"
+	"strings"
 	"time"
+
+	"detur.dev/server/internal/fraud"
 )
 
 // DayStat: one UTC day of analytics. Clicks = browser clicks (app + web kinds); Web = web fallbacks (subset of Clicks); Opens = SDK opens of an installed app.
@@ -208,4 +211,80 @@ func (s *Store) MatchQuality(appID string, days int, now time.Time) (MatchQualit
 		q.Buckets = append(q.Buckets, b)
 	}
 	return q, rows.Err()
+}
+
+// FraudStats: last `days` UTC days. Signals: flagged installs per signal (every fraud.Signal* key present). Installs: latest flaggedLimit flagged installs, newest first. Settings' 7-day counts (R10) use FraudSignals(appID, 7, now).
+type FraudStats struct {
+	Signals  map[string]int64 `json:"signals"`
+	Installs []FlaggedInstall `json:"installs"`
+}
+
+type FlaggedInstall struct {
+	ID          string    `json:"id"`
+	DeviceHash  string    `json:"deviceHash"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Attribution string    `json:"attribution"`
+	Method      string    `json:"method"`
+	LinkID      string    `json:"linkId"`
+	Platform    string    `json:"platform"`
+	Fraud       []string  `json:"fraud"`
+	FraudAction string    `json:"fraudAction"`
+	FraudLinkID string    `json:"fraudLinkId"`
+}
+
+const flaggedLimit = 100
+
+func (s *Store) Fraud(appID string, days int, now time.Time) (FraudStats, error) {
+	f := FraudStats{Installs: []FlaggedInstall{}}
+	var err error
+	if f.Signals, err = s.FraudSignals(appID, days, now); err != nil {
+		return f, err
+	}
+	lo := day(now.UTC().AddDate(0, 0, -(days - 1)))
+	rows, err := s.db.Query(
+		`SELECT id, device_hash, created_at, attribution, COALESCE(method, ''), COALESCE(link_id, ''), COALESCE(platform, ''),
+		   fraud, COALESCE(fraud_action, ''), COALESCE(fraud_link_id, '')
+		 FROM installs WHERE app_id = ? AND substr(created_at, 1, 10) >= ? AND fraud IS NOT NULL
+		 ORDER BY created_at DESC LIMIT ?`, appID, lo, flaggedLimit)
+	if err != nil {
+		return f, fmt.Errorf("fraud installs: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var in FlaggedInstall
+		var created, labels string
+		if err := rows.Scan(&in.ID, &in.DeviceHash, &created, &in.Attribution, &in.Method, &in.LinkID, &in.Platform,
+			&labels, &in.FraudAction, &in.FraudLinkID); err != nil {
+			return f, err
+		}
+		in.CreatedAt = parseTime(created)
+		in.Fraud = strings.Split(labels, ",")
+		f.Installs = append(f.Installs, in)
+	}
+	return f, rows.Err()
+}
+
+// FraudSignals: per-signal flagged-install counts over the last `days` UTC days; every signal key present.
+func (s *Store) FraudSignals(appID string, days int, now time.Time) (map[string]int64, error) {
+	lo := day(now.UTC().AddDate(0, 0, -(days - 1)))
+	sums := make([]string, len(fraud.Signals))
+	args := make([]any, 0, len(fraud.Signals)+2)
+	dest := make([]any, len(fraud.Signals))
+	counts := make([]int64, len(fraud.Signals))
+	for i, sig := range fraud.Signals {
+		sums[i] = `COALESCE(SUM(instr(',' || fraud || ',', ?) > 0), 0)`
+		args = append(args, ","+sig+",")
+		dest[i] = &counts[i]
+	}
+	args = append(args, appID, lo)
+	if err := s.db.QueryRow(
+		`SELECT `+strings.Join(sums, ", ")+` FROM installs
+		 WHERE app_id = ? AND substr(created_at, 1, 10) >= ?`, args...).Scan(dest...); err != nil {
+		return nil, fmt.Errorf("fraud signals: %w", err)
+	}
+	out := make(map[string]int64, len(fraud.Signals))
+	for i, sig := range fraud.Signals {
+		out[sig] = counts[i]
+	}
+	return out, nil
 }

@@ -61,6 +61,20 @@ Change: edit row, keep ID. New conflict: add row before code.
 | A3 | Web fallback = browser click → non-store URL. Installed open = universal-link-click. | Ours | Detour undefined; what detur sees. | — | in place |
 | A4 | UTC days. | Ours | One bucket key. | — | in place |
 
+## Fraud
+
+| ID | Decision | Source | Why | Plan | Status |
+|---|---|---|---|---|---|
+| F1 | Server-only. No SDK change. | Ours | Least scope. | — | in place |
+| F2 | Signals tagged first; active = per-app opt-in. App Fraud tab: press = saved, toast, no confirm. | Singular + ours | Nothing excluded unseen. Confirm dialog dropped: one press, undo = one press. | — | in place |
+| F3 | Active: skip flagged click → best other ≥ threshold, else organic. Flagged `clickId` → organic. Install IP: own `install_ip` label, tag only. | Ours | M2 selection. No fingerprint on `clickId`. | — | in place |
+| F4 | Never delete installs; labels survive scrub. | Ours | M11. | — | in place |
+| F5 | Velocity: raw hits per IP, link. Own counter. | Ours | C4 merges, C5 scrubs. | — | in place |
+| F6 | Click→install time: short = hijack; long = flood, `clickId` only. | AppsFlyer | M2 window caps probabilistic. | — | in place |
+| F7 | UA: C3 as is. Extra bot list + empty UA = tagged signal, out of A2. | Ours | C3 drops unseen. | — | in place |
+| F8 | IP: hosting ASNs (ipverse), bundled. Akamai/Cloudflare/Fastly out; Private Relay subtracted at refresh. | ipverse + ours | No outbound. Relay = real users. Apple list not redistributable. | — | in place |
+| F9 | Same hash, many installs, one link, probabilistic only. | Ours | M12 = config, not device. | — | in place |
+
 ## Ops
 
 | ID | Decision | Source | Why | Plan | Status |
@@ -76,7 +90,7 @@ Change: edit row, keep ID. New conflict: add row before code.
 
 ## Not adopted (yet)
 
-In-app browser hand-off, return-to-web after store dismiss, App Preview page, custom redirect HTML, fallback param strategies, copy-link toggle, Smart Banners, multi-segment links, webhooks, Platform API, billing.
+In-app browser hand-off, return-to-web after store dismiss, App Preview page, custom redirect HTML, fallback param strategies, copy-link toggle, Smart Banners, multi-segment links, webhooks, Platform API, billing, click-injection detection (needs SDK referrer), VPN/Tor IP detection.
 
 ## Security, ops
 

@@ -8,18 +8,22 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 - No tiers, no click limits. Your data.
 - Same 5 SDK endpoints, same matching.
 - One binary: Go + SQLite + portal. No outbound calls.
+- Analytics: clicks, installs, events, charts, match quality.
+- Fraud: floods, fast opens, bots, datacenter IPs, repeat devices. Tag or block.
 
 <table>
   <tr>
-    <td width="25%"><img src="images/apps.webp" alt="Apps list"></td>
-    <td width="25%"><img src="images/analytics.webp" alt="Analytics: clicks, installs via link, web fallbacks"></td>
-    <td width="25%"><img src="images/charts.webp" alt="Daily activity and organic vs. non-organic installs"></td>
-    <td width="25%"><img src="images/settings.webp" alt="App settings: health, config, API key, matching"></td>
+    <td width="20%"><img src="images/apps.webp" alt="Apps list"></td>
+    <td width="20%"><img src="images/analytics.webp" alt="Analytics: clicks, installs via link, web fallbacks"></td>
+    <td width="20%"><img src="images/charts.webp" alt="Daily activity and organic vs. non-organic installs"></td>
+    <td width="20%"><img src="images/fraud.webp" alt="Fraud signals: tagged or active per signal, thresholds inline"></td>
+    <td width="20%"><img src="images/settings.webp" alt="App settings: health, config, API key, matching"></td>
   </tr>
   <tr>
     <td align="center">Apps</td>
     <td align="center">Analytics</td>
     <td align="center">Charts</td>
+    <td align="center">Fraud</td>
     <td align="center">Settings</td>
   </tr>
 </table>
@@ -34,15 +38,15 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 | SDK | Detour. Drop-in for godetour | Detour. Official | AppsFlyer SDK |
 | Matching | Detour weights, tuned per app | Detour weights | Proprietary |
 | Attribution | 1 click → 1 install | 1 click → 1 install | Multi-touch |
-| Analytics | Portal: clicks, installs, events | Dashboard: clicks, installs, events | Events, revenue, cohorts |
-| Fraud detection | ❌ | ❌ | ✅ |
+| Analytics | Events tracking | Events tracking | Events tracking, revenue, cohorts |
+| Fraud detection | ✅ No click injection | ❌ | ✅ |
 | Ad-network / BI integrations | ❌ | ❌ | ✅ |
 | Webhooks | ❌ | ✅ | ✅ |
 | Platform API | ❌ | ❌ | ✅ |
 | Data | Yours | Theirs | Theirs |
 | Outbound calls | None | n/a | n/a |
 
-Detour SDK → detur/godetour. Attribution, fraud, ad networks → AppsFlyer.
+Detour SDK, self-hosted → detur. Detour SDK, hosted → godetour. Multi-touch, click-injection checks, ad networks → AppsFlyer.
 
 ## 1. Docker
 

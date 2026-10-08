@@ -5,15 +5,19 @@ package api
 // Real store + real mux via httptest; SDK endpoints on second listener sharing store (separate listeners, one store).
 
 import (
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 )
@@ -23,10 +27,15 @@ const portalAddr = "127.0.0.1:8081"
 
 // newPortalEnv: portal listener (RegisterPortal with temp static dir containing index.html) + second SDK listener sharing same store.
 func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) {
+	t.Helper()
+	return newPortalEnvAt(t, filepath.Join(t.TempDir(), "detur-portal.db"))
+}
+
+// newPortalEnvAt: newPortalEnv on a caller-chosen DB path (tests that edit rows directly).
+func newPortalEnvAt(t *testing.T, path string) (portal, sdk *httptest.Server, st *store.Store) {
 	httpx.TrustProxy = true // api tests simulate the trusted-proxy deployment via X-Forwarded-For
 	t.Cleanup(func() { httpx.TrustProxy = false })
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "detur-portal.db")
 	st, err := store.Open(path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -525,5 +534,211 @@ func TestPortalConfig(t *testing.T) {
 	}
 	if err := json.Unmarshal(body, &got); err != nil || got.LogoutURL != "/cdn-cgi/access/logout" {
 		t.Errorf("config = %s (err %v), want logoutUrl /cdn-cgi/access/logout", body, err)
+	}
+}
+
+// fraudSettingsWire: GET/PATCH /fraud/settings wire shape.
+type fraudSettingsWire struct {
+	VelocityMode          string `json:"velocityMode"`
+	TimingMode            string `json:"timingMode"`
+	UserAgentMode         string `json:"userAgentMode"`
+	IPMode                string `json:"ipMode"`
+	VelocityIPMax         int    `json:"velocityIpMax"`
+	VelocityLinkMax       int    `json:"velocityLinkMax"`
+	VelocityWindowMinutes int    `json:"velocityWindowMinutes"`
+	TimingShortSeconds    int    `json:"timingShortSeconds"`
+	TimingLongHours       int    `json:"timingLongHours"`
+	FingerprintMax        int    `json:"fingerprintMax"`
+	FingerprintWindowDays int    `json:"fingerprintWindowDays"`
+}
+
+const validFraudBody = `{"velocityMode":"active","timingMode":"tagged","userAgentMode":"active","ipMode":"tagged",` +
+	`"velocityIpMax":30,"velocityLinkMax":600,"velocityWindowMinutes":90,"timingShortSeconds":5,"timingLongHours":48,` +
+	`"fingerprintMax":6,"fingerprintWindowDays":14}`
+
+// U5: fraud settings GET defaults, PATCH round trip, validation, unknown app.
+func TestPortalFraudSettings(t *testing.T) {
+	portal, _, st := newPortalEnv(t)
+	app, _ := setup(t, st)
+	path := "/api/apps/" + app.ID + "/fraud/settings"
+
+	resp, b := portalReq(t, portal, "GET", path, "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET settings: %d %s", resp.StatusCode, b)
+	}
+	var got fraudSettingsWire
+	mustJSON(t, b, &got)
+	d := fraud.Defaults
+	want := fraudSettingsWire{d.VelocityMode, d.TimingMode, d.UserAgentMode, d.IPMode, d.VelocityIPMax, d.VelocityLinkMax,
+		d.VelocityWindowMinutes, d.TimingShortSeconds, d.TimingLongHours, d.FingerprintMax, d.FingerprintWindowDays}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("fresh app settings = %+v; want %+v", got, want)
+	}
+
+	resp, b = portalReq(t, portal, "PATCH", path, validFraudBody, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH settings: %d %s", resp.StatusCode, b)
+	}
+	var patched fraudSettingsWire
+	mustJSON(t, b, &patched)
+	want = fraudSettingsWire{"active", "tagged", "active", "tagged", 30, 600, 90, 5, 48, 6, 14}
+	if !reflect.DeepEqual(patched, want) {
+		t.Fatalf("PATCH response = %+v; want %+v", patched, want)
+	}
+	_, b = portalReq(t, portal, "GET", path, "", nil)
+	mustJSON(t, b, &got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GET after PATCH = %+v; want %+v", got, want)
+	}
+
+	for _, tc := range []struct {
+		name, id, body string
+		want           int
+		msg            string // "" = any non-empty message
+	}{
+		{"missing field", app.ID, strings.Replace(validFraudBody, `"fingerprintWindowDays":14`, `"x":1`, 1), http.StatusBadRequest, ""},
+		{"missing mode", app.ID, strings.Replace(validFraudBody, `"ipMode":"tagged",`, ``, 1), http.StatusBadRequest, ""},
+		{"bad mode", app.ID, strings.Replace(validFraudBody, `"velocityMode":"active"`, `"velocityMode":"block"`, 1), http.StatusBadRequest, ""},
+		{"out of range", app.ID, strings.Replace(validFraudBody, `"velocityIpMax":30`, `"velocityIpMax":1`, 1), http.StatusBadRequest, ""},
+		{"not json", app.ID, `nope`, http.StatusBadRequest, "invalid request body"},
+		{"unknown app", "missing", validFraudBody, http.StatusNotFound, ""},
+	} {
+		resp, b := portalReq(t, portal, "PATCH", "/api/apps/"+tc.id+"/fraud/settings", tc.body, nil)
+		if resp.StatusCode != tc.want || (tc.want == http.StatusBadRequest && strings.TrimSpace(string(b)) == "") || !strings.Contains(string(b), tc.msg) {
+			t.Errorf("%s: %d %q; want %d with a message %q", tc.name, resp.StatusCode, b, tc.want, tc.msg)
+		}
+	}
+	if s, _ := st.FraudSettings(app.ID); s.VelocityIPMax != 30 || s.FingerprintWindowDays != 14 {
+		t.Errorf("rejected PATCH changed stored settings: %+v", s)
+	}
+	if resp, _ := portalReq(t, portal, "GET", "/api/apps/missing/fraud/settings", "", nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET unknown app settings: %d; want 404", resp.StatusCode)
+	}
+}
+
+// U5 end to end: velocity active via PATCH, only candidate velocity-flagged -> organic; GET /fraud lists it as excluded with link key; range filter.
+func TestPortalFraudDrivesMatching(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "detur-portal.db")
+	portal, sdk, st := newPortalEnvAt(t, dbPath)
+	app, link := setup(t, st)
+
+	body := strings.Replace(validFraudBody, `"velocityIpMax":30`, `"velocityIpMax":2`, 1)
+	body = strings.Replace(body, `"userAgentMode":"active"`, `"userAgentMode":"tagged"`, 1)
+	if resp, b := portalReq(t, portal, "PATCH", "/api/apps/"+app.ID+"/fraud/settings", body, nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH settings: %d %s", resp.StatusCode, b)
+	}
+	recordAndroidClick(t, st, app, link)
+	recordAndroidClick(t, st, app, link) // same device: one click row, 2 IP hits >= max 2
+
+	hdr := authHeaders(app.ID)
+	hdr["X-Forwarded-For"] = testIP
+	if resp, b := portalReq(t, sdk, "POST", "/api/link/match-link", androidFingerprintJSON(), hdr); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("velocity-flagged only candidate must 404 (organic): %d %s", resp.StatusCode, b)
+	}
+
+	resp, b := portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/fraud?days=7", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET fraud: %d %s", resp.StatusCode, b)
+	}
+	var f struct {
+		Signals  map[string]int64 `json:"signals"`
+		Installs []map[string]any `json:"installs"`
+	}
+	mustJSON(t, b, &f)
+	if len(f.Installs) != 1 || f.Signals[fraud.SignalVelocity] != 1 {
+		t.Fatalf("fraud = %s; want 1 velocity install", b)
+	}
+	in := f.Installs[0]
+	if in["attribution"] != store.AttributionOrganic || in["fraudAction"] != store.FraudActionExcluded || in["fraudLinkKey"] != link.Key || in["linkKey"] != "" {
+		t.Errorf("install row = %v; want organic, no linkKey, excluded, fraudLinkKey %q", in, link.Key)
+	}
+	if _, ok := in["deviceHash"]; ok {
+		t.Errorf("install row exposes deviceHash: %v", in)
+	}
+	// fresh click: short timing fires too (tagged)
+	if got := in["fraud"]; !reflect.DeepEqual(got, []any{fraud.SignalVelocity, fraud.SignalTiming}) {
+		t.Errorf("install fraud = %v; want [velocity timing]", got)
+	}
+
+	// flagged 10 days ago: outside the 7-day range, inside 30
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE installs SET created_at = ?`, time.Now().UTC().AddDate(0, 0, -10).Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	for q, n := range map[string]int{"7": 0, "30": 1} {
+		_, b := portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/fraud?days="+q, "", nil)
+		mustJSON(t, b, &f)
+		if len(f.Installs) != n || f.Signals[fraud.SignalVelocity] != int64(n) {
+			t.Errorf("days=%s: %s; want %d", q, b, n)
+		}
+	}
+	for q, want := range map[string]int{
+		"/api/apps/" + app.ID + "/fraud?days=5": http.StatusBadRequest,
+		"/api/apps/missing/fraud":               http.StatusNotFound,
+	} {
+		if resp, b := portalReq(t, portal, "GET", q, "", nil); resp.StatusCode != want {
+			t.Errorf("GET %s: %d %s; want %d", q, resp.StatusCode, b, want)
+		}
+	}
+}
+
+// Backend failures on the fraud endpoints answer 500: report when the installs or links read fails, settings GET when fraud_settings is
+// gone, PATCH when the upsert is aborted (a trigger; reads still work).
+func TestPortalFraudBackendErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, fault, method, path, body string
+	}{
+		{"report installs", `DROP TABLE installs`, "GET", "/fraud", ""},
+		{"report links", `DROP TABLE links`, "GET", "/fraud", ""},
+		{"settings read", `DROP TABLE fraud_settings`, "GET", "/fraud/settings", ""},
+		{"settings write", `CREATE TRIGGER no_write BEFORE INSERT ON fraud_settings BEGIN SELECT RAISE(ABORT, 'write failed'); END`, "PATCH", "/fraud/settings", validFraudBody},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "detur-portal.db")
+			portal, _, st := newPortalEnvAt(t, dbPath)
+			app, _ := setup(t, st)
+			execSQL(t, dbPath, tc.fault)
+			if resp, b := portalReq(t, portal, tc.method, "/api/apps/"+app.ID+tc.path, tc.body, nil); resp.StatusCode != http.StatusInternalServerError {
+				t.Errorf("%s %s: %d %s; want 500", tc.method, tc.path, resp.StatusCode, b)
+			}
+		})
+	}
+}
+
+// Default ranges without ?days=: fraud report and analytics cover 7 days, match quality 30; a flagged organic install 10 days old shows
+// only in match quality.
+func TestPortalDefaultRanges(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "detur-portal.db")
+	portal, _, st := newPortalEnvAt(t, dbPath)
+	app, _ := setup(t, st)
+	if _, err := st.RecordInstall(store.Install{AppID: app.ID, DeviceHash: "d", Attribution: store.AttributionOrganic, Method: store.MethodOrganic, Fraud: fraud.SignalTiming}); err != nil {
+		t.Fatal(err)
+	}
+	execSQL(t, dbPath, `UPDATE installs SET created_at = ?`, time.Now().UTC().AddDate(0, 0, -10).Format(time.RFC3339Nano))
+	base := "/api/apps/" + app.ID
+	var f struct {
+		Signals  map[string]int64 `json:"signals"`
+		Installs []map[string]any `json:"installs"`
+	}
+	_, b := portalReq(t, portal, "GET", base+"/fraud", "", nil)
+	mustJSON(t, b, &f)
+	if len(f.Installs) != 0 || f.Signals[fraud.SignalTiming] != 0 {
+		t.Errorf("fraud (default range) = %s; want the 10-day-old install out", b)
+	}
+	var mq store.MatchQuality
+	_, b = portalReq(t, portal, "GET", base+"/match-quality", "", nil)
+	mustJSON(t, b, &mq)
+	if mq.Methods[store.MethodOrganic] != 1 {
+		t.Errorf("match-quality (default range) = %s; want the 10-day-old organic install in", b)
+	}
+	var a store.Analytics
+	_, b = portalReq(t, portal, "GET", base+"/analytics", "", nil)
+	mustJSON(t, b, &a)
+	if len(a.Days) != 7 {
+		t.Errorf("analytics (default range) days = %d; want 7", len(a.Days))
 	}
 }

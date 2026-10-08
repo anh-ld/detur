@@ -33,6 +33,10 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
+export function openDialog(id: string) {
+  (document.getElementById(id) as HTMLDialogElement | null)?.showModal();
+}
+
 export function closeDialog(id: string) {
   (document.getElementById(id) as HTMLDialogElement | null)?.close();
 }

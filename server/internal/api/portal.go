@@ -13,9 +13,11 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/match"
 	"detur.dev/server/internal/store"
@@ -55,6 +57,9 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	mux.HandleFunc("GET /api/apps/{id}/analytics", p.analytics)
 	mux.HandleFunc("GET /api/apps/{id}/match-quality", p.matchQuality)
 	mux.HandleFunc("GET /api/apps/{id}/health", p.health)
+	mux.HandleFunc("GET /api/apps/{id}/fraud", p.fraud)
+	mux.HandleFunc("GET /api/apps/{id}/fraud/settings", p.fraudSettings)
+	mux.HandleFunc("PATCH /api/apps/{id}/fraud/settings", p.updateFraudSettings)
 	mux.HandleFunc("GET /", p.static) // SPA shell + assets (catch-all)
 	return guard(mux, allowedHosts)
 }
@@ -471,12 +476,9 @@ func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	days := 7
-	if v := q.Get("days"); v != "" {
-		if days = analyticsRanges[v]; days == 0 {
-			http.Error(w, "days must be 7, 30 or 90", http.StatusBadRequest)
-			return
-		}
+	days, ok := parseDays(w, r, 7)
+	if !ok {
+		return
 	}
 	platform := q.Get("platform")
 	if platform != "" && platform != "ios" && platform != "android" && platform != "desktop" {
@@ -498,12 +500,9 @@ func (p *portalServer) matchQuality(w http.ResponseWriter, r *http.Request) {
 		p.storeErr(w, err)
 		return
 	}
-	days := 30
-	if v := r.URL.Query().Get("days"); v != "" {
-		if days = analyticsRanges[v]; days == 0 {
-			http.Error(w, "days must be 7, 30 or 90", http.StatusBadRequest)
-			return
-		}
+	days, ok := parseDays(w, r, 30)
+	if !ok {
+		return
 	}
 	q, err := p.st.MatchQuality(appID, days, time.Now())
 	if err != nil {
@@ -511,6 +510,134 @@ func (p *portalServer) matchQuality(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, q)
+}
+
+// fraudInstallJSON: flagged install row for the portal; link ids resolved to keys ("" = link deleted). No device hash.
+type fraudInstallJSON struct {
+	ID           string    `json:"id"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Attribution  string    `json:"attribution"`
+	Method       string    `json:"method"`
+	LinkKey      string    `json:"linkKey"`
+	Platform     string    `json:"platform"`
+	Fraud        []string  `json:"fraud"`
+	FraudAction  string    `json:"fraudAction"`
+	FraudLinkKey string    `json:"fraudLinkKey"`
+}
+
+// fraud: GET /api/apps/{id}/fraud?days=7|30|90 (default 7): per-signal counts + latest flagged installs.
+func (p *portalServer) fraud(w http.ResponseWriter, r *http.Request) {
+	appID := r.PathValue("id")
+	if _, err := p.st.GetApp(appID); err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	days, ok := parseDays(w, r, 7)
+	if !ok {
+		return
+	}
+	f, err := p.st.Fraud(appID, days, time.Now())
+	if err != nil {
+		p.internal(w, err)
+		return
+	}
+	links, err := p.st.ListLinks(appID)
+	if err != nil {
+		p.internal(w, err)
+		return
+	}
+	keys := make(map[string]string, len(links))
+	for _, l := range links {
+		keys[l.ID] = l.Key
+	}
+	out := make([]fraudInstallJSON, 0, len(f.Installs))
+	for _, in := range f.Installs {
+		out = append(out, fraudInstallJSON{ID: in.ID, CreatedAt: in.CreatedAt, Attribution: in.Attribution, Method: in.Method,
+			LinkKey: keys[in.LinkID], Platform: in.Platform, Fraud: in.Fraud, FraudAction: in.FraudAction, FraudLinkKey: keys[in.FraudLinkID]})
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"signals": f.Signals, "installs": out})
+}
+
+// fraudSettingsJSON: fraud settings wire shape. Pointers so PATCH can require every field.
+type fraudSettingsJSON struct {
+	VelocityMode          *string `json:"velocityMode"`
+	TimingMode            *string `json:"timingMode"`
+	UserAgentMode         *string `json:"userAgentMode"`
+	IPMode                *string `json:"ipMode"`
+	VelocityIPMax         *int    `json:"velocityIpMax"`
+	VelocityLinkMax       *int    `json:"velocityLinkMax"`
+	VelocityWindowMinutes *int    `json:"velocityWindowMinutes"`
+	TimingShortSeconds    *int    `json:"timingShortSeconds"`
+	TimingLongHours       *int    `json:"timingLongHours"`
+	FingerprintMax        *int    `json:"fingerprintMax"`
+	FingerprintWindowDays *int    `json:"fingerprintWindowDays"`
+}
+
+// fraudSettings: GET /api/apps/{id}/fraud/settings.
+func (p *portalServer) fraudSettings(w http.ResponseWriter, r *http.Request) {
+	p.writeFraudSettings(w, r.PathValue("id"))
+}
+
+// parseDays: ?days= as 7, 30 or 90 (def when absent); else 400 written, ok false.
+func parseDays(w http.ResponseWriter, r *http.Request, def int) (int, bool) {
+	v := r.URL.Query().Get("days")
+	if v == "" {
+		return def, true
+	}
+	days := analyticsRanges[v]
+	if days == 0 {
+		http.Error(w, "days must be 7, 30 or 90", http.StatusBadRequest)
+		return 0, false
+	}
+	return days, true
+}
+
+func (p *portalServer) writeFraudSettings(w http.ResponseWriter, appID string) {
+	if _, err := p.st.GetApp(appID); err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	s, err := p.st.FraudSettings(appID)
+	if err != nil {
+		p.internal(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, fraudSettingsJSON{
+		VelocityMode: &s.VelocityMode, TimingMode: &s.TimingMode, UserAgentMode: &s.UserAgentMode, IPMode: &s.IPMode,
+		VelocityIPMax: &s.VelocityIPMax, VelocityLinkMax: &s.VelocityLinkMax, VelocityWindowMinutes: &s.VelocityWindowMinutes,
+		TimingShortSeconds: &s.TimingShortSeconds, TimingLongHours: &s.TimingLongHours,
+		FingerprintMax: &s.FingerprintMax, FingerprintWindowDays: &s.FingerprintWindowDays,
+	})
+}
+
+// updateFraudSettings: PATCH /api/apps/{id}/fraud/settings: every field required, validated, upserted; responds like GET.
+func (p *portalServer) updateFraudSettings(w http.ResponseWriter, r *http.Request) {
+	var b fraudSettingsJSON
+	if err := decodeJSON(w, r, &b); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	modes := []*string{b.VelocityMode, b.TimingMode, b.UserAgentMode, b.IPMode}
+	nums := []*int{b.VelocityIPMax, b.VelocityLinkMax, b.VelocityWindowMinutes, b.TimingShortSeconds, b.TimingLongHours,
+		b.FingerprintMax, b.FingerprintWindowDays}
+	if slices.Contains(modes, nil) || slices.Contains(nums, nil) {
+		http.Error(w, "all fraud settings fields are required", http.StatusBadRequest)
+		return
+	}
+	s := fraud.Settings{VelocityMode: *b.VelocityMode, TimingMode: *b.TimingMode, UserAgentMode: *b.UserAgentMode, IPMode: *b.IPMode,
+		VelocityIPMax: *b.VelocityIPMax, VelocityLinkMax: *b.VelocityLinkMax, VelocityWindowMinutes: *b.VelocityWindowMinutes,
+		TimingShortSeconds: *b.TimingShortSeconds, TimingLongHours: *b.TimingLongHours,
+		FingerprintMax: *b.FingerprintMax, FingerprintWindowDays: *b.FingerprintWindowDays}
+	if err := s.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	id := r.PathValue("id")
+	if err := p.st.UpdateFraudSettings(id, s); err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	p.writeFraudSettings(w, id)
 }
 
 // static serves built portal from configured directory. Missing dir/file 404s plain text (FileServer); server keeps running.
