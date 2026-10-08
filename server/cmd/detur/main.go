@@ -11,6 +11,7 @@ import (
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/pipeline"
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/webhook"
 )
 
 // main wires config -> store -> HTTP listeners. SDK endpoints, browser pipeline, well-known hosting on public listener; portal (API + static UI) on loopback listener, origin/host-guarded. Clicks/events purged at startup, then hourly.
@@ -30,6 +31,10 @@ func main() {
 	defer st.Close()
 	st.ClickIDHours = cfg.ClickIDDays * 24
 	purgeLoop(st, cfg.RetentionHours)
+
+	webhookWorker := webhook.NewWorker(st, 15*time.Second)
+	webhookWorker.Start()
+	defer webhookWorker.Stop()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

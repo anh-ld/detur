@@ -54,9 +54,17 @@ Read before prod. Sources: [DECISIONS.md](DECISIONS.md).
 - Single operator. No orgs/teams.
 - Health proxy check: counts since start, resets on restart.
 
+## Webhooks
+
+- Outbound calls: Detur makes outbound HTTP calls only when webhooks are explicitly configured and enabled.
+- SSRF dial-time defense: Outbound HTTP requests block private networks (RFC 1918, RFC 4193), link-local addresses, and cloud instance metadata (169.254.169.254); redirects are never followed.
+- Secrets at rest: Webhook signing secrets are stored retrievably in SQLite (`detur.db`) so admins can view and rotate them in the portal. Ensure database file permissions are restricted (`chmod 600 detur.db`).
+- Replay & retention reality: Only `installs` are permanent. Raw `clicks` and `events` are purged after `RETENTION_HOURS` (24h default); a replay reaching past that window starts at the oldest retained click/event. If a purge empties a table, new rows reuse low rowids; the worker detects this and rewinds the stream cursor to 0, so the receiver may see duplicates (never silent loss); dedupe on record `id`.
+- Consumer signature verification: Consumers must use constant-time comparisons (`crypto/subtle.ConstantTimeCompare`) and enforce a timestamp tolerance window (e.g. 5 minutes) to protect against replay attacks.
+
 ## Compatibility
 
-- No Platform API, webhooks, billing.
+- No Platform API, billing.
 - Single-segment links only. `/app-hash/slug` → 404, no click recorded.
 - `effectiveLimit: -1` = "no limit", ours. Fine with SDK 2.3.1.
 - SDK contract unstable. Patch per version.

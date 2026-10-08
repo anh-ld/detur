@@ -59,6 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_clickid ON clicks (click_id);
 CREATE INDEX IF NOT EXISTS idx_clicks_app_created ON clicks (app_id, is_bot, created_at);
+CREATE INDEX IF NOT EXISTS idx_clicks_app ON clicks (app_id);
 CREATE INDEX IF NOT EXISTS idx_clicks_dedup ON clicks (link_id, ip, created_at);
 
 CREATE TABLE IF NOT EXISTS installs (
@@ -73,6 +74,8 @@ CREATE TABLE IF NOT EXISTS installs (
 -- installs.link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id: addMissingColumns.
 
 CREATE INDEX IF NOT EXISTS idx_installs_app_attribution ON installs (app_id, attribution);
+-- (app_id) index entries are (app_id, rowid): webhook delivery seeks app_id = ? AND rowid > cursor in order, no sort.
+CREATE INDEX IF NOT EXISTS idx_installs_app ON installs (app_id);
 
 CREATE TABLE IF NOT EXISTS events (
     id         TEXT PRIMARY KEY,
@@ -83,6 +86,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_created ON events (created_at);
+CREATE INDEX IF NOT EXISTS idx_events_app ON events (app_id);
 
 -- Analytics rollups: per-day counters with no device data, so they outlive the
 -- clicks/events retention purge. day = YYYY-MM-DD (UTC).
@@ -135,3 +139,27 @@ CREATE TABLE IF NOT EXISTS click_hits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_click_hits_bucket ON click_hits (bucket);
+
+CREATE TABLE IF NOT EXISTS webhooks (
+    id                    TEXT PRIMARY KEY,
+    app_id                TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    url                   TEXT NOT NULL,
+    secret                TEXT NOT NULL,
+    types                 TEXT NOT NULL,
+    cursor_installs       INTEGER NOT NULL DEFAULT 0,
+    cursor_clicks         INTEGER NOT NULL DEFAULT 0,
+    cursor_events         INTEGER NOT NULL DEFAULT 0,
+    fails_installs        INTEGER NOT NULL DEFAULT 0,
+    fails_clicks          INTEGER NOT NULL DEFAULT 0,
+    fails_events          INTEGER NOT NULL DEFAULT 0,
+    backoff_installs      TEXT,
+    backoff_clicks        TEXT,
+    backoff_events        TEXT,
+    replay_until_installs INTEGER NOT NULL DEFAULT 0,
+    replay_until_clicks   INTEGER NOT NULL DEFAULT 0,
+    replay_until_events   INTEGER NOT NULL DEFAULT 0,
+    enabled               INTEGER NOT NULL DEFAULT 1,
+    created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhooks_app ON webhooks (app_id);

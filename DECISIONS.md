@@ -94,10 +94,22 @@ Change: edit row, keep ID. New conflict: add row before code.
 |---|---|---|---|---|---|
 | P1 | Gateway admits everyone as viewer (links + monitoring). Admin actions need `ADMIN_PASSWORD` → 12h per-browser signed session. No user table, no RBAC. | Ours | Single-operator self-hosted; each team brings its own auth; shared password beats per-person roles at this scale. | 009 | in place |
 
+## Webhooks
+
+| ID | Decision | Source | Why | Plan | Status |
+|---|---|---|---|---|---|
+| W1 | Cursor-based background delivery: periodic worker drains SQLite sequential `rowid` cursors. No outbox table, zero overhead on redirects and SDK match endpoints. | Ours | Eliminates redirect latency and external failure risk. Natural replay. | feat-webhooks | in place |
+| W2 | Granular event subscriptions: per-endpoint opt-in to `installs`, `events`, and/or `clicks`. | Ours | High-value installs without high-volume click floods. | feat-webhooks | in place |
+| W3 | HMAC-SHA256 signature (`Detur-Signature: t=<unix>,v1=<hex>`) computed over `t.<unix>.<raw_body>` with endpoint secret. Replay requests carry `Detur-Replay: true`. | Stripe-style + ours | Standard consumer signature verification with anti-tampering and timestamp replay defense. | feat-webhooks | in place |
+| W4 | SSRF dial-time defense: blocks private networks (RFC 1918, RFC 4193), link-local, and cloud metadata (169.254.169.254); loopback HTTP allowed for dev; redirect following disabled. | Ours | Protects cloud hosting environments against SSRF and DNS rebinding. | feat-webhooks | in place |
+| W5 | Independent stream backoff: exponential backoff (`min(30s * 2^fails, 1h)`) tracked per `(endpoint, event_type)`. Clicks failing 500 does not block install 200 delivery. | Ours | Failure isolation across high-volume and critical streams. | feat-webhooks | in place |
+| W6 | Admin-gated management: requires `ADMIN_PASSWORD` elevation; fails closed (403 Forbidden) if `ADMIN_PASSWORD` is unset. | Ours | Protects secret generation, endpoint creation, and replay controls. | feat-webhooks | in place |
+| W7 | Outbound stance: zero outbound network calls by default; outbound HTTP only when webhooks are configured and enabled. | Ours | Preserves self-contained offline capability by default. | feat-webhooks | in place |
+
 ## Not adopted (yet)
 
-In-app browser hand-off, return-to-web after store dismiss, App Preview page, custom redirect HTML, fallback param strategies, copy-link toggle, Smart Banners, multi-segment links, webhooks, Platform API, billing, click-injection detection (needs SDK referrer), VPN/Tor IP detection.
+In-app browser hand-off, return-to-web after store dismiss, App Preview page, custom redirect HTML, fallback param strategies, copy-link toggle, Smart Banners, multi-segment links, Platform API, billing, click-injection detection (needs SDK referrer), VPN/Tor IP detection.
 
 ## Security, ops
 
-Trust boundaries: [CAVEATS.md](CAVEATS.md). Log out → `LOGOUT_URL` (gateway sign-out). Admin elevation: `ADMIN_PASSWORD` → 12h browser session (P1). Unset = no gating.
+Trust boundaries: [CAVEATS.md](CAVEATS.md). Log out → `LOGOUT_URL` (gateway sign-out). Admin elevation: `ADMIN_PASSWORD` → 12h browser session (P1). Unset = no gating. Webhooks require `ADMIN_PASSWORD` (W6).
