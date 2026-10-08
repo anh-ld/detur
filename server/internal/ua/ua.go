@@ -31,8 +31,8 @@ var uaBots = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	"deadlinkchecker", "brokenlinkcheck", "xenu", "scrutiny", "powermapper", "siteimprove", "monsido",
 }, "|"))
 
-// uaFalsePositive: Dub's UA_FALSE_POSITIVES — Instagram's webview on Pixel appends "Google/google", would otherwise trip "google".
-var uaFalsePositive = regexp.MustCompile(`Google/google\b`)
+// uaFalsePositive: Dub's UA_FALSE_POSITIVES — Instagram's webview on Pixel appends "Google/google", would otherwise trip "google". Same for TikTok's webview "Channel/googleplay" (not in Dub's list).
+var uaFalsePositive = regexp.MustCompile(`Google/google\b|Channel/googleplay\b`)
 
 // IsBotUA: UA matches Dub's bot list.
 func IsBotUA(ua string) bool {
@@ -150,6 +150,48 @@ func DeviceLabel(ua string) string {
 		return "iPad"
 	case strings.Contains(ua, "iPod"):
 		return "iPod"
+	}
+	return ""
+}
+
+// SourceUnknownInApp: click source for a generic webview no token names.
+const SourceUnknownInApp = "unknown-inapp"
+
+// inAppTokens: in-app browser UA tokens, first match wins (Messenger before Facebook: both carry FB_IAB; Threads before Instagram). Written from ua-parser-js v2 token facts + vendor UA samples, not copied (AGPL). Narrow tokens keep crawlers out ("Twitter for", not "Twitter").
+var inAppTokens = []struct {
+	name string
+	re   *regexp.Regexp
+}{
+	{"messenger", regexp.MustCompile(`FBAN/Messenger|FB_IAB/MESSENGER|Orca-Android`)},
+	{"threads", regexp.MustCompile(`Barcelona`)},
+	{"instagram", regexp.MustCompile(`Instagram`)},
+	{"facebook", regexp.MustCompile(`FBAN/|FBAV/|FB_IAB/|FBIOS`)},
+	{"zalo", regexp.MustCompile(`(?i)zalo`)},
+	{"tiktok", regexp.MustCompile(`musical_ly|BytedanceWebview|trill_|TikTok`)},
+	{"linkedin", regexp.MustCompile(`LinkedInApp`)},
+	{"snapchat", regexp.MustCompile(`Snapchat/`)},
+	{"line", regexp.MustCompile(`\bLine/`)},
+	{"x", regexp.MustCompile(`Twitter for|TwitterAndroid`)},
+	{"telegram", regexp.MustCompile(`Telegram`)},
+	{"wechat", regexp.MustCompile(`MicroMessenger`)},
+}
+
+// reIOSBrowser: real iOS browsers (not webviews), excluded from the missing-"Safari/" webview check.
+var reIOSBrowser = regexp.MustCompile(`CriOS|FxiOS|EdgiOS|OPiOS`)
+
+// InApp: in-app browser of a mobile UA — app name, SourceUnknownInApp for a generic webview (Android "; wv)", iOS without "Safari/"), "" for a real browser or non-mobile UA. SFSafariViewController / Custom Tabs send the plain browser UA: undetectable.
+func InApp(ua string) string {
+	ios, android := IsIOS(ua), IsAndroid(ua)
+	if !ios && !android {
+		return ""
+	}
+	for _, t := range inAppTokens {
+		if t.re.MatchString(ua) {
+			return t.name
+		}
+	}
+	if android && strings.Contains(ua, "; wv)") || ios && !strings.Contains(ua, "Safari/") && !reIOSBrowser.MatchString(ua) {
+		return SourceUnknownInApp
 	}
 	return ""
 }
