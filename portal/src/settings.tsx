@@ -9,11 +9,10 @@ import {
   Field,
   Input,
   Label,
-  Spinner,
   Table,
 } from 'kinu';
 import { api, App, CreatedApp, HealthCheck, MatchQuality } from './api';
-import { closeDialog, ConfirmDelete, CopyButton, mono, muted, row } from './ui';
+import { AdminGateAborted, adminCall, closeDialog, ConfirmDelete, CopyButton, gateOpen, Loading, mono, muted, row } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 
 const sectionTitle = { margin: '40px 0 16px', fontSize: 20 };
@@ -62,14 +61,17 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
               <div style={{ ...row, justifyContent: 'flex-end' }}>
                 <RotateKeyDialog app={app} onChanged={onReload} />
                 <ConfirmDelete
+                  id={`dlg-revoke-${app.id}`}
+                  requireAdmin
                   title={`Remove the API key for ${app.name}?`}
                   body="The SDK stops accepting it. Rotate a new key to get access back."
                   onConfirm={async () => {
                     setError('');
                     try {
-                      await api.revokeKey(app.id);
+                      await adminCall(() => api.revokeKey(app.id));
                       onReload();
                     } catch (e) {
+                      if (e instanceof AdminGateAborted) return;
                       setError(String(e));
                     }
                   }}
@@ -104,9 +106,10 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
     setError('');
     setSaved(false);
     try {
-      onSaved(await api.updateApp(app.id, draft));
+      onSaved(await adminCall(() => api.updateApp(app.id, draft)));
       setSaved(true);
     } catch (e) {
+      if (e instanceof AdminGateAborted) return;
       setError(String(e));
     }
   };
@@ -200,12 +203,13 @@ export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) =>
       return;
     }
     try {
-      const updated = await api.saveMatching(app.id, { threshold: th, windowMinutes: win });
+      const updated = await adminCall(() => api.saveMatching(app.id, { threshold: th, windowMinutes: win }));
       setThreshold(String(updated.matchThreshold));
       setWindowMinutes(String(updated.matchWindowMinutes));
       setSaved(true);
       onSaved(updated);
     } catch (e) {
+      if (e instanceof AdminGateAborted) return;
       setError(String(e));
     }
   };
@@ -271,7 +275,7 @@ function HealthTable({ app }: { app: App }) {
   useEffect(() => {
     api.getHealth(app.id).then(setChecks, () => setChecks([]));
   }, [app]);
-  if (!checks) return <Spinner />;
+  if (!checks) return <Loading />;
   return (
     <Table>
       <thead>
@@ -312,7 +316,7 @@ export function MatchQualityView({ app }: { app: App }) {
     api.getMatchQuality(app.id).then(setQ, () => setQ({ methods: {}, buckets: [] }));
   }, [app.id]);
   useEffect(() => setAt(app.matchThreshold), [app.matchThreshold]);
-  if (!q) return <Spinner />;
+  if (!q) return <Loading />;
 
   const top = Math.max(1, ...q.buckets.map((b) => b.matched + b.organic));
   const lose = q.buckets.filter((b) => b.from < at).reduce((n, b) => n + b.matched, 0);
@@ -368,20 +372,19 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
   const doRotate = async () => {
     setErr('');
     try {
-      setRotated(await api.rotateKey(app.id));
+      setRotated(await adminCall(() => api.rotateKey(app.id)));
       onChanged();
     } catch (e) {
+      if (e instanceof AdminGateAborted) return;
       setErr(String(e));
     }
   };
 
   return (
     <Dialog id={id}>
-      <Dialog.Trigger>
-        <Button size="sm" variant="outline">
-          Rotate
-        </Button>
-      </Dialog.Trigger>
+      <Button size="sm" variant="outline" onClick={() => gateOpen(id)}>
+        Rotate
+      </Button>
       <Dialog.Content>
         {rotated ? (
           <div style={{ display: 'grid', gap: 16 }}>
@@ -393,11 +396,9 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
               <Field.Description>EXPO_PUBLIC_DETOUR_API_KEY in the SDK config.</Field.Description>
             </Field>
             <div style={{ ...row, justifyContent: 'flex-end' }}>
-              <Dialog.Close>
-                <Button variant="outline" onClick={() => setRotated(null)}>
-                  Done
-                </Button>
-              </Dialog.Close>
+              <Button variant="outline" onClick={() => { setRotated(null); closeDialog(id); }}>
+                Done
+              </Button>
               <CopyButton value={rotated.apiKey} label="Copy API key" />
             </div>
           </div>
@@ -413,9 +414,9 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
             <p style={muted}>A new key is generated; the current one stops working immediately.</p>
             {err && <Alert variant="destructive">{err}</Alert>}
             <div style={{ ...row, justifyContent: 'flex-end' }}>
-              <Dialog.Close>
-                <Button variant="outline">Cancel</Button>
-              </Dialog.Close>
+              <Button type="button" variant="outline" onClick={() => closeDialog(id)}>
+                Cancel
+              </Button>
               <Button type="submit">Rotate key</Button>
             </div>
           </form>

@@ -9,25 +9,29 @@ import (
 	"strings"
 )
 
-// Config: runtime config from env vars: DOMAIN, DB_PATH, RETENTION_HOURS, CLICK_ID_DAYS, TRUST_PROXY, LOGOUT_URL.
+// Config: runtime config from env vars: DOMAIN, DB_PATH, RETENTION_HOURS, CLICK_ID_DAYS, TRUST_PROXY, LOGOUT_URL, ADMIN_PASSWORD, ADMIN_SESSION_HOURS.
 type Config struct {
-	Domain         string // public domain for links, well-known, redirects
-	DBPath         string
-	RetentionHours int    // click + event retention floor
-	ClickIDDays    int    // unmatched click_id lifetime
-	TrustProxy     bool   // honor X-Forwarded-For (only behind a trusted proxy)
-	LogoutURL      string // gateway sign-out URL for the Log out link; "" hides it
+	Domain            string // public domain for links, well-known, redirects
+	DBPath            string
+	RetentionHours    int    // click + event retention floor
+	ClickIDDays       int    // unmatched click_id lifetime
+	TrustProxy        bool   // honor X-Forwarded-For (only behind a trusted proxy)
+	LogoutURL         string // gateway sign-out URL for the Log out link; "" hides it
+	AdminPassword     string // master password for portal admin elevation; "" = no gating (today's behavior)
+	AdminSessionHours int    // elevated admin session TTL (1-72h, default 12)
 }
 
 // Load: configuration from environment, sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Domain:         envOr("DOMAIN", "localhost"),
-		DBPath:         envOr("DB_PATH", "detur.db"),
-		RetentionHours: 24,
-		ClickIDDays:    30,
-		TrustProxy:     os.Getenv("TRUST_PROXY") == "1",
-		LogoutURL:      os.Getenv("LOGOUT_URL"),
+		Domain:            envOr("DOMAIN", "localhost"),
+		DBPath:            envOr("DB_PATH", "detur.db"),
+		RetentionHours:    24,
+		ClickIDDays:       30,
+		TrustProxy:        os.Getenv("TRUST_PROXY") == "1",
+		LogoutURL:         os.Getenv("LOGOUT_URL"),
+		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
+		AdminSessionHours: 12,
 	}
 	var err error
 	if cfg.RetentionHours, err = envIntRange("RETENTION_HOURS", cfg.RetentionHours, 24, 8760); err != nil {
@@ -35,6 +39,9 @@ func Load() (*Config, error) {
 	}
 	// 90 = Play Install Referrer limit
 	if cfg.ClickIDDays, err = envIntRange("CLICK_ID_DAYS", cfg.ClickIDDays, 1, 90); err != nil {
+		return nil, err
+	}
+	if cfg.AdminSessionHours, err = envIntRange("ADMIN_SESSION_HOURS", cfg.AdminSessionHours, 1, 72); err != nil {
 		return nil, err
 	}
 	if err := checkLogoutURL(cfg.LogoutURL); err != nil {

@@ -7,9 +7,12 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 
 - No tiers, no click limits. Your data.
 - Same 5 SDK endpoints, same matching.
-- One binary: Go + SQLite + portal. No outbound calls.
+- One binary: Go + SQLite + Preact portal. No outbound calls.
 - Analytics: clicks, installs, events, charts, match quality.
 - Fraud: floods, fast opens, bots, datacenter IPs, repeat devices. Tag or block.
+- Admin: one password to manage apps. Everyone else: links + stats.
+
+[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
 
 <table>
   <tr>
@@ -66,6 +69,8 @@ Prod: pin version (`:0.1.0`).
 | `CLICK_ID_DAYS` | no | `30` (1–90) | Play referrer clickId TTL |
 | `TRUST_PROXY` | no | `0` | Trust rightmost XFF / X-Real-IP (real proxy only; else spoofable) |
 | `LOGOUT_URL` | no | empty | Gateway sign-out URL; empty hides link |
+| `ADMIN_PASSWORD` | no | empty | Admin password; empty = everyone can manage apps |
+| `ADMIN_SESSION_HOURS` | no | `12` (1–72) | Admin session length |
 
 | Port | Description |
 |---|---|
@@ -82,6 +87,7 @@ Portal: `:8081`.
 - Add links: `/key` → URL, optional iOS / Android / fallback.
 - App details: iOS app ID, Android package, cert fingerprint → well-known
   files.
+- `ADMIN_PASSWORD` set → app changes need admin (top bar).
 
 ## 3. Patch SDK
 
@@ -144,5 +150,3 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 - [Detour matching docs](https://detour.swmansion.com/docs/platform/architecture/matching/): weights, threshold, window.
 - [@swmansion/react-native-detour](https://github.com/software-mansion-labs/react-native-detour): the SDK.
 - [kinu](https://github.com/developit/kinu): portal UI.
-
-[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)

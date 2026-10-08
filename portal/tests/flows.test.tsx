@@ -1,51 +1,22 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { execSync, spawn, ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
 import { api, setApiBase } from '../src/api';
 import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
+import { go, openDialog, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './integration';
 
 // Client-flow integration: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal on :8091.
 const PORT = 8091;
 const BASE = `http://127.0.0.1:${PORT}`;
-const repoRoot = resolve(process.cwd(), '..'); // vitest runs from portal/
 const bin = join(tmpdir(), 'detur-integ');
 
 let server: ChildProcess;
 let dbDir: string;
-let stderr = '';
-
-async function waitForServer(url: string, ms: number): Promise<void> {
-  const start = Date.now();
-  for (;;) {
-    if (server.exitCode !== null) {
-      throw new Error(`detur exited early (${server.exitCode}): ${stderr}`);
-    }
-    try {
-      const res = await fetch(url);
-      if (res.ok) return;
-    } catch {
-      // not up yet
-    }
-    if (Date.now() - start > ms) {
-      throw new Error(`server not ready at ${url}: ${stderr}`);
-    }
-    await new Promise((r) => setTimeout(r, 300));
-  }
-}
-
-// Open <dialog>: kinu shows one modal at a time.
-const openDialog = (): HTMLElement => {
-  const d = document.querySelector('dialog[open]');
-  if (!d) throw new Error('no open dialog');
-  return d as HTMLElement;
-};
-
-const uniq = (s: string) => `${s}-${Date.now().toString(36)}`;
+let getStderr: () => string = () => '';
 
 // The same binary serves short links and the SDK API on :8080.
 const SDK = 'http://127.0.0.1:8080';
@@ -67,12 +38,6 @@ async function matchLink(app: { id: string; apiKey: string }, userAgent = IPHONE
   });
 }
 
-// Navigate like the address bar does; the explicit event covers DOMs that don't fire hashchange on assignment.
-function go(hash: string) {
-  location.hash = hash;
-  window.dispatchEvent(new Event('hashchange'));
-}
-
 // Toasts on screen (kinu ToastContainer, mounted by App): id is monotonic, so "no new toast" = no id above the last one seen.
 const toasts = () =>
   Array.from(document.querySelectorAll('[k=toast]')).map((t) => ({
@@ -88,9 +53,6 @@ const findToast = (text: string | RegExp) =>
     return t;
   });
 const settle = () => new Promise((r) => setTimeout(r, 150));
-
-const tabs = () => screen.getAllByRole('tab');
-const selectedTab = () => tabs().filter((t) => t.getAttribute('aria-selected') === 'true').map((t) => t.textContent);
 
 const modeGroup = (label: string) => screen.getByRole('group', { name: `${label} mode` });
 const pressed = (label: string) =>
@@ -127,25 +89,17 @@ const tileValue = (label: string): number => {
 };
 
 beforeAll(async () => {
-  execSync(`go build -o ${bin} ./cmd/detur`, { cwd: join(repoRoot, 'server'), stdio: 'inherit' });
-  dbDir = mkdtempSync(join(tmpdir(), 'detur-integ-'));
-  server = spawn(bin, ['-portal-addr', `127.0.0.1:${PORT}`], {
-    cwd: repoRoot,
-    env: { ...process.env, DB_PATH: join(dbDir, 'test.db') },
-    stdio: ['ignore', 'ignore', 'pipe'],
-  });
-  server.stderr!.on('data', (d: Buffer) => {
-    stderr += d.toString();
-  });
-  await waitForServer(`${BASE}/api/apps`, 60_000);
+  const s = startServer({ port: PORT, bin });
+  server = s.server;
+  dbDir = s.dbDir;
+  getStderr = s.getStderr;
+  await waitForServer(`${BASE}/api/apps`, 60_000, server, getStderr);
   setApiBase(BASE);
 });
 
 afterAll(() => {
   setApiBase('');
-  server?.kill();
-  if (dbDir) rmSync(dbDir, { recursive: true, force: true });
-  rmSync(bin, { force: true });
+  stopServer(server, dbDir, bin);
 });
 
 afterEach(cleanup);
@@ -697,5 +651,24 @@ describe('portal client flows', () => {
     go('#/apps/%zz');
     await screen.findByRole('heading', { name: 'Apps' });
     expect(screen.queryByText('Something went wrong')).toBeNull();
+  });
+
+  it('AE1: ADMIN_PASSWORD unset — no admin entry, elevation inert, admin APIs open without a session', async () => {
+    // config: adminSet false, so the shell offers no admin button or chip
+    expect(await api.getConfig()).toMatchObject({ logoutUrl: '', adminSet: false });
+    location.hash = '#/';
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Apps' });
+    expect(screen.queryByRole('button', { name: 'Enter admin mode' })).toBeNull();
+    expect(screen.queryByText(/Admin · until/)).toBeNull();
+
+    // nothing to elevate from: POST rejects, GET stays inactive
+    await expect(api.enterAdminMode('anything')).rejects.toThrow(/403/);
+    expect(await api.getAdminSession()).toMatchObject({ admin: false });
+
+    // admin routes pass through without any session (today's behavior)
+    const app = await api.createApp(uniq('ae1-app'));
+    expect((await api.getApp(app.id)).id).toBe(app.id);
+    await api.deleteApp(app.id);
   });
 });

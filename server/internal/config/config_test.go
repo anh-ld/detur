@@ -7,7 +7,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "CLICK_ID_DAYS", "TRUST_PROXY", "LOGOUT_URL"} {
+	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "CLICK_ID_DAYS", "TRUST_PROXY", "LOGOUT_URL", "ADMIN_PASSWORD", "ADMIN_SESSION_HOURS"} {
 		t.Setenv(k, "")
 	}
 }
@@ -30,6 +30,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ClickIDDays != 30 {
 		t.Errorf("ClickIDDays default = %d, want 30", cfg.ClickIDDays)
 	}
+	if cfg.AdminPassword != "" {
+		t.Errorf("AdminPassword default = %q, want empty", cfg.AdminPassword)
+	}
+	if cfg.AdminSessionHours != 12 {
+		t.Errorf("AdminSessionHours default = %d, want 12", cfg.AdminSessionHours)
+	}
 }
 
 func TestLoadEnvOverride(t *testing.T) {
@@ -38,12 +44,17 @@ func TestLoadEnvOverride(t *testing.T) {
 	t.Setenv("TRUST_PROXY", "1")
 	t.Setenv("DB_PATH", "/data/detur.db")
 	t.Setenv("RETENTION_HOURS", "48")
+	t.Setenv("ADMIN_PASSWORD", "hunter2")
+	t.Setenv("ADMIN_SESSION_HOURS", "48")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.Domain != "links.example.com" || !cfg.TrustProxy || cfg.DBPath != "/data/detur.db" || cfg.RetentionHours != 48 {
 		t.Errorf("override not applied: %+v", cfg)
+	}
+	if cfg.AdminPassword != "hunter2" || cfg.AdminSessionHours != 48 {
+		t.Errorf("admin override not applied: %+v", cfg)
 	}
 }
 
@@ -56,6 +67,9 @@ func TestLoadInvalidValues(t *testing.T) {
 		{"RETENTION_HOURS", "not-a-number", "must be an integer"},
 		{"CLICK_ID_DAYS", "0", "out of range"},
 		{"CLICK_ID_DAYS", "91", "out of range"},
+		{"ADMIN_SESSION_HOURS", "0", "out of range"},
+		{"ADMIN_SESSION_HOURS", "73", "out of range"},
+		{"ADMIN_SESSION_HOURS", "not-a-number", "must be an integer"},
 		{"LOGOUT_URL", "javascript:alert(1)", "LOGOUT_URL"},
 		{"LOGOUT_URL", "//evil.example/logout", "LOGOUT_URL"},
 		{"LOGOUT_URL", "ftp://example.com/logout", "LOGOUT_URL"},

@@ -1,6 +1,7 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Dialog } from 'kinu';
+import { Alert, Button, Dialog, Field, Input, Label, Spinner } from 'kinu';
+import { api, HttpError } from './api';
 
 // Shared layout bits: kinu token colors, no layout primitives.
 export const muted = { color: 'hsl(var(--k-muted-foreground))', fontSize: 14, margin: 0 };
@@ -41,6 +42,182 @@ export function closeDialog(id: string) {
   (document.getElementById(id) as HTMLDialogElement | null)?.close();
 }
 
+// --- Admin elevation: sudo-style password session. The server enforces the gate;
+// this store mirrors GET /api/admin/session so surfaces follow it, and adminSet
+// mirrors config.adminSet (unset password = no gating). ---
+let adminSet = false;
+let elevated = false;
+let until = ''; // expiresAt ISO; '' = not lifted
+const adminListeners = new Set<() => void>();
+
+export const getAdminSet = () => adminSet;
+export const getAdmin = () => elevated;
+export const getAdminUntil = () => until;
+
+export function setAdminAvailable(v: boolean) {
+  if (v === adminSet) return;
+  adminSet = v;
+  adminListeners.forEach((l) => l());
+}
+export function setElevated(v: boolean, expiresAt = '') {
+  if (v === elevated && expiresAt === until) return;
+  elevated = v;
+  until = expiresAt;
+  adminListeners.forEach((l) => l());
+}
+export function subscribeAdmin(cb: () => void): () => void {
+  adminListeners.add(cb);
+  return () => {
+    adminListeners.delete(cb);
+  };
+}
+
+// Re-read the session from the server; the 403 handler also does this first.
+export async function refreshAdminSession() {
+  try {
+    const s = await api.getAdminSession();
+    setElevated(s.admin, s.expiresAt ?? '');
+  } catch {
+    setElevated(false);
+  }
+}
+
+let pendingAdmin: Promise<boolean> | null = null;
+let settleAdmin: ((ok: boolean) => void) | null = null;
+
+// The password prompt's dialog id, shared by the gate (open) and the dialog (close).
+const ADMIN_PW_DIALOG = 'dlg-admin-password';
+
+// On-demand gate: no elevation exists (no password set) or already lifted → pass; otherwise the
+// password prompt opens and resolves when it closes. false = canceled. Concurrent
+// gates coalesce onto one pending prompt so no waiter is orphaned.
+export function ensureAdmin(): Promise<boolean> {
+  if (!adminSet || elevated) return Promise.resolve(true);
+  if (pendingAdmin) return pendingAdmin;
+  pendingAdmin = new Promise((resolve) => {
+    settleAdmin = resolve;
+    openDialog(ADMIN_PW_DIALOG);
+  });
+  return pendingAdmin;
+}
+export function settleAdminGate(ok: boolean) {
+  settleAdmin?.(ok);
+  settleAdmin = null;
+  pendingAdmin = null;
+}
+
+// Pin the gate at a dialog trigger: open synchronously when the gate passes (no password set or lifted), else prompt first.
+export function gateOpen(dialogId: string) {
+  if (adminSet && !elevated) {
+    ensureAdmin().then((ok) => ok && openDialog(dialogId));
+  } else {
+    openDialog(dialogId);
+  }
+}
+
+// The prompt was canceled: the gated action must not run (callers return quietly).
+export class AdminGateAborted extends Error {}
+
+// Run one gated API call: prompt first if needed; a 403 mid-use means the session
+// died — a gated 403 also proves the server gates (self-heals a failed config fetch),
+// so refresh state (the chip clears) and re-prompt once before retrying.
+export async function adminCall<T>(fn: () => Promise<T>): Promise<T> {
+  if (!(await ensureAdmin())) throw new AdminGateAborted();
+  try {
+    return await fn();
+  } catch (e) {
+    if (!(e instanceof HttpError) || e.status !== 403) throw e;
+    setAdminAvailable(true);
+    await refreshAdminSession();
+    if (await ensureAdmin()) return await fn();
+    throw new AdminGateAborted();
+  }
+}
+
+// Password prompt for on-demand elevation. One instance, mounted in the App shell;
+// ensureAdmin() opens it. The server's only 401 is a wrong password (1s delay).
+export function AdminPasswordDialog() {
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const el = document.getElementById(ADMIN_PW_DIALOG) as HTMLDialogElement | null;
+    if (!el) return;
+    // Escape or any close aborts a still-pending gate (success already settled it) and
+    // clears the form, so the next prompt never opens prefilled or with a stale error.
+    const abort = () => {
+      setPw('');
+      setErr('');
+      settleAdminGate(false);
+    };
+    el.addEventListener('cancel', abort);
+    el.addEventListener('close', abort);
+    return () => {
+      el.removeEventListener('cancel', abort);
+      el.removeEventListener('close', abort);
+    };
+  }, []);
+
+  const submit = async () => {
+    setErr('');
+    setBusy(true);
+    try {
+      const { expiresAt } = await api.enterAdminMode(pw);
+      setElevated(true, expiresAt);
+      settleAdminGate(true); // resolve before closing: the close event must not abort
+      closeDialog(ADMIN_PW_DIALOG);
+    } catch (e) {
+      setErr(e instanceof HttpError && e.status === 401 ? 'Wrong password' : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog id={ADMIN_PW_DIALOG}>
+      <Dialog.Content>
+        <form
+          style={{ display: 'grid', gap: 16 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <div style={{ display: 'grid', gap: 4 }}>
+            <h2 style={{ margin: 0 }}>Enter admin mode</h2>
+            <p style={muted}>A master password unlocks app management for this browser session.</p>
+          </div>
+          <Field>
+            <Label htmlFor="admin-pw">Password</Label>
+            <Input id="admin-pw" type="password" value={pw} onInput={(e) => setPw(e.currentTarget.value)} />
+          </Field>
+          {err && (
+            <Alert variant="destructive" role="alert">
+              {err}
+            </Alert>
+          )}
+          <div style={{ ...row, justifyContent: 'flex-end' }}>
+            <Button type="button" variant="outline" onClick={() => { settleAdminGate(false); closeDialog(ADMIN_PW_DIALOG); }}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy} aria-busy={busy}>
+              Unlock
+            </Button>
+          </div>
+        </form>
+      </Dialog.Content>
+    </Dialog>
+  );
+}
+
+// Page/section loading state: kinu's Spinner is inline-block, so center it.
+export const Loading = () => (
+  <div style={{ display: 'grid', placeItems: 'center', padding: '48px 0' }}>
+    <Spinner />
+  </div>
+);
+
 export function PageHeader({
   title,
   description,
@@ -61,36 +238,39 @@ export function PageHeader({
   );
 }
 
-// Delete button: in-page confirm step (replaces window.confirm).
+// Delete button: in-page confirm step (replaces window.confirm). requireAdmin pins
+// the gate at the trigger: the password prompt opens first, and only a successful
+// elevation opens this same confirmation dialog. Opened and closed imperatively by
+// id (kinu's Dialog.Close relies on the Dialog.Trigger polyfill, absent here).
 export function ConfirmDelete({
   title,
   body,
   onConfirm,
+  id,
+  requireAdmin,
 }: {
   title: string;
   body: ComponentChildren;
   onConfirm: () => void;
+  id: string;
+  requireAdmin?: boolean;
 }) {
   return (
-    <Dialog>
-      <Dialog.Trigger>
-        <Button size="sm" variant="destructive">
-          Delete
-        </Button>
-      </Dialog.Trigger>
+    <Dialog id={id}>
+      <Button size="sm" variant="destructive" onClick={() => (requireAdmin ? gateOpen(id) : openDialog(id))}>
+        Delete
+      </Button>
       <Dialog.Content>
         <div style={{ display: 'grid', gap: 16 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
           <p style={muted}>{body}</p>
           <div style={{ ...row, justifyContent: 'flex-end' }}>
-            <Dialog.Close>
-              <Button variant="outline">Cancel</Button>
-            </Dialog.Close>
-            <Dialog.Close>
-              <Button variant="destructive" onClick={onConfirm}>
-                Delete
-              </Button>
-            </Dialog.Close>
+            <Button variant="outline" onClick={() => closeDialog(id)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => { onConfirm(); closeDialog(id); }}>
+              Delete
+            </Button>
           </div>
         </div>
       </Dialog.Content>

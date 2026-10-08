@@ -15,13 +15,12 @@ import {
   Input,
   Label,
   Separator,
-  Spinner,
   Tab,
   Table,
   TabList,
 } from 'kinu';
 import { Analytics, api, App, Link, Platform } from './api';
-import { closeDialog, ConfirmDelete, mono, muted, PageHeader, row } from './ui';
+import { closeDialog, ConfirmDelete, Loading, mono, muted, PageHeader, row } from './ui';
 import { AnalyticsView, Filters, fmt } from './analytics';
 import { FraudPanel } from './fraud';
 import { SettingsPanel } from './settings';
@@ -120,7 +119,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
     loadAll();
   }, [id]);
 
-  if (app === null && error === '') return <Spinner />;
+  if (app === null && error === '') return <Loading />;
   if (app === null)
     return (
       <Card style={{ marginTop: 32 }}>
@@ -185,7 +184,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
             <LinkDialog appId={app.id} link={null} onSaved={refresh} trigger={<Button>New link</Button>} />
           </div>
           {links === null ? (
-            <Spinner />
+            <Loading />
           ) : links.length === 0 ? (
             <Card>
               <Empty>
@@ -242,6 +241,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
                           }
                         />
                         <ConfirmDelete
+                          id={`dlg-del-link-${l.id}`}
                           title={`Delete ${l.key}?`}
                           body="The short link stops working."
                           onConfirm={() => del(l)}

@@ -88,10 +88,16 @@ Change: edit row, keep ID. New conflict: add row before code.
 | S1 | Same 5 endpoints + shapes as godetour.dev; `effectiveLimit: -1`. | Ours | Drop-in SDK 2.3.x; no limits. | — | in place |
 | S2 | universal-link-click auth backend error → allow + fresh `clickId`, no write. | Ours | Never block; never write unverified. | 004 | in place |
 
+## Portal access
+
+| ID | Decision | Source | Why | Plan | Status |
+|---|---|---|---|---|---|
+| P1 | Gateway admits everyone as viewer (links + monitoring). Admin actions need `ADMIN_PASSWORD` → 12h per-browser signed session. No user table, no RBAC. | Ours | Single-operator self-hosted; each team brings its own auth; shared password beats per-person roles at this scale. | 009 | in place |
+
 ## Not adopted (yet)
 
 In-app browser hand-off, return-to-web after store dismiss, App Preview page, custom redirect HTML, fallback param strategies, copy-link toggle, Smart Banners, multi-segment links, webhooks, Platform API, billing, click-injection detection (needs SDK referrer), VPN/Tor IP detection.
 
 ## Security, ops
 
-Trust boundaries: [CAVEATS.md](CAVEATS.md). Log out → `LOGOUT_URL` (gateway sign-out). No detur session. Unset = no link.
+Trust boundaries: [CAVEATS.md](CAVEATS.md). Log out → `LOGOUT_URL` (gateway sign-out). Admin elevation: `ADMIN_PASSWORD` → 12h browser session (P1). Unset = no gating.
