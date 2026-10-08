@@ -27,6 +27,18 @@ Read before prod. Sources: [DECISIONS.md](DECISIONS.md).
 - Stored destination = link URL + params, not store URL. Like Dub.
 - Keys case-insensitive.
 
+## Fraud
+
+- Signals tagged by default. Active: per app, per signal (app Fraud tab). Saves on press, no confirm.
+- Active excludes click → user gets organic 404, no deferred deep link.
+- IP ranges bundled per release. Pinned version → stale ranges.
+- CGNAT / office NAT: many users, one IP → velocity may flag. Watch flagged installs before going active.
+- Private/loopback IPs exempt. `TRUST_PROXY=0` behind proxy → IP signals blind.
+- UA-suspect clicks left out of click counts, even when tagged.
+- New thresholds apply to future matches. Past installs not re-scored.
+- Repeated device: same profile within `RETENTION_HOURS` reuses the earlier match, so it counts only after that click expires.
+- No click injection, device reset, emulator, or receipt checks.
+
 ## Ops
 
 - SQLite: one writer. Personal/team scale.
