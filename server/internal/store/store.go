@@ -188,7 +188,8 @@ func (s *Store) DeleteApp(id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	for _, t := range []string{"clicks", "installs", "events", "click_days", "click_sources", "event_days", "fraud_settings", "click_hits"} {
+	for _, t := range []string{"clicks", "installs", "events", "click_days", "click_sources", "event_days", "fraud_settings", "click_hits",
+		"device_links", "link_event_days", "link_cohorts"} {
 		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE app_id = ?`, id); err != nil {
 			return fmt.Errorf("delete app %s: %w", t, err)
 		}
@@ -431,7 +432,7 @@ func (s *Store) UpdateLink(l Link) error {
 	return nil
 }
 
-// DeleteLink: link + its clicks (no FK on clicks; orphans would keep matching), rollups and link hit counter.
+// DeleteLink: link + its clicks (no FK on clicks; orphans would keep matching), rollups, link hit counter and device tags.
 func (s *Store) DeleteLink(id string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -456,6 +457,11 @@ func (s *Store) DeleteLink(id string) error {
 	}
 	if _, err := tx.Exec(`DELETE FROM click_hits WHERE key_type = 'link' AND key = ?`, id); err != nil {
 		return fmt.Errorf("delete link hits: %w", err)
+	}
+	for _, t := range []string{"device_links", "link_event_days", "link_cohorts"} {
+		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE link_id = ?`, id); err != nil {
+			return fmt.Errorf("delete link %s: %w", t, err)
+		}
 	}
 	return tx.Commit()
 }
@@ -743,7 +749,7 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	return clicks, rows.Err()
 }
 
-// PurgeExpired: expired clicks scrubbed; matched or past ClickIDHours deleted. Old events deleted. Hit buckets past the 24h max window deleted (not counted). Returns rows deleted.
+// PurgeExpired: expired clicks scrubbed; matched or past ClickIDHours deleted. Old events deleted. Hit buckets past the 24h max window and device tags past deviceLinkDays deleted (not counted). Returns rows deleted.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
 	if _, err := s.db.Exec(
@@ -770,6 +776,9 @@ func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	}
 	if _, err := s.db.Exec(`DELETE FROM click_hits WHERE bucket < ?`, now.UTC().Add(-24*time.Hour).Format(bucketLayout)); err != nil {
 		return 0, fmt.Errorf("purge click hits: %w", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM device_links WHERE first_seen < ?`, rfc3339(now.AddDate(0, 0, -deviceLinkDays))); err != nil {
+		return 0, fmt.Errorf("purge device links: %w", err)
 	}
 	return removed, nil
 }
