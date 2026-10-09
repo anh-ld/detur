@@ -913,6 +913,7 @@ func TestPortalAdminRouteGate(t *testing.T) {
 		{"DELETE", "/api/apps/" + app.ID + "/key", "", http.StatusNoContent},
 		{"PATCH", "/api/apps/" + app.ID, `{"iosAppId":"ABC123.com.example"}`, http.StatusOK},
 		{"PATCH", "/api/apps/" + app.ID + "/matching", `{"threshold":850,"windowMinutes":15}`, http.StatusOK},
+		{"PATCH", "/api/apps/" + app.ID + "/tagging", `{"tagLinks":true}`, http.StatusOK},
 		{"GET", "/api/apps/" + app.ID + "/fraud/settings", "", http.StatusOK},
 		{"PATCH", "/api/apps/" + app.ID + "/fraud/settings", validFraudBody, http.StatusOK},
 		{"DELETE", "/api/apps/" + app.ID, "", http.StatusNoContent},
@@ -1011,5 +1012,46 @@ func TestPortalAdminGateUnsetPassword(t *testing.T) {
 	resp, _ = portalReq(t, portal, "DELETE", "/api/apps/"+app.ID, "", nil)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete app without cookie: %d; want 204", resp.StatusCode)
+	}
+}
+
+// Tag deferred links: off = destinations as stored; on = match-link and resolve-short add detur_link=<key>, never over an existing one.
+func TestPortalTaggingDrivesDestinations(t *testing.T) {
+	portal, sdk, st := newPortalEnv(t)
+	app, link := setup(t, st)
+	kept, _ := st.CreateLink(store.Link{AppID: app.ID, Key: "kept", URL: "https://example.com/p?detur_link=mine"})
+	destinations := func() (match, resolve, resolveKept string) {
+		t.Helper()
+		recordAndroidClick(t, st, app, link)
+		hdr := authHeaders(app.ID)
+		hdr["X-Forwarded-For"] = testIP
+		var out struct {
+			Link string `json:"link"`
+		}
+		_, b := portalReq(t, sdk, "POST", "/api/link/match-link", androidFingerprintJSON(), hdr)
+		mustJSON(t, b, &out)
+		match = out.Link
+		_, b = portalReq(t, sdk, "POST", "/api/link/resolve-short", `{"url":"https://lnk.example/abc"}`, authHeaders(app.ID))
+		mustJSON(t, b, &out)
+		resolve = out.Link
+		_, b = portalReq(t, sdk, "POST", "/api/link/resolve-short", `{"url":"https://lnk.example/kept"}`, authHeaders(app.ID))
+		mustJSON(t, b, &out)
+		return match, resolve, out.Link
+	}
+	if m, r, k := destinations(); m != link.URL || r != link.URL || k != kept.URL {
+		t.Fatalf("tagging off: %s, %s, %s; want stored URLs", m, r, k)
+	}
+
+	resp, b := portalReq(t, portal, "PATCH", "/api/apps/"+app.ID+"/tagging", `{"tagLinks":true}`, nil)
+	var got struct {
+		TagLinks bool `json:"tagLinks"`
+	}
+	mustJSON(t, b, &got)
+	if resp.StatusCode != http.StatusOK || !got.TagLinks {
+		t.Fatalf("PATCH tagging: %d %s; want 200 tagLinks true", resp.StatusCode, b)
+	}
+	want := link.URL + "?detur_link=abc"
+	if m, r, k := destinations(); m != want || r != want || k != kept.URL {
+		t.Errorf("tagging on: %s, %s, %s; want %s twice and %s", m, r, k, want, kept.URL)
 	}
 }

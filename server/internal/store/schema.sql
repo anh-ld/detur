@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS apps (
     match_window_minutes    INTEGER NOT NULL DEFAULT 15,
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
--- apps.sdk_version, sdk_seen_at: addMissingColumns.
+-- apps.sdk_version, sdk_seen_at, tag_links: addMissingColumns.
 
 CREATE TABLE IF NOT EXISTS links (
     id             TEXT PRIMARY KEY,
@@ -119,6 +119,46 @@ CREATE TABLE IF NOT EXISTS event_days (
     day    TEXT NOT NULL,
     n      INTEGER NOT NULL,
     PRIMARY KEY (app_id, day, event)
+);
+
+-- Per-link conversions + retention. device_links maps an SDK device (hashed
+-- device_id) to the first link the app tagged it with; d1/d7/d30 = already
+-- counted for that mark. Holds device data: PurgeExpired drops rows 90 days
+-- after first_seen. The two rollups below are counts only, never purged.
+CREATE TABLE IF NOT EXISTS device_links (
+    app_id     TEXT NOT NULL,
+    device     TEXT NOT NULL,
+    link_id    TEXT NOT NULL,
+    first_seen TEXT NOT NULL,
+    d1         INTEGER NOT NULL DEFAULT 0,
+    d7         INTEGER NOT NULL DEFAULT 0,
+    d30        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (app_id, device)
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_links_first_seen ON device_links (first_seen);
+
+-- link_event_days: SDK events from tagged devices, per link.
+CREATE TABLE IF NOT EXISTS link_event_days (
+    app_id  TEXT NOT NULL,
+    link_id TEXT NOT NULL,
+    event   TEXT NOT NULL,
+    day     TEXT NOT NULL,
+    n       INTEGER NOT NULL,
+    PRIMARY KEY (app_id, day, link_id, event)
+);
+
+-- link_cohorts: devices first tagged to a link on day; dN = of those, devices
+-- that sent a retention call exactly N days later.
+CREATE TABLE IF NOT EXISTS link_cohorts (
+    app_id  TEXT NOT NULL,
+    link_id TEXT NOT NULL,
+    day     TEXT NOT NULL,
+    devices INTEGER NOT NULL DEFAULT 0,
+    d1      INTEGER NOT NULL DEFAULT 0,
+    d7      INTEGER NOT NULL DEFAULT 0,
+    d30     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (app_id, day, link_id)
 );
 
 -- Fraud settings: one row per app; no row = fraud.Defaults (all tagged).

@@ -56,6 +56,7 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	mux.HandleFunc("DELETE /api/apps/{id}/key", p.requireAdmin(p.revokeAppKey))
 	mux.HandleFunc("PATCH /api/apps/{id}", p.requireAdmin(p.updateApp))
 	mux.HandleFunc("PATCH /api/apps/{id}/matching", p.requireAdmin(p.updateMatching))
+	mux.HandleFunc("PATCH /api/apps/{id}/tagging", p.requireAdmin(p.updateTagging))
 	mux.HandleFunc("GET /api/apps/{id}", p.getApp)
 	mux.HandleFunc("DELETE /api/apps/{id}", p.requireAdmin(p.deleteApp))
 	mux.HandleFunc("GET /api/apps/{id}/links", p.listLinks)
@@ -138,12 +139,13 @@ type appJSON struct {
 	AndroidCertFingerprint string `json:"androidCertFingerprint"`
 	MatchThreshold         int    `json:"matchThreshold"`
 	MatchWindowMinutes     int    `json:"matchWindowMinutes"`
+	TagLinks               bool   `json:"tagLinks"`
 }
 
 func toAppJSON(a store.App) appJSON {
 	return appJSON{ID: a.ID, Name: a.Name, APIKeyHash: a.APIKeyHash,
 		IOSAppID: a.IOSAppID, AndroidPackage: a.AndroidPackage, AndroidCertFingerprint: a.AndroidCertFingerprint,
-		MatchThreshold: a.MatchThreshold, MatchWindowMinutes: a.MatchWindowMinutes}
+		MatchThreshold: a.MatchThreshold, MatchWindowMinutes: a.MatchWindowMinutes, TagLinks: a.TagLinks}
 }
 
 // linkJSON: wire shape for links.
@@ -471,6 +473,28 @@ func (p *portalServer) updateMatching(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := p.st.UpdateAppMatchSettings(id, *body.Threshold, *body.WindowMinutes); err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	a, err := p.st.GetApp(id)
+	if err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
+}
+
+// updateTagging: PATCH {tagLinks}: SDK destinations carry detur_link=<key> so the app can tag its device (per-link conversions + retention).
+func (p *portalServer) updateTagging(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		TagLinks *bool `json:"tagLinks"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil || body.TagLinks == nil {
+		http.Error(w, "tagLinks is required", http.StatusBadRequest)
+		return
+	}
+	if err := p.st.UpdateAppTagLinks(id, *body.TagLinks); err != nil {
 		p.storeErr(w, err)
 		return
 	}

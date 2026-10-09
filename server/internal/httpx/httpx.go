@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 )
@@ -59,4 +60,28 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// AddParams: appends allowed q keys missing from target's query; operator's query bytes untouched, nothing added -> target unchanged.
+func AddParams(target string, q url.Values, allow func(k, v string) bool) string {
+	u, err := url.Parse(target)
+	if err != nil {
+		return target
+	}
+	have := u.Query()
+	add := url.Values{}
+	for k, vs := range q {
+		if len(vs) == 0 || have.Has(k) || !allow(k, vs[len(vs)-1]) {
+			continue
+		}
+		add.Set(k, vs[len(vs)-1])
+	}
+	if len(add) == 0 {
+		return target
+	}
+	if u.RawQuery != "" {
+		u.RawQuery += "&"
+	}
+	u.RawQuery += add.Encode()
+	return u.String()
 }

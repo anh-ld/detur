@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -38,17 +40,44 @@ type SourceStat struct {
 	Count  int64  `json:"count"`
 }
 
+// LinkConversion: SDK events from devices tagged with a link.
+type LinkConversion struct {
+	LinkID string `json:"linkId"`
+	Key    string `json:"key"`
+	Event  string `json:"event"`
+	Count  int64  `json:"count"`
+}
+
+// LinkRetention: Devices = devices first tagged in range. Each mark covers the cohorts whose mark day falls in range.
+type LinkRetention struct {
+	LinkID  string `json:"linkId"`
+	Key     string `json:"key"`
+	Devices int64  `json:"devices"`
+	D1      Mark   `json:"d1"`
+	D7      Mark   `json:"d7"`
+	D30     Mark   `json:"d30"`
+}
+
+// Mark: Returned of Devices came back on exactly that day.
+type Mark struct {
+	Returned int64 `json:"returned"`
+	Devices  int64 `json:"devices"`
+}
+
 type Analytics struct {
-	Days    []DayStat    `json:"days"`
-	Links   []LinkStat   `json:"links"`
-	Events  []EventStat  `json:"events"`
-	Sources []SourceStat `json:"sources"`
+	Days        []DayStat        `json:"days"`
+	Links       []LinkStat       `json:"links"`
+	Events      []EventStat      `json:"events"`
+	Sources     []SourceStat     `json:"sources"`
+	Conversions []LinkConversion `json:"conversions"`
+	Retention   []LinkRetention  `json:"retention"`
 }
 
 // Analytics: app stats for the last `days` UTC days ending today, every day present (zeros filled). platform "" = all; events ignore platform (SDK events carry none).
 func (s *Store) Analytics(appID string, days int, platform string, now time.Time) (Analytics, error) {
 	from := now.UTC().AddDate(0, 0, -(days - 1))
-	a := Analytics{Days: make([]DayStat, days), Links: []LinkStat{}, Events: []EventStat{}, Sources: []SourceStat{}}
+	a := Analytics{Days: make([]DayStat, days), Links: []LinkStat{}, Events: []EventStat{}, Sources: []SourceStat{},
+		Conversions: []LinkConversion{}, Retention: []LinkRetention{}}
 	idx := map[string]int{}
 	for i := range a.Days {
 		d := day(from.AddDate(0, 0, i))
@@ -146,8 +175,73 @@ func (s *Store) Analytics(appID string, days int, platform string, now time.Time
 	if a.Events, err = s.analyticsEvents(appID, lo, hi); err != nil {
 		return a, err
 	}
-	a.Sources, err = s.analyticsSources(appID, lo, hi)
+	if a.Sources, err = s.analyticsSources(appID, lo, hi); err != nil {
+		return a, err
+	}
+	if a.Conversions, err = s.analyticsConversions(appID, lo, hi); err != nil {
+		return a, err
+	}
+	a.Retention, err = s.analyticsRetention(appID, lo, hi)
 	return a, err
+}
+
+// analyticsConversions: top 20 (link, event) pairs in the day range; app-wide (no platform).
+func (s *Store) analyticsConversions(appID, lo, hi string) ([]LinkConversion, error) {
+	rows, err := s.db.Query(
+		`SELECT e.link_id, l.key, e.event, SUM(e.n) FROM link_event_days e JOIN links l ON l.id = e.link_id
+		 WHERE e.app_id = ? AND e.day BETWEEN ? AND ?
+		 GROUP BY e.link_id, e.event ORDER BY 4 DESC, l.key, e.event LIMIT 20`, appID, lo, hi)
+	if err != nil {
+		return nil, fmt.Errorf("analytics conversions: %w", err)
+	}
+	defer rows.Close()
+	out := []LinkConversion{}
+	for rows.Next() {
+		var c LinkConversion
+		if err := rows.Scan(&c.LinkID, &c.Key, &c.Event, &c.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// analyticsRetention: per link, cohorts started in range plus, per mark, cohorts whose cohort day + N is in range; app-wide (no platform). Busiest links first.
+func (s *Store) analyticsRetention(appID, lo, hi string) ([]LinkRetention, error) {
+	in := func(n int) string { // cohort day + n falls in [lo, hi]
+		return fmt.Sprintf(`date(c.day, '+%d day') BETWEEN ?1 AND ?2`, n)
+	}
+	// cohort_devices, not devices: in HAVING a bare name resolves to the table column before the alias
+	q := `SELECT c.link_id, l.key,
+	  COALESCE(SUM(CASE WHEN c.day BETWEEN ?1 AND ?2 THEN c.devices END), 0) cohort_devices`
+	for _, m := range []struct {
+		col string
+		n   int
+	}{{"d1", 1}, {"d7", 7}, {"d30", 30}} {
+		q += fmt.Sprintf(`,
+	  COALESCE(SUM(CASE WHEN %[1]s THEN c.%[2]s END), 0), COALESCE(SUM(CASE WHEN %[1]s THEN c.devices END), 0)`, in(m.n), m.col)
+	}
+	q += `
+	 FROM link_cohorts c JOIN links l ON l.id = c.link_id
+	 WHERE c.app_id = ?3 AND c.day BETWEEN date(?1, '-30 day') AND ?2
+	 GROUP BY c.link_id
+	 HAVING cohort_devices + SUM(CASE WHEN ` + in(1) + ` OR ` + in(7) + ` OR ` + in(30) + ` THEN c.devices ELSE 0 END) > 0
+	 ORDER BY cohort_devices DESC, l.key`
+	rows, err := s.db.Query(q, lo, hi, appID)
+	if err != nil {
+		return nil, fmt.Errorf("analytics retention: %w", err)
+	}
+	defer rows.Close()
+	out := []LinkRetention{}
+	for rows.Next() {
+		var r LinkRetention
+		if err := rows.Scan(&r.LinkID, &r.Key, &r.Devices,
+			&r.D1.Returned, &r.D1.Devices, &r.D7.Returned, &r.D7.Devices, &r.D30.Returned, &r.D30.Devices); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // analyticsEvents: top 10 SDK events in the day range.
@@ -188,6 +282,105 @@ func (s *Store) analyticsSources(appID, lo, hi string) ([]SourceStat, error) {
 		sources = append(sources, st)
 	}
 	return sources, rows.Err()
+}
+
+// LinkTag: tag marker event name (not a conversion) and the destination param that hands the app its link key.
+const LinkTag = "detur_link"
+
+// deviceLinkDays: device_links lifetime; D30 is long done by then.
+const deviceLinkDays = 90
+
+// LinkEvent: one SDK analytics call as the per-link rollups see it. Device = raw SDK device_id (hashed before storage); LinkKey = data.link key, "" when absent; Retention = /api/analytics/retention call.
+type LinkEvent struct {
+	AppID     string
+	Device    string
+	LinkKey   string
+	Event     string
+	Retention bool
+}
+
+// RecordLinkEvent: tag the device with LinkKey's link (first tag wins), then count the call for the device's link: an event as a conversion, a retention call toward its cohort's D1/D7/D30 (once per device per mark). No device, unknown key or untagged device: nothing.
+func (s *Store) RecordLinkEvent(e LinkEvent, now time.Time) error {
+	if e.Device == "" {
+		return nil
+	}
+	device, today := HashKey(e.Device), day(now)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("record link event: %w", err)
+	}
+	defer tx.Rollback()
+	if e.LinkKey != "" {
+		var linkID string
+		err := tx.QueryRow(`SELECT id FROM links WHERE app_id = ? AND key = ? COLLATE NOCASE`, e.AppID, e.LinkKey).Scan(&linkID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("record link event: %w", err)
+		}
+		if linkID != "" {
+			res, err := tx.Exec(`INSERT INTO device_links (app_id, device, link_id, first_seen) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+				e.AppID, device, linkID, rfc3339(now))
+			if err != nil {
+				return fmt.Errorf("record link tag: %w", err)
+			}
+			if n, _ := res.RowsAffected(); n == 1 {
+				if _, err := tx.Exec(`INSERT INTO link_cohorts (app_id, link_id, day, devices) VALUES (?, ?, ?, 1)
+				 ON CONFLICT DO UPDATE SET devices = devices + 1`, e.AppID, linkID, today); err != nil {
+					return fmt.Errorf("record link cohort: %w", err)
+				}
+			}
+		}
+	}
+	var linkID, firstSeen string
+	err = tx.QueryRow(`SELECT link_id, first_seen FROM device_links WHERE app_id = ? AND device = ?`, e.AppID, device).Scan(&linkID, &firstSeen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return tx.Commit()
+	}
+	if err != nil {
+		return fmt.Errorf("record link event: %w", err)
+	}
+	cohortDay := firstSeen[:10]
+	switch {
+	case !e.Retention && e.Event != LinkTag:
+		if _, err := tx.Exec(`INSERT INTO link_event_days (app_id, link_id, event, day, n) VALUES (?, ?, ?, ?, 1)
+		 ON CONFLICT DO UPDATE SET n = n + 1`, e.AppID, linkID, rollupEventName(e.Event), today); err != nil {
+			return fmt.Errorf("record link conversion: %w", err)
+		}
+	case e.Retention:
+		mark := retentionMark(cohortDay, today)
+		if mark == "" {
+			break
+		}
+		// mark is one of d1/d7/d30 (retentionMark), never input: safe to splice
+		res, err := tx.Exec(`UPDATE device_links SET `+mark+` = 1 WHERE app_id = ? AND device = ? AND `+mark+` = 0`, e.AppID, device)
+		if err != nil {
+			return fmt.Errorf("record link retention: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			if _, err := tx.Exec(`UPDATE link_cohorts SET `+mark+` = `+mark+` + 1 WHERE app_id = ? AND link_id = ? AND day = ?`,
+				e.AppID, linkID, cohortDay); err != nil {
+				return fmt.Errorf("record link retention: %w", err)
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+// retentionMark: column for a retention call `today` from a cohort started `cohortDay` (both YYYY-MM-DD), "" unless exactly 1, 7 or 30 UTC days later.
+func retentionMark(cohortDay, today string) string {
+	from, err1 := time.Parse(time.DateOnly, cohortDay)
+	to, err2 := time.Parse(time.DateOnly, today)
+	if err1 != nil || err2 != nil {
+		return ""
+	}
+	switch int(to.Sub(from).Hours() / 24) {
+	case 1:
+		return "d1"
+	case 7:
+		return "d7"
+	case 30:
+		return "d30"
+	}
+	return ""
 }
 
 // MatchQuality: last `days` UTC days. Methods: installs per method ("" = pre-receipt).

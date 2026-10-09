@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 	"detur.dev/server/internal/ua"
 )
@@ -23,7 +24,7 @@ func hasStoreTarget(link store.Link, agent string) bool {
 
 // intentURL: Android intent back to the short link (App Links open the app at the link), Play fallback when the app is missing. Chrome intent syntax: developer.chrome.com/docs/android/intents.
 func intentURL(host, key string, q url.Values, pkg, fallback string) string {
-	short := addParams("https://"+host+"/"+key, q, func(k, v string) bool { return v != "" && !internalParams[k] })
+	short := httpx.AddParams("https://"+host+"/"+key, q, func(k, v string) bool { return v != "" && !internalParams[k] })
 	return "intent://" + strings.TrimPrefix(short, "https://") +
 		"#Intent;scheme=https;package=" + pkg + ";S.browser_fallback_url=" + url.QueryEscape(fallback) + ";end"
 }

@@ -824,3 +824,64 @@ func TestUniversalLinkClickFailOpenOnHitsError(t *testing.T) {
 		t.Errorf("clicks = %d, %v; want 0", n, err)
 	}
 }
+
+// Event with data.link (short URL) tags the device and counts; a retention call one day after the cohort counts D1, never a conversion.
+func TestAnalyticsLinkTagging(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, _ := setup(t, s)
+	post := func(endpoint, body string) {
+		t.Helper()
+		if resp, b := doPost(t, ts, endpoint, body, authHeaders(app.ID)); resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: %d %s", endpoint, resp.StatusCode, b)
+		}
+	}
+	post("/api/analytics/event", `{"event_name":"signup","data":{"link":"https://lnk.example/abc"},"device_id":"dev-1"}`)
+	post("/api/analytics/event", `{"event_name":"purchase","data":{"value":3},"device_id":"dev-1"}`)
+	post("/api/analytics/event", `{"event_name":"purchase","data":{"link":"abc"}}`) // no device: not counted
+
+	// handlers use time.Now(): move the cohort back one day, mapping and rollup key together
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	yesterday := time.Now().UTC().AddDate(0, 0, -1)
+	if _, err := db.Exec(`UPDATE device_links SET first_seen = ?`, yesterday.Format("2006-01-02T15:04:05.000Z")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE link_cohorts SET day = ?`, yesterday.Format("2006-01-02")); err != nil {
+		t.Fatal(err)
+	}
+	post("/api/analytics/retention", `{"event_name":"app_open","platform":"ios","device_id":"dev-1"}`)
+
+	a, err := s.Analytics(app.ID, 7, "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv := map[string]int64{}
+	for _, c := range a.Conversions {
+		conv[c.Key+"/"+c.Event] = c.Count
+	}
+	if len(conv) != 2 || conv["abc/signup"] != 1 || conv["abc/purchase"] != 1 {
+		t.Errorf("conversions = %v; want abc signup 1, purchase 1", conv)
+	}
+	if len(a.Retention) != 1 || a.Retention[0].Devices != 1 || a.Retention[0].D1 != (store.Mark{Returned: 1, Devices: 1}) {
+		t.Errorf("retention = %+v; want abc 1 device, d1 1/1", a.Retention)
+	}
+}
+
+// Link rollups are best-effort: a broken device_links table never fails the SDK call or loses the raw event.
+func TestAnalyticsLinkRollupFailureStillOK(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, _ := setup(t, s)
+	dropTable(t, path, "device_links")
+	for _, ep := range []string{"/api/analytics/event", "/api/analytics/retention"} {
+		resp, b := doPost(t, ts, ep, `{"event_name":"app_open","data":{"link":"abc"},"device_id":"dev-1"}`, authHeaders(app.ID))
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"success":true`) {
+			t.Errorf("%s with broken rollup: %d %s; want 200 success", ep, resp.StatusCode, b)
+		}
+	}
+	if n, err := s.CountEvents(app.ID); err != nil || n != 2 {
+		t.Errorf("events = %d (%v); want 2 raw events kept", n, err)
+	}
+}

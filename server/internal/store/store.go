@@ -117,6 +117,7 @@ type App struct {
 	AndroidCertFingerprint string
 	MatchThreshold         int
 	MatchWindowMinutes     int
+	TagLinks               bool // match-link + resolve-short destinations carry detur_link=<key>
 }
 
 // CreateApp: insert app; apiKey returned once from portal, only hash stored.
@@ -135,9 +136,9 @@ func (s *Store) CreateApp(name, apiKey string) (App, error) {
 func (s *Store) GetApp(id string) (App, error) {
 	var a App
 	err := s.db.QueryRow(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes, tag_links
 		 FROM apps WHERE id = ?`, id,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes)
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -174,6 +175,18 @@ func (s *Store) UpdateAppMatchSettings(id string, threshold, windowMinutes int) 
 	return nil
 }
 
+// UpdateAppTagLinks: turn destination link tagging on or off; ErrNotFound if app unknown.
+func (s *Store) UpdateAppTagLinks(id string, on bool) error {
+	res, err := s.db.Exec(`UPDATE apps SET tag_links = ? WHERE id = ?`, boolInt(on), id)
+	if err != nil {
+		return fmt.Errorf("update app tag links: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // DeleteApp: remove app; links cascade (schema ON DELETE CASCADE), clicks/installs/events have no FK so deleted explicitly. New app_id tables go here.
 func (s *Store) DeleteApp(id string) error {
 	tx, err := s.db.Begin()
@@ -188,7 +201,8 @@ func (s *Store) DeleteApp(id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	for _, t := range []string{"clicks", "installs", "events", "click_days", "click_sources", "event_days", "fraud_settings", "click_hits"} {
+	for _, t := range []string{"clicks", "installs", "events", "click_days", "click_sources", "event_days", "fraud_settings", "click_hits",
+		"device_links", "link_event_days", "link_cohorts"} {
 		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE app_id = ?`, id); err != nil {
 			return fmt.Errorf("delete app %s: %w", t, err)
 		}
@@ -198,7 +212,7 @@ func (s *Store) DeleteApp(id string) error {
 
 func (s *Store) ListApps() ([]App, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes, tag_links
 		 FROM apps ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list apps: %w", err)
@@ -207,7 +221,7 @@ func (s *Store) ListApps() ([]App, error) {
 	var apps []App
 	for rows.Next() {
 		var a App
-		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks); err != nil {
 			return nil, err
 		}
 		apps = append(apps, a)
@@ -431,7 +445,7 @@ func (s *Store) UpdateLink(l Link) error {
 	return nil
 }
 
-// DeleteLink: link + its clicks (no FK on clicks; orphans would keep matching), rollups and link hit counter.
+// DeleteLink: link + its clicks (no FK on clicks; orphans would keep matching), rollups, link hit counter and device tags.
 func (s *Store) DeleteLink(id string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -456,6 +470,11 @@ func (s *Store) DeleteLink(id string) error {
 	}
 	if _, err := tx.Exec(`DELETE FROM click_hits WHERE key_type = 'link' AND key = ?`, id); err != nil {
 		return fmt.Errorf("delete link hits: %w", err)
+	}
+	for _, t := range []string{"device_links", "link_event_days", "link_cohorts"} {
+		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE link_id = ?`, id); err != nil {
+			return fmt.Errorf("delete link %s: %w", t, err)
+		}
 	}
 	return tx.Commit()
 }
@@ -743,7 +762,7 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	return clicks, rows.Err()
 }
 
-// PurgeExpired: expired clicks scrubbed; matched or past ClickIDHours deleted. Old events deleted. Hit buckets past the 24h max window deleted (not counted). Returns rows deleted.
+// PurgeExpired: expired clicks scrubbed; matched or past ClickIDHours deleted. Old events deleted. Hit buckets past the 24h max window and device tags past deviceLinkDays deleted (not counted). Returns rows deleted.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
 	if _, err := s.db.Exec(
@@ -770,6 +789,9 @@ func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	}
 	if _, err := s.db.Exec(`DELETE FROM click_hits WHERE bucket < ?`, now.UTC().Add(-24*time.Hour).Format(bucketLayout)); err != nil {
 		return 0, fmt.Errorf("purge click hits: %w", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM device_links WHERE first_seen < ?`, rfc3339(now.AddDate(0, 0, -deviceLinkDays))); err != nil {
+		return 0, fmt.Errorf("purge device links: %w", err)
 	}
 	return removed, nil
 }
@@ -887,6 +909,7 @@ func addMissingColumns(db *sql.DB) error {
 		{"installs", "fraud", "TEXT"},
 		{"installs", "fraud_action", "TEXT"},
 		{"installs", "fraud_link_id", "TEXT"},
+		{"apps", "tag_links", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {

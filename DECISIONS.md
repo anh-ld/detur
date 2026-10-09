@@ -59,10 +59,14 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
-| A1 | Overview: clicks, installed opens, installs via link + match %, web fallbacks, daily chart, organic vs non-organic, per-link clicks/matches, top events, in-app sources. Filters: platform, 7/30/90d. | Detour | Same page. Retention not built (events do carry `device_id`). | — |
+| A1 | Overview: clicks, installed opens, installs via link + match %, web fallbacks, daily chart, organic vs non-organic, per-link clicks/matches, top events, in-app sources, per-link retention + conversions (A5–A8). Filters: platform, 7/30/90d. | Detour | Same page. | — |
 | A2 | Rollups `click_days`, `click_sources`, `event_days`: counts only, never purged. | Ours | Raw data goes at 24h; a 90d chart needs counts without device data. | — |
 | A3 | Web fallback = browser click → non-store URL. Installed open = universal-link-click. | Ours | Detour doesn't define them; this is what detur sees. | — |
 | A4 | UTC days. | Ours | One bucket key. | — |
+| A5 | Tag: SDK event with `device_id` + `data.link` (key or short URL) maps the device to that link. First tag wins. Device stored as SHA-256. Mapping purged 90d after tag. | Ours | `match-link` sends no `device_id`. Only the app knows where the device came from. | link-analytics |
+| A6 | Conversions: every `/analytics/event` call from a tagged device, per link + event + UTC day, the tagging call included. Marker `detur_link` not counted. Retention calls never. | Ours | What each link's users do after install. | link-analytics |
+| A7 | Retention: cohort = devices first tagged on one UTC day. D1/D7/D30 = retention call exactly N days later, once per device. Rate uses cohorts whose mark day is in range. Counts only, never purged (A2). All platforms. | Detour + ours | Detour's retention comparison. Mark-day range: every range shows all three marks. | link-analytics |
+| A8 | Tag deferred links: per app, off by default, admin. On → `match-link` + `resolve-short` destination gets `detur_link=<key>`, add-only (R3). | Ours | SDK 2.3.1 hands the app the resolved destination, never the key. Off = destinations as stored. | link-analytics |
 
 ## Fraud
 
@@ -122,6 +126,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | Multi-segment links | R5. |
 | Platform API | Portal API + webhooks cover it. |
 | Billing | Self-hosted. No tiers. |
+| Revenue sums, organic-cohort retention, marks beyond D1/D7/D30 | No request yet. |
 | Return-to-web after store dismiss, App Preview page, custom redirect HTML, fallback param strategies, Smart Banners | Detour features with no request yet. |
 
 ## Security, ops

@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"regexp"
 
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 	"detur.dev/server/internal/ua"
 )
@@ -54,37 +55,13 @@ func withParams(target string, clickID string, q url.Values) string {
 	}
 	switch {
 	case isAppStore(u):
-		return addParams(target, q, func(k, v string) bool {
+		return httpx.AddParams(target, q, func(k, v string) bool {
 			return v != "" && (k == "pt" || k == "ct" || k == "mt" || (k == "ppid" && uuidRe.MatchString(v)))
 		})
 	case isPlayStore(u):
 		return playReferrer(target, q, clickID)
 	}
-	return addParams(target, q, func(k, v string) bool { return v != "" && !internalParams[k] })
-}
-
-// addParams: appends allowed q keys missing from target's query; operator's query bytes untouched, nothing added -> target unchanged.
-func addParams(target string, q url.Values, allow func(k, v string) bool) string {
-	u, err := url.Parse(target)
-	if err != nil {
-		return target
-	}
-	have := u.Query()
-	add := url.Values{}
-	for k, vs := range q {
-		if len(vs) == 0 || have.Has(k) || !allow(k, vs[len(vs)-1]) {
-			continue
-		}
-		add.Set(k, vs[len(vs)-1])
-	}
-	if len(add) == 0 {
-		return target
-	}
-	if u.RawQuery != "" {
-		u.RawQuery += "&"
-	}
-	u.RawQuery += add.Encode()
-	return u.String()
+	return httpx.AddParams(target, q, func(k, v string) bool { return v != "" && !internalParams[k] })
 }
 
 // playReferrer: operator referrer pairs + add-only q utm_* + click_id (SDK reads click_id= from decoded referrer via /(?:^|&)click_id=([^&]+)/); merged like Dub.

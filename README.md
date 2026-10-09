@@ -12,6 +12,7 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 - Fraud: floods, fast opens, bots, datacenter IPs, repeat devices. Tag or block.
 - In-app browsers (Messenger, Zalo, TikTok, …): tap page to the store. Never stuck.
 - Webhooks: installs, events, clicks → your URL. Signed, retried, replayable.
+- Per-link conversions + D1/D7/D30 retention: tag a device once, see what each link's users do.
 - Admin: one password to manage apps. Everyone else: links + stats.
 
 [DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md) · [Agent skill](skills/detur/SKILL.md)

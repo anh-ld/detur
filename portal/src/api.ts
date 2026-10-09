@@ -9,6 +9,8 @@ export interface App {
   androidCertFingerprint: string;
   matchThreshold: number;
   matchWindowMinutes: number;
+  // SDK destinations carry detur_link=<key>, so the app can tag its device.
+  tagLinks: boolean;
 }
 
 export interface Link {
@@ -37,6 +39,24 @@ export interface Analytics {
   events: { event: string; count: number }[];
   // Browser clicks per in-app source (messenger, zalo, …, unknown-inapp); all platforms.
   sources: { source: string; count: number }[];
+  // Per-link, from devices the app tagged with a link; all platforms. Older servers omit both.
+  conversions?: { linkId: string; key: string; event: string; count: number }[];
+  retention?: LinkRetention[];
+}
+
+// Retention mark: returned of devices (cohorts whose mark day is in range) opened the app exactly N days after the tag.
+export interface Mark {
+  returned: number;
+  devices: number;
+}
+
+export interface LinkRetention {
+  linkId: string;
+  key: string;
+  devices: number;
+  d1: Mark;
+  d7: Mark;
+  d30: Mark;
 }
 
 // Installs per match method ('' = pre-receipt) + 50-pt score buckets.
@@ -156,6 +176,7 @@ export const api = {
   deleteLink: (id: string) => req<void>('DELETE', `/api/links/${id}`),
   saveMatching: (id: string, m: { threshold: number; windowMinutes: number }) =>
     req<App>('PATCH', `/api/apps/${id}/matching`, m),
+  saveTagging: (id: string, tagLinks: boolean) => req<App>('PATCH', `/api/apps/${id}/tagging`, { tagLinks }),
   getFraud: (appId: string, days: number) => req<Fraud>('GET', `/api/apps/${appId}/fraud?days=${days}`),
   getFraudSettings: (appId: string) => req<FraudSettings>('GET', `/api/apps/${appId}/fraud/settings`),
   saveFraudSettings: (appId: string, s: FraudSettings) =>
