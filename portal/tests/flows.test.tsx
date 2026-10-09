@@ -195,7 +195,7 @@ describe('portal client flows', () => {
     expect(tileValue('Installs via link')).toBe(1);
     expect(tileValue('Already installed opens')).toBe(0);
     expect(screen.getByText('purchase').closest('tr')!.querySelector('[data-label="Count"]')!.textContent).toBe('1');
-    screen.getByText('No in-app clicks in this range.');
+    screen.getByText('No in-app clicks');
 
     fireEvent.change(screen.getByLabelText('Platform'), { target: { value: 'ios' } });
     await waitFor(() => expect(tileValue('Clicks')).toBe(1));

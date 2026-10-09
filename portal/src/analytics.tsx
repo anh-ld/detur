@@ -1,6 +1,6 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Card, Select, Table } from 'kinu';
+import { Badge, Card, Empty, Select, Table } from 'kinu';
 import { Analytics, DayStat, Mark, Platform } from './api';
 import { mono, muted, row } from './ui';
 
@@ -226,7 +226,7 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
         </Card>
       </div>
 
-      <section aria-label="In-app sources" style={{ display: 'grid', gap: 12 }}>
+      <section aria-label="In-app sources" style={{ display: 'grid', gap: 12, marginTop: 16 }}>
         <div style={{ display: 'grid', gap: 4 }}>
           <h3 style={{ margin: 0 }}>In-app sources</h3>
           <p style={muted}>Clicks from in-app browsers such as Messenger or Zalo, on all platforms.</p>
@@ -234,7 +234,7 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
         {!data ? (
           <Skeleton h={36} />
         ) : sources.length === 0 ? (
-          <p style={muted}>No in-app clicks in this range.</p>
+          <EmptySection title="No in-app clicks">Taps from Messenger, Zalo, TikTok and other in-app browsers show here.</EmptySection>
         ) : (
           <Table>
             <thead>
@@ -257,18 +257,17 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
         )}
       </section>
 
-      <section aria-label="Retention by link" style={{ display: 'grid', gap: 12 }}>
+      <section aria-label="Retention by link" style={{ display: 'grid', gap: 12, marginTop: 16 }}>
         <div style={{ display: 'grid', gap: 4 }}>
           <h3 style={{ margin: 0 }}>Retention by link</h3>
-          <p style={muted}>
-            Devices your app tagged with a link, and the share that opened the app again exactly 1, 7 and 30 days later. All
-            platforms.
-          </p>
+          <p style={muted}>Tagged devices back on day 1, 7 and 30. All platforms.</p>
         </div>
         {!data ? (
           <Skeleton h={36} />
         ) : retention.length === 0 ? (
-          <p style={muted}>No tagged devices in this range.</p>
+          <EmptySection title="No tagged devices yet">
+            Turn on Tag deferred links in Settings, then send <code>detur_link</code> once from the app.
+          </EmptySection>
         ) : (
           <Table>
             <thead>
@@ -299,15 +298,15 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
         )}
       </section>
 
-      <section aria-label="Conversions by link" style={{ display: 'grid', gap: 12 }}>
+      <section aria-label="Conversions by link" style={{ display: 'grid', gap: 12, marginTop: 16 }}>
         <div style={{ display: 'grid', gap: 4 }}>
           <h3 style={{ margin: 0 }}>Conversions by link</h3>
-          <p style={muted}>Top events from devices your app tagged with a link. All platforms.</p>
+          <p style={muted}>Events from tagged devices. All platforms.</p>
         </div>
         {!data ? (
           <Skeleton h={36} />
         ) : conversions.length === 0 ? (
-          <p style={muted}>No events from tagged devices in this range.</p>
+          <EmptySection title="No conversions yet">Events from tagged devices show here.</EmptySection>
         ) : (
           <Table>
             <thead>
@@ -334,6 +333,16 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
     </div>
   );
 }
+
+// Empty section in range: same Card + Empty as the Links tab.
+const EmptySection = ({ title, children }: { title: string; children: ComponentChildren }) => (
+  <Card>
+    <Empty>
+      <h3>{title}</h3>
+      <p style={{ margin: 0 }}>{children}</p>
+    </Empty>
+  </Card>
+);
 
 // Retention cell: share of the mark's devices that came back; – when no cohort has reached that mark in range.
 const rate = (m: Mark) => (m.devices === 0 ? '–' : `${Math.round((m.returned / m.devices) * 100)}%`);

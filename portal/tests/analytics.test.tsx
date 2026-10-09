@@ -21,5 +21,5 @@ it('retention by link renders rates from counts', () => {
   const tr = within(screen.getByRole('region', { name: 'Retention by link' })).getByText('promo').closest('tr')!;
   const cell = (m: string) => tr.querySelector(`[data-label="${m}"]`)!.textContent;
   expect([cell('Devices'), cell('Day 1'), cell('Day 7'), cell('Day 30')]).toEqual(['4', '50%', '–', '33%']);
-  screen.getByText('No events from tagged devices in this range.');
+  screen.getByText('No conversions yet');
 });
