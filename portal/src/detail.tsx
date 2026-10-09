@@ -19,7 +19,7 @@ import {
   Table,
   TabList,
 } from 'kinu';
-import { Analytics, api, App, Link, Platform } from './api';
+import { Analytics, api, App, DateRangeFilter, Link, Platform } from './api';
 import { closeDialog, ConfirmDelete, Loading, mono, muted, PageHeader, row } from './ui';
 import { AnalyticsView, Filters, fmt } from './analytics';
 import { FraudPanel } from './fraud';
@@ -75,7 +75,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [app, setApp] = useState<App | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
   const [stats, setStats] = useState<Analytics | null>(null);
-  const [days, setDays] = useState(7);
+  const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
   const [platform, setPlatform] = useState<Platform>('');
   const [error, setError] = useState('');
 
@@ -99,14 +99,14 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
     let stale = false;
     setStatsLoading(true);
     api
-      .getAnalytics(id, days, platform)
+      .getAnalytics(id, range, platform)
       .then((s) => !stale && setStats(s))
       .catch((e) => !stale && setError(String(e)))
       .finally(() => !stale && setStatsLoading(false));
     return () => {
       stale = true;
     };
-  }, [id, days, platform, tick]);
+  }, [id, range.days, range.from, range.to, platform, tick]);
   // Refresh icon spins until app, links and analytics load; min 600ms so a fast reload stays visible.
   const [refreshing, setRefreshing] = useState(false);
   const refresh = () => {
@@ -175,7 +175,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
             </Tab>
           ))}
         </TabList>
-        {filtered && <Filters days={days} platform={platform} onDays={setDays} onPlatform={setPlatform} />}
+        {filtered && <Filters range={range} platform={platform} onRange={setRange} onPlatform={setPlatform} />}
       </div>
       {error && <Alert variant="destructive">{error}</Alert>}
 

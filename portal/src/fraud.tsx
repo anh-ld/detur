@@ -1,10 +1,10 @@
 import { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Badge, Card, Empty, Input, Select, Table, toast, Toggle, ToggleGroup } from 'kinu';
-import { api, FlaggedInstall, Fraud, FraudMode, FraudSettings } from './api';
+import { api, DateRangeFilter, FlaggedInstall, Fraud, FraudMode, FraudSettings } from './api';
 import { AdminGateAborted, adminCall, AdminRequired, getAdmin, Loading, mono, muted, row, subscribeAdmin } from './ui';
 import { FRAUD_RANGES, FraudNumKey, SIGNALS } from './matching';
-import { fmt, Skeleton } from './analytics';
+import { DateRangePicker, fmt, RANGE_OPTIONS, Skeleton } from './analytics';
 
 type Signal = (typeof SIGNALS)[number];
 
@@ -254,20 +254,20 @@ function Outcome({ i }: { i: FlaggedInstall }) {
 
 // Flagged installs for the chosen range; a superseded response is dropped (stale flag).
 function Flagged({ appId, tick }: { appId: string; tick: number }) {
-  const [days, setDays] = useState(7);
+  const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
   const [data, setData] = useState<Fraud | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let stale = false;
     setError('');
-    api.getFraud(appId, days).then(
+    api.getFraud(appId, range).then(
       (f) => !stale && setData(f),
       (e) => !stale && setError(String(e)),
     );
     return () => {
       stale = true;
     };
-  }, [appId, days, tick]);
+  }, [appId, range.days, range.from, range.to, tick]);
 
   return (
     <section aria-label="Flagged installs" style={{ display: 'grid', gap: 16 }}>
@@ -276,11 +276,7 @@ function Flagged({ appId, tick }: { appId: string; tick: number }) {
           <h2 style={{ margin: 0 }}>Flagged installs</h2>
           <p style={muted}>Installs at least one signal flagged, newest first.</p>
         </div>
-        <Select aria-label="Flagged range" value={String(days)} onChange={(e) => setDays(Number(e.currentTarget.value))}>
-          <option value="7">Last 7 days</option>
-          <option value="30">Last 30 days</option>
-          <option value="90">Last 90 days</option>
-        </Select>
+        <DateRangePicker ariaLabel="Flagged range" range={range} onRange={setRange} />
       </div>
       {error ? (
         <Alert variant="destructive">{error}</Alert>

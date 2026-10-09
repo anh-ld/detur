@@ -153,6 +153,18 @@ export interface AdminSession {
   expiresAt?: string;
 }
 
+export type DateRangeFilter = {
+  days?: number;
+  from?: string;
+  to?: string;
+};
+
+export const dateRangeQuery = (r: DateRangeFilter | number): string => {
+  if (typeof r === 'number') return `days=${r}`;
+  if (r.from && r.to) return `from=${r.from}&to=${r.to}`;
+  return `days=${r.days ?? 7}`;
+};
+
 export const api = {
   getMatchQuality: (id: string) => req<MatchQuality>('GET', `/api/apps/${id}/match-quality?days=30`),
   getHealth: (id: string) => req<HealthCheck[]>('GET', `/api/apps/${id}/health`),
@@ -177,12 +189,13 @@ export const api = {
   saveMatching: (id: string, m: { threshold: number; windowMinutes: number }) =>
     req<App>('PATCH', `/api/apps/${id}/matching`, m),
   saveTagging: (id: string, tagLinks: boolean) => req<App>('PATCH', `/api/apps/${id}/tagging`, { tagLinks }),
-  getFraud: (appId: string, days: number) => req<Fraud>('GET', `/api/apps/${appId}/fraud?days=${days}`),
+  getFraud: (appId: string, range: DateRangeFilter | number) =>
+    req<Fraud>('GET', `/api/apps/${appId}/fraud?${dateRangeQuery(range)}`),
   getFraudSettings: (appId: string) => req<FraudSettings>('GET', `/api/apps/${appId}/fraud/settings`),
   saveFraudSettings: (appId: string, s: FraudSettings) =>
     req<FraudSettings>('PATCH', `/api/apps/${appId}/fraud/settings`, s),
-  getAnalytics: (appId: string, days: number, platform: Platform) =>
-    req<Analytics>('GET', `/api/apps/${appId}/analytics?days=${days}${platform ? `&platform=${platform}` : ''}`),
+  getAnalytics: (appId: string, range: DateRangeFilter | number, platform?: Platform) =>
+    req<Analytics>('GET', `/api/apps/${appId}/analytics?${dateRangeQuery(range)}${platform ? `&platform=${platform}` : ''}`),
   listWebhooks: (appId: string) => req<Webhook[]>('GET', `/api/apps/${appId}/webhooks`),
   createWebhook: (appId: string, w: { url: string; types: string[] }) =>
     req<Webhook>('POST', `/api/apps/${appId}/webhooks`, w),

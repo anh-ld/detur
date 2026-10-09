@@ -507,26 +507,33 @@ func (p *portalServer) updateTagging(w http.ResponseWriter, r *http.Request) {
 }
 
 // analyticsRanges: allowed ?days= windows (portal range picker).
-var analyticsRanges = map[string]int{"7": 7, "30": 30, "90": 90}
+var analyticsRanges = map[string]int{
+	"7":   7,
+	"14":  14,
+	"30":  30,
+	"60":  60,
+	"90":  90,
+	"180": 180,
+	"365": 365,
+}
 
-// analytics serves daily click/install/event stats: ?days=7|30|90 (default 7), ?platform=ios|android|desktop (default all).
+// analytics serves daily click/install/event stats: ?days=... or ?from=YYYY-MM-DD&to=YYYY-MM-DD (default last 7 days), ?platform=ios|android|desktop (default all).
 func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	if _, err := p.st.GetApp(appID); err != nil {
 		p.storeErr(w, err)
 		return
 	}
-	q := r.URL.Query()
-	days, ok := parseDays(w, r, 7)
+	from, to, ok := parseDateRange(w, r, 7)
 	if !ok {
 		return
 	}
-	platform := q.Get("platform")
+	platform := r.URL.Query().Get("platform")
 	if platform != "" && platform != "ios" && platform != "android" && platform != "desktop" {
 		http.Error(w, "platform must be ios, android or desktop", http.StatusBadRequest)
 		return
 	}
-	a, err := p.st.Analytics(appID, days, platform, time.Now())
+	a, err := p.st.AnalyticsRange(appID, from, to, platform)
 	if err != nil {
 		p.internal(w, err)
 		return
@@ -534,18 +541,19 @@ func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, a)
 }
 
-// matchQuality: GET /api/apps/{id}/match-quality?days=7|30|90 (default 30).
+// matchQuality: GET /api/apps/{id}/match-quality?days=... or ?from=...&to=... (default 30).
 func (p *portalServer) matchQuality(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	if _, err := p.st.GetApp(appID); err != nil {
 		p.storeErr(w, err)
 		return
 	}
-	days, ok := parseDays(w, r, 30)
+	from, to, ok := parseDateRange(w, r, 30)
 	if !ok {
 		return
 	}
-	q, err := p.st.MatchQuality(appID, days, time.Now())
+	days := int(to.Sub(from).Hours()/24) + 1
+	q, err := p.st.MatchQuality(appID, days, to)
 	if err != nil {
 		p.internal(w, err)
 		return
@@ -566,18 +574,18 @@ type fraudInstallJSON struct {
 	FraudLinkKey string    `json:"fraudLinkKey"`
 }
 
-// fraud: GET /api/apps/{id}/fraud?days=7|30|90 (default 7): per-signal counts + latest flagged installs.
+// fraud: GET /api/apps/{id}/fraud?days=... or ?from=...&to=... (default 7): per-signal counts + latest flagged installs.
 func (p *portalServer) fraud(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	if _, err := p.st.GetApp(appID); err != nil {
 		p.storeErr(w, err)
 		return
 	}
-	days, ok := parseDays(w, r, 7)
+	from, to, ok := parseDateRange(w, r, 7)
 	if !ok {
 		return
 	}
-	f, err := p.st.Fraud(appID, days, time.Now())
+	f, err := p.st.FraudRange(appID, from, to)
 	if err != nil {
 		p.internal(w, err)
 		return
@@ -619,7 +627,48 @@ func (p *portalServer) fraudSettings(w http.ResponseWriter, r *http.Request) {
 	p.writeFraudSettings(w, r.PathValue("id"))
 }
 
-// parseDays: ?days= as 7, 30 or 90 (def when absent); else 400 written, ok false.
+// parseDateRange: parses ?from=YYYY-MM-DD&to=YYYY-MM-DD if either is present,
+// or falls back to ?days= via parseDays. Returns from, to, and ok.
+func parseDateRange(w http.ResponseWriter, r *http.Request, defDays int) (time.Time, time.Time, bool) {
+	q := r.URL.Query()
+	fromStr := q.Get("from")
+	toStr := q.Get("to")
+	if fromStr != "" || toStr != "" {
+		if fromStr == "" || toStr == "" {
+			http.Error(w, "both from and to are required for custom range", http.StatusBadRequest)
+			return time.Time{}, time.Time{}, false
+		}
+		from, err := time.Parse("2006-01-02", fromStr)
+		if err != nil {
+			http.Error(w, "from must be in YYYY-MM-DD format", http.StatusBadRequest)
+			return time.Time{}, time.Time{}, false
+		}
+		to, err := time.Parse("2006-01-02", toStr)
+		if err != nil {
+			http.Error(w, "to must be in YYYY-MM-DD format", http.StatusBadRequest)
+			return time.Time{}, time.Time{}, false
+		}
+		if from.After(to) {
+			http.Error(w, "from must be before or equal to to", http.StatusBadRequest)
+			return time.Time{}, time.Time{}, false
+		}
+		if to.Sub(from) > 730*24*time.Hour {
+			http.Error(w, "date range cannot exceed 730 days", http.StatusBadRequest)
+			return time.Time{}, time.Time{}, false
+		}
+		return from.UTC(), to.UTC(), true
+	}
+	days, ok := parseDays(w, r, defDays)
+	if !ok {
+		return time.Time{}, time.Time{}, false
+	}
+	now := time.Now().UTC()
+	to := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	from := to.AddDate(0, 0, -(days - 1))
+	return from, to, true
+}
+
+// parseDays: ?days= as allowed in analyticsRanges (def when absent); else 400 written, ok false.
 func parseDays(w http.ResponseWriter, r *http.Request, def int) (int, bool) {
 	v := r.URL.Query().Get("days")
 	if v == "" {
@@ -627,7 +676,7 @@ func parseDays(w http.ResponseWriter, r *http.Request, def int) (int, bool) {
 	}
 	days := analyticsRanges[v]
 	if days == 0 {
-		http.Error(w, "days must be 7, 30 or 90", http.StatusBadRequest)
+		http.Error(w, "days must be 7, 14, 30, 60, 90, 180 or 365", http.StatusBadRequest)
 		return 0, false
 	}
 	return days, true

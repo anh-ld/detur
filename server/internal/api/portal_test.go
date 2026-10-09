@@ -7,6 +7,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -279,6 +280,18 @@ func TestPortalAnalytics(t *testing.T) {
 		t.Fatalf("analytics sources: want empty list for browser-only traffic, got %s", b)
 	}
 
+	for _, d := range []int{7, 14, 30, 60, 90, 180, 365} {
+		resp, b = portalReq(t, portal, "GET", fmt.Sprintf("/api/apps/%s/analytics?days=%d", app.ID, d), "", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("analytics days=%d: %d %s", d, resp.StatusCode, b)
+		}
+		var ra store.Analytics
+		mustJSON(t, b, &ra)
+		if len(ra.Days) != d {
+			t.Fatalf("analytics len(Days) = %d; want %d", len(ra.Days), d)
+		}
+	}
+
 	// platform filter over HTTP: the matched install is Android, nothing is iOS
 	for _, tc := range []struct {
 		platform           string
@@ -307,12 +320,27 @@ func TestPortalAnalytics(t *testing.T) {
 		t.Errorf("match-quality = %+v; want 1 probabilistic in a bucket >= 850, 1 organic", mq)
 	}
 
+	// custom range: 8 days
+	resp, b = portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/analytics?from=2026-10-01&to=2026-10-08", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("analytics custom range: %d %s", resp.StatusCode, b)
+	}
+	var customA store.Analytics
+	mustJSON(t, b, &customA)
+	if len(customA.Days) != 8 {
+		t.Fatalf("analytics custom range len(Days) = %d; want 8", len(customA.Days))
+	}
+
 	for q, want := range map[string]int{
-		"/api/apps/" + app.ID + "/analytics?days=5":       http.StatusBadRequest,
-		"/api/apps/" + app.ID + "/analytics?platform=web": http.StatusBadRequest,
-		"/api/apps/missing/analytics":                     http.StatusNotFound,
-		"/api/apps/" + app.ID + "/match-quality?days=5":   http.StatusBadRequest,
-		"/api/apps/missing/match-quality":                 http.StatusNotFound,
+		"/api/apps/" + app.ID + "/analytics?days=5":                    http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?platform=web":              http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?from=2026-10-01":          http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?to=2026-10-08":            http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?from=bad&to=2026-10-08":   http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?from=2026-10-08&to=2026-10-01": http.StatusBadRequest,
+		"/api/apps/missing/analytics":                                  http.StatusNotFound,
+		"/api/apps/" + app.ID + "/match-quality?days=5":                http.StatusBadRequest,
+		"/api/apps/missing/match-quality":                              http.StatusNotFound,
 	} {
 		if resp, b := portalReq(t, portal, "GET", q, "", nil); resp.StatusCode != want {
 			t.Errorf("GET %s: %d %s; want %d", q, resp.StatusCode, b, want)

@@ -75,16 +75,30 @@ type Analytics struct {
 
 // Analytics: app stats for the last `days` UTC days ending today, every day present (zeros filled). platform "" = all; events ignore platform (SDK events carry none).
 func (s *Store) Analytics(appID string, days int, platform string, now time.Time) (Analytics, error) {
-	from := now.UTC().AddDate(0, 0, -(days - 1))
+	to := now.UTC()
+	from := to.AddDate(0, 0, -(days - 1))
+	return s.AnalyticsRange(appID, from, to, platform)
+}
+
+// AnalyticsRange: app stats for an arbitrary [from, to] UTC range, every day present (zeros filled).
+func (s *Store) AnalyticsRange(appID string, from, to time.Time, platform string) (Analytics, error) {
+	from = from.UTC()
+	to = to.UTC()
+	fromDay := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+	toDay := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	days := int(toDay.Sub(fromDay).Hours()/24) + 1
+	if days < 1 {
+		days = 1
+	}
 	a := Analytics{Days: make([]DayStat, days), Links: []LinkStat{}, Events: []EventStat{}, Sources: []SourceStat{},
 		Conversions: []LinkConversion{}, Retention: []LinkRetention{}}
 	idx := map[string]int{}
 	for i := range a.Days {
-		d := day(from.AddDate(0, 0, i))
+		d := day(fromDay.AddDate(0, 0, i))
 		a.Days[i].Day = d
 		idx[d] = i
 	}
-	lo, hi := day(from), day(now)
+	lo, hi := day(fromDay), day(toDay)
 
 	rows, err := s.db.Query(
 		`SELECT day, kind, SUM(n) FROM click_days
@@ -465,17 +479,24 @@ type FlaggedInstall struct {
 const flaggedLimit = 100
 
 func (s *Store) Fraud(appID string, days int, now time.Time) (FraudStats, error) {
+	to := now.UTC()
+	from := to.AddDate(0, 0, -(days - 1))
+	return s.FraudRange(appID, from, to)
+}
+
+// FraudRange: per-signal counts and latest flagged installs for an arbitrary [from, to] UTC range.
+func (s *Store) FraudRange(appID string, from, to time.Time) (FraudStats, error) {
 	f := FraudStats{Installs: []FlaggedInstall{}}
 	var err error
-	if f.Signals, err = s.FraudSignals(appID, days, now); err != nil {
+	if f.Signals, err = s.FraudSignalsRange(appID, from, to); err != nil {
 		return f, err
 	}
-	lo := day(now.UTC().AddDate(0, 0, -(days - 1)))
+	lo, hi := day(from.UTC()), day(to.UTC())
 	rows, err := s.db.Query(
 		`SELECT id, device_hash, created_at, attribution, COALESCE(method, ''), COALESCE(link_id, ''), COALESCE(platform, ''),
 		   fraud, COALESCE(fraud_action, ''), COALESCE(fraud_link_id, '')
-		 FROM installs WHERE app_id = ? AND substr(created_at, 1, 10) >= ? AND fraud IS NOT NULL
-		 ORDER BY created_at DESC LIMIT ?`, appID, lo, flaggedLimit)
+		 FROM installs WHERE app_id = ? AND substr(created_at, 1, 10) BETWEEN ? AND ? AND fraud IS NOT NULL
+		 ORDER BY created_at DESC LIMIT ?`, appID, lo, hi, flaggedLimit)
 	if err != nil {
 		return f, fmt.Errorf("fraud installs: %w", err)
 	}
@@ -496,9 +517,16 @@ func (s *Store) Fraud(appID string, days int, now time.Time) (FraudStats, error)
 
 // FraudSignals: per-signal flagged-install counts over the last `days` UTC days; every signal key present.
 func (s *Store) FraudSignals(appID string, days int, now time.Time) (map[string]int64, error) {
-	lo := day(now.UTC().AddDate(0, 0, -(days - 1)))
+	to := now.UTC()
+	from := to.AddDate(0, 0, -(days - 1))
+	return s.FraudSignalsRange(appID, from, to)
+}
+
+// FraudSignalsRange: per-signal flagged-install counts for an arbitrary [from, to] UTC range; every signal key present.
+func (s *Store) FraudSignalsRange(appID string, from, to time.Time) (map[string]int64, error) {
+	lo, hi := day(from.UTC()), day(to.UTC())
 	sums := make([]string, len(fraud.Signals))
-	args := make([]any, 0, len(fraud.Signals)+2)
+	args := make([]any, 0, len(fraud.Signals)+3)
 	dest := make([]any, len(fraud.Signals))
 	counts := make([]int64, len(fraud.Signals))
 	for i, sig := range fraud.Signals {
@@ -506,10 +534,10 @@ func (s *Store) FraudSignals(appID string, days int, now time.Time) (map[string]
 		args = append(args, ","+sig+",")
 		dest[i] = &counts[i]
 	}
-	args = append(args, appID, lo)
+	args = append(args, appID, lo, hi)
 	if err := s.db.QueryRow(
 		`SELECT `+strings.Join(sums, ", ")+` FROM installs
-		 WHERE app_id = ? AND substr(created_at, 1, 10) >= ?`, args...).Scan(dest...); err != nil {
+		 WHERE app_id = ? AND substr(created_at, 1, 10) BETWEEN ? AND ?`, args...).Scan(dest...); err != nil {
 		return nil, fmt.Errorf("fraud signals: %w", err)
 	}
 	out := make(map[string]int64, len(fraud.Signals))

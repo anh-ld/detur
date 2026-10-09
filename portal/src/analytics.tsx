@@ -1,7 +1,7 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Card, Empty, Select, Table } from 'kinu';
-import { Analytics, DayStat, Mark, Platform } from './api';
+import { Badge, Button, Card, Empty, Input, Select, Table } from 'kinu';
+import { Analytics, DateRangeFilter, DayStat, Mark, Platform } from './api';
 import { mono, muted, row } from './ui';
 
 // Series colors: a blue ramp around the brand cyan, one warm gray.
@@ -53,17 +53,142 @@ export const Skeleton = ({ w = '100%', h }: { w?: number | string; h: number }) 
   <span class="skeleton" style={{ width: w, height: h }} />
 );
 
+export const RANGE_OPTIONS = [
+  { days: 7, label: 'Last 7 days' },
+  { days: 14, label: 'Last 14 days' },
+  { days: 30, label: 'Last 30 days' },
+  { days: 60, label: 'Last 60 days' },
+  { days: 90, label: 'Last 90 days' },
+  { days: 180, label: 'Last 180 days' },
+  { days: 365, label: 'Last 365 days' },
+] as const;
+
+const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
+const todayStr = () => toDateStr(new Date());
+const daysAgoStr = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - (n - 1));
+  return toDateStr(d);
+};
+
+export function DateRangePicker({
+  ariaLabel = 'Date range',
+  range,
+  onRange,
+}: {
+  ariaLabel?: string;
+  range: DateRangeFilter;
+  onRange: (r: DateRangeFilter) => void;
+}) {
+  const [customMode, setCustomMode] = useState(Boolean(range.from && range.to));
+  const [from, setFrom] = useState(range.from ?? daysAgoStr(range.days ?? 7));
+  const [to, setTo] = useState(range.to ?? todayStr());
+
+  useEffect(() => {
+    if (range.from && range.to) {
+      setCustomMode(true);
+      setFrom(range.from);
+      setTo(range.to);
+    } else if (range.days) {
+      setCustomMode(false);
+    }
+  }, [range.days, range.from, range.to]);
+
+  const selectVal = customMode ? 'custom' : String(range.days ?? 7);
+
+  const handleSelect = (val: string) => {
+    if (val === 'custom') {
+      setCustomMode(true);
+      const f = from || daysAgoStr(range.days ?? 7);
+      const t = to || todayStr();
+      setFrom(f);
+      setTo(t);
+      onRange({ from: f, to: t });
+    } else {
+      setCustomMode(false);
+      onRange({ days: Number(val) });
+    }
+  };
+
+  const handleApply = (e?: Event) => {
+    e?.preventDefault();
+    if (from && to && from <= to) {
+      onRange({ from, to });
+    }
+  };
+
+  return (
+    <div style={{ ...row, flexWrap: 'wrap', gap: 6 }}>
+      <Select
+        aria-label={ariaLabel}
+        value={selectVal}
+        onChange={(e) => handleSelect(e.currentTarget.value)}
+      >
+        {RANGE_OPTIONS.map((o) => (
+          <option key={o.days} value={String(o.days)}>
+            {o.label}
+          </option>
+        ))}
+        <option value="custom">Custom range</option>
+      </Select>
+      {customMode && (
+        <form
+          onSubmit={handleApply}
+          style={{ ...row, gap: 6, margin: 0, flexWrap: 'wrap' }}
+        >
+          <Input
+            type="date"
+            aria-label="Start date"
+            value={from}
+            max={to || todayStr()}
+            onInput={(e) => setFrom(e.currentTarget.value)}
+            style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }}
+          />
+          <span style={muted}>to</span>
+          <Input
+            type="date"
+            aria-label="End date"
+            value={to}
+            min={from}
+            max={todayStr()}
+            onInput={(e) => setTo(e.currentTarget.value)}
+            style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }}
+          />
+          <Button
+            type="submit"
+            size="sm"
+            variant="secondary"
+            disabled={!from || !to || from > to}
+          >
+            Apply
+          </Button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 export function Filters({
+  range,
   days,
   platform,
+  onRange,
   onDays,
   onPlatform,
 }: {
-  days: number;
+  range?: DateRangeFilter;
+  days?: number;
   platform: Platform;
-  onDays: (d: number) => void;
+  onRange?: (r: DateRangeFilter) => void;
+  onDays?: (d: number) => void;
   onPlatform: (p: Platform) => void;
 }) {
+  const currentRange: DateRangeFilter = range ?? { days: days ?? 7 };
+  const handleRange = (r: DateRangeFilter) => {
+    if (onRange) onRange(r);
+    if (onDays && r.days) onDays(r.days);
+  };
+
   return (
     <div style={{ ...row, flexWrap: 'wrap' }}>
       <Select
@@ -76,11 +201,7 @@ export function Filters({
         <option value="android">Android</option>
         <option value="desktop">Desktop</option>
       </Select>
-      <Select aria-label="Date range" value={String(days)} onChange={(e) => onDays(Number(e.currentTarget.value))}>
-        <option value="7">Last 7 days</option>
-        <option value="30">Last 30 days</option>
-        <option value="90">Last 90 days</option>
-      </Select>
+      <DateRangePicker range={currentRange} onRange={handleRange} />
     </div>
   );
 }
