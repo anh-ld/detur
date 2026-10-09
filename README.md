@@ -5,17 +5,12 @@ Self-hosted backend for `@swmansion/react-native-detour`. Drop-in for
 
 Deferred deep links + analytics: tap link → install → first launch opens link. Clicks, installs, events tracked.
 
-- No tiers, no click limits. Your data.
-- Same 5 SDK endpoints, same matching.
-- One binary: Go + SQLite + Preact portal. No outbound calls unless webhooks on.
-- Analytics: clicks, installs, events, charts, match quality.
-- Fraud: floods, fast opens, bots, datacenter IPs, repeat devices. Tag or block.
-- In-app browsers (Messenger, Zalo, TikTok, …): tap page to the store. Never stuck.
-- Webhooks: installs, events, clicks → your URL. Signed, retried, replayable.
-- Per-link conversions + D1/D7/D30 retention: tag a device once, see what each link's users do.
-- Admin: one password to manage apps. Everyone else: links + stats.
+- **Single binary**: Go + SQLite + Preact portal. ~30 MB RAM, <0.1 vCPU. Zero outbound calls.
+- **In-app browser bypass**: Tap-through page for Messenger, TikTok, Zalo so users never get stuck.
+- **Fraud protection**: Detect & block click floods, bots, datacenter IPs, and repeat devices.
+- **Analytics & webhooks**: Per-link conversions, D1/D7/D30 retention, and HMAC-signed webhook delivery.
 
-[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md) · [Agent skill](skills/detur/SKILL.md)
+[DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
 
 <table>
   <tr>
@@ -38,23 +33,20 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 
 | | detur | godetour.dev | AppsFlyer |
 |---|---|---|---|
-| Hosting | Self-hosted | Hosted | Hosted |
-| Price | Free | Tiers | Per volume |
-| Click limits | None | Tiered | Volume |
-| SDK | Detour. Drop-in for godetour | Detour. Official | AppsFlyer SDK |
-| Matching | Detour weights, tuned per app | Detour weights | Proprietary |
-| Attribution | 1 click → 1 install | 1 click → 1 install | Multi-touch |
-| Analytics | Events tracking | Events tracking | Events tracking, revenue, cohorts |
-| Fraud detection | ✅ No click injection | ❌ | ✅ |
-| Ad-network / BI integrations | ❌ | ❌ | ✅ |
-| Webhooks | ✅ Opt-in, HMAC-signed | ✅ | ✅ |
-| Platform API | ❌ | ❌ | ✅ |
-| Data | Yours | Theirs | Theirs |
-| Outbound calls | None by default (webhooks opt-in) | n/a | n/a |
+| Cost & data ownership | Free & unlimited · Yours | Tiered · Vendor-hosted | Volume-based · Vendor-hosted |
+| SDK | Detour (drop-in) | Detour (official) | AppsFlyer SDK |
+| Matching & attribution | Detour weights (tunable) · 1:1 install | Detour weights · 1:1 install | Proprietary · Multi-touch |
+| Analytics | Events tracking | Events tracking | Events, revenue, cohorts |
+| Fraud detection | ✅ Built-in | ❌ | ✅ Enterprise |
+| MMP & ad networks | ❌ | ❌ | ✅ |
+| Webhooks | ✅ HMAC-signed | ✅ | ✅ |
+| Data API | ❌ | ❌ | ✅ |
 
-Detour SDK, self-hosted → detur. Detour SDK, hosted → godetour. Multi-touch, click-injection checks, ad networks → AppsFlyer.
+## Quick start
 
-## 1. Docker
+> **Agent skill:** `npx skills add anh-ld/detur` (or [skills/detur/](skills/detur/)) automates steps 3–4.
+
+### 1. Docker
 
 ```text
 ghcr.io/anh-ld/detur:latest
@@ -62,27 +54,22 @@ ghcr.io/anh-ld/detur:latest
 
 Prod: pin version (`:0.1.0`).
 
-> **Min:** 1 vCPU, 512 MB, 1 GB disk.
+> Ports: `8080` (public SDK, links, `/health`) · `8081` (portal UI).
 
 | Env | Required | Default | Description |
 |---|---|---|---|
-| `DOMAIN` | prod | `localhost` | Links + well-known host |
-| `DB_PATH` | no | `/data/detur.db` (Docker), `detur.db` (bare) | SQLite path |
-| `RETENTION_HOURS` | no | `24` | Raw click TTL; purged hourly |
-| `CLICK_ID_DAYS` | no | `30` (1–90) | Play referrer clickId TTL |
-| `TRUST_PROXY` | no | `0` | Trust rightmost XFF / X-Real-IP (real proxy only; else spoofable) |
-| `LOGOUT_URL` | no | empty | Gateway sign-out URL; empty hides link |
-| `ADMIN_PASSWORD` | no | empty | Admin password; empty = everyone can manage apps |
-| `ADMIN_SESSION_HOURS` | no | `12` (1–72) | Admin session length |
+| `DOMAIN` | prod | `localhost` | Public domain |
+| `DB_PATH` | no | `/data/detur.db` | SQLite path |
+| `RETENTION_HOURS` | no | `24` | Click TTL (hours) |
+| `CLICK_ID_DAYS` | no | `30` | Referrer TTL (days) |
+| `TRUST_PROXY` | no | `0` | Trust reverse proxy |
+| `LOGOUT_URL` | no | empty | Sign-out URL |
+| `ADMIN_PASSWORD` | no | empty | Admin password |
+| `ADMIN_SESSION_HOURS` | no | `12` | Session length (hours) |
 
-| Port | Description |
-|---|---|
-| `8080` | Public: SDK, links, well-known, `/health` |
-| `8081` | Loopback: portal UI + API |
+See [.env.example](.env.example) for detailed explanations.
 
-- Health: `GET /health` → `200 ok`.
-
-## 2. Create app
+### 2. Create app
 
 Portal: `:8081`.
 
@@ -92,9 +79,7 @@ Portal: `:8081`.
   files.
 - `ADMIN_PASSWORD` set → app changes need admin (top bar).
 
-## 3. Patch SDK
-
-> **Agent skill:** `npx skills add anh-ld/detur` (or copy [skills/detur/](skills/detur/)) → your agent does steps 3–4: detects setup, patches, wires, verifies.
+### 3. Patch SDK
 
 SDK hardcodes 5 URLs to godetour.dev, no `baseURL`. Layout varies per
 version → give your AI agent:
@@ -115,7 +100,7 @@ Point the installed @swmansion/react-native-detour at your detur server.
 
 Example (2.3.1 only, not a pin): [example/patch/](example/patch/).
 
-## 4. Wire app
+### 4. Wire app
 
 Full example: [example/expo-app/](example/expo-app/).
 
@@ -134,9 +119,7 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 });
 ```
 
-- Env: `EXPO_PUBLIC_DETOUR_API_KEY`, `EXPO_PUBLIC_DETOUR_APP_ID` (step 2).
-- First launch → match-link → matched link shown.
-- Server logs errors only. Clicks/installs: portal analytics.
+- Env: `EXPO_PUBLIC_DETOUR_API_KEY`, `EXPO_PUBLIC_DETOUR_APP_ID` (from step 2).
 - Base URL by target: Android emulator `http://10.0.2.2:8080`, device (trusted LAN dev: `-p 8080:8080`, host LAN IP), prod `https://<DOMAIN>`.
 
 ## Dev run
@@ -145,8 +128,7 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 ./dev.sh
 ```
 
-- Portal HMR on `:8000` (auto-runs `npm ci`), Go server reload via [air](https://github.com/air-verse/air).
-- Run (2 processes): `cd server && go run ./cmd/detur` · `cd portal && npm i && npm run dev`
+- Portal HMR on `:8000` + Go server reload via [air](https://github.com/air-verse/air).
 - Tests: `cd server && go test ./...` · `cd portal && npm test`
 
 ## Credits
@@ -154,4 +136,3 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 - [dub.sh](https://dub.sh): server logic from their link funnel.
 - [Detour matching docs](https://detour.swmansion.com/docs/platform/architecture/matching/): weights, threshold, window.
 - [@swmansion/react-native-detour](https://github.com/software-mansion-labs/react-native-detour): the SDK.
-- [kinu](https://github.com/developit/kinu): portal UI.

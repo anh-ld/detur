@@ -5,85 +5,66 @@ description: Wire a React Native app to a self-hosted detur server (drop-in back
 
 # detur
 
-SDK hardcodes 5 `https://godetour.dev/api/...` URLs, no base URL option. Patch them, persist patch, wire app, set env, verify, report.
+`@swmansion/react-native-detour` hardcodes 5 `https://godetour.dev/api/...` URLs. Patch them to your detur server, persist via `patch-package`, wire routing, set env vars, verify, and report.
 
 Rules:
+- Detect first; change only what is missing (re-run on a finished app = zero changes).
+- Unknown setup or unexpected shape → stop and report. Never guess.
+- Never touch the server. Probe `/health` and direct user to portal for settings.
 
-- Detect first. Change only what's missing. Re-run on a done app = no changes.
-- Unknown shape → stop, say what you found. Never guess.
-- Never touch the server. Check `/health`, tell user what to set in portal.
-
-Manual fallback: [README](https://github.com/anh-ld/detur#3-patch-sdk) steps 3–4.
+Fallback: [README steps 3–4](https://github.com/anh-ld/detur#3-patch-sdk).
 
 ## 1. Detect
 
-Before any change. Track done vs missing.
+Inspect project before modifying. Stop if setup is unsupported, SDK is missing, or endpoint count ≠ 10:
 
-| Check | Look at |
+| Check | Target / Rule |
 |---|---|
-| Setup | `expo-router` in `package.json` → Expo Router. `@react-navigation/native` + `NavigationContainer` → React Navigation. Neither → unsupported. |
-| SDK | `node_modules/@swmansion/react-native-detour/package.json` `version` |
-| Lockfile | `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`. `patch-package` needs one. |
-| Patch | `patches/@swmansion+react-native-detour+*.patch`: base URL inside; applied (SDK files hold it) or not (still `godetour.dev`) |
-| Endpoints | Unpatched SDK: count `https://godetour.dev/api/` in `src/` + `lib/module/` (step 3) |
-| Persistence | `patch-package` in `devDependencies`; `postinstall` runs it |
-| Wiring | Expo Router: `app/+native-intent.tsx` with `createDetourNativeIntentHandler` + `DetourProvider` in `app/_layout.tsx`. React Navigation: `DetourProvider` around app, `DETOUR_LINKING_PREFIX` in `linking` |
-| Env | `.env`, `.env.local`, `.env.example`, `app.config.*`: naming (Expo: `EXPO_PUBLIC_*`), app ID + API key set? |
-| Secrets | Env file gitignored? |
-| App IDs | iOS bundle ID, Android package: `app.json` / `app.config.*`, else `ios/*.xcodeproj`, `android/app/build.gradle` |
-
-Stops, first match wins: unsupported setup → SDK missing → endpoint count wrong. All before any change or credential prompt.
+| Setup | `expo-router` in `package.json` → Expo Router. `@react-navigation/native` + `NavigationContainer` → React Navigation. Neither → stop. |
+| SDK | `node_modules/@swmansion/react-native-detour/package.json` `version`. |
+| Lockfile | `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` (required by `patch-package`). |
+| Patch | `patches/@swmansion+react-native-detour+*.patch`: target URL, applied vs unapplied. |
+| Endpoints | Count `https://godetour.dev/api/` in SDK `src/` and `lib/module/` (expected: 10). |
+| Persistence | `patch-package` in `devDependencies` + `postinstall` script in `package.json`. |
+| Wiring | Expo: `+native-intent.tsx` + `_layout.tsx`. React Nav: root `DetourProvider` + linking prefixes. |
+| Env | `EXPO_PUBLIC_DETOUR_APP_ID`, `EXPO_PUBLIC_DETOUR_API_KEY` set and gitignored. |
+| App IDs | iOS bundle ID, Android package (`app.json`, `app.config.*`, native files). |
 
 ## 2. Target + server
 
-Ask: "Run where? iOS simulator, Android emulator, device, or production?"
+Ask: *"Run where? iOS simulator, Android emulator, physical device, or production?"*
 
-| Target | Base URL (patched in) | `/health` probe (from host) |
+| Target | Patched Base URL | Host `/health` Probe |
 |---|---|---|
 | iOS simulator | `http://localhost:8080` | `http://localhost:8080/health` |
-| Android emulator | `http://10.0.2.2:8080` | `http://localhost:8080/health`. 10.0.2.2 = emulator-only alias |
-| Device | `http://<LAN IP>:8080` | same |
-| Production | `https://<DOMAIN>` | same |
+| Android emulator | `http://10.0.2.2:8080` | `http://localhost:8080/health` (10.0.2.2 = emulator alias) |
+| Device | `http://<LAN_IP>:8080` | `http://localhost:8080/health` (`ipconfig getifaddr en0` / `hostname -I`) |
+| Production | `https://<DOMAIN>` | `https://<DOMAIN>/health` |
 
-- LAN IP: `ipconfig getifaddr en0` (macOS), `hostname -I` (Linux).
-- Non-default port/domain → ask.
-- `curl -fsS <probe>`. Not `ok` → stop.
+Probe with `curl -fsS <probe>`. Stop if response is not `ok`.
 
 ## 3. Patch SDK
 
-Skip if SDK files already hold this base URL and patch file matches.
+Skip if SDK files already contain this base URL and patch file matches.
 
-1. Patch file exists, not applied (fresh clone, no postinstall) → `npx patch-package`, re-check.
-2. Applied patch has another base URL → `npx patch-package --reverse`. Fails → reinstall SDK. Files must say `godetour.dev` again before counting.
-3. Count `https://godetour.dev/api/` in `src/` + `lib/module/`. SDK 2.3.1: exactly 10 (5 endpoints × 2 copies):
-
-   | Endpoint | File (`src/**.ts`, `lib/module/**.js`) |
-   |---|---|
-   | `/api/link/match-link` | `links/api/getDeferredLink` |
-   | `/api/link/resolve-short` | `links/api/resolveShortLink` |
-   | `/api/link/universal-link-click` | `links/api/sendUniversalLinkClick` |
-   | `/api/analytics/event` | `analytics/api/events` |
-   | `/api/analytics/retention` | `analytics/api/retention` |
-
-   Anything else → stop. Patch nothing.
-4. `patch-package` missing → install as dev dep with app's package manager. Before editing `node_modules`: installs can restore SDK files. No lockfile → install creates one. Install fails → stop.
-5. Replace `https://godetour.dev` → base URL in the 10 files. Keep `/api/...`. Ignore `package.json` author line.
-6. `npx patch-package @swmansion/react-native-detour` (needs network: fetches clean SDK). No `postinstall` → add `"postinstall": "patch-package"`. Existing → append `&& patch-package`.
+1. Unapplied patch exists → run `npx patch-package` and re-verify.
+2. Patch has different base URL → `npx patch-package --reverse` (reinstall SDK if it fails).
+3. Verify exactly 10 occurrences of `https://godetour.dev/api/` in `src/` + `lib/module/` (2 copies each of `getDeferredLink`, `resolveShortLink`, `sendUniversalLinkClick`, `events`, `retention`). Any other count → stop.
+4. `patch-package` missing → install as dev dependency.
+5. Replace `https://godetour.dev` with base URL across all 10 files (keep `/api/...`, ignore author line).
+6. Run `npx patch-package @swmansion/react-native-detour` and ensure `"postinstall": "patch-package"` in `package.json`.
 
 ## 4. Wire
 
-Add only what's missing. Match app style.
-
 ### Expo Router
 
-`app/+native-intent.tsx`: links that open the app.
-
+`app/+native-intent.tsx` (chain into existing handler if present):
 ```tsx
 import { createDetourNativeIntentHandler } from "@swmansion/react-native-detour/expo-router";
 
 const hosts = (process.env.EXPO_PUBLIC_DETOUR_HOSTS ?? "localhost")
   .split(",")
-  .map((host) => host.trim())
+  .map((h) => h.trim())
   .filter(Boolean);
 
 export const redirectSystemPath = createDetourNativeIntentHandler({
@@ -97,26 +78,22 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 });
 ```
 
-Existing `redirectSystemPath` → chain into it, keep its logic.
-
-`app/_layout.tsx`: wrap root in `DetourProvider`. Runs first-launch deferred match. Without it: no install match.
-
+`app/_layout.tsx` (wrap root in `DetourProvider` for first-launch deferred match):
 ```tsx
 import { DetourProvider } from "@swmansion/react-native-detour";
 
 const detourConfig = {
   appID: process.env.EXPO_PUBLIC_DETOUR_APP_ID ?? "",
   apiKey: process.env.EXPO_PUBLIC_DETOUR_API_KEY ?? "",
-  linkProcessingMode: "deferred-only", // +native-intent handles the rest
+  linkProcessingMode: "deferred-only", // +native-intent handles active links
 } as const;
 
-// <DetourProvider config={detourConfig}> ...existing root... </DetourProvider>
+// <DetourProvider config={detourConfig}> ...root... </DetourProvider>
 ```
 
 ### React Navigation
 
-`DetourProvider` above `NavigationContainer` (default mode: deferred + universal + scheme). Feed links to navigator:
-
+Wrap `DetourProvider` around `NavigationContainer` and merge prefixes:
 ```tsx
 import { DetourProvider, Detour, DETOUR_LINKING_PREFIX } from "@swmansion/react-native-detour";
 
@@ -128,36 +105,27 @@ const linking = {
 };
 ```
 
-Merge into existing `linking`, don't replace. `appID` / `apiKey` from app's env convention.
-
 ## 5. Env
 
-App ID or API key missing → ask: "Paste detur app ID + API key. Portal → app. API key shown once, at creation."
-
-Both set → keep. Re-ask only if user says they changed.
-
-Write to app's env file, its naming. None → create `.env`, follow `.env.example` if present. Defaults:
-
-```sh
-EXPO_PUBLIC_DETOUR_APP_ID=...
-EXPO_PUBLIC_DETOUR_API_KEY=...
-EXPO_PUBLIC_DETOUR_HOSTS=localhost
-```
-
-`EXPO_PUBLIC_DETOUR_HOSTS`: comma-separated link hosts the app opens. Set to base URL host for target (`localhost`, `10.0.2.2`, LAN IP, domain). Keep other hosts (e.g. short-link domain).
-
-Not gitignored → stop, ask first. Never commit the key. Never echo it.
+1. Missing App ID or API key → ask user: *"Paste detur App ID and API key from portal (app settings)."*
+2. Write to project env file (`.env.local` or `.env`):
+   ```sh
+   EXPO_PUBLIC_DETOUR_APP_ID=...
+   EXPO_PUBLIC_DETOUR_API_KEY=...
+   EXPO_PUBLIC_DETOUR_HOSTS=localhost
+   ```
+   `EXPO_PUBLIC_DETOUR_HOSTS`: comma-separated link hosts (`localhost`, `10.0.2.2`, LAN IP, domain).
+3. If env file is not gitignored → stop and warn. Never commit API keys.
 
 ## 6. Verify
 
 All must pass:
-
-- 0 `godetour.dev` in SDK `src/` + `lib/module/` (`package.json` author line excluded)
-- 10 files hold base URL
-- Patch file exists; `patch-package` dev dep; `postinstall` runs it
-- Step 4 wiring in place for detected setup
-- Env has app ID, API key, hosts; gitignored
-- Type-check passes, if project has a script
+- 0 `godetour.dev` in SDK `src/` and `lib/module/` (except `package.json` author).
+- 10 files contain base URL.
+- Patch file exists; `patch-package` in `devDependencies`; `postinstall` runs it.
+- Wiring in place for detected router.
+- App ID, API key, and hosts set in env and gitignored.
+- Type-check passes (if project has a script).
 
 ## 7. Report
 
@@ -166,38 +134,32 @@ detur wired.
 
 Changed: <files>
 Patch: patches/@swmansion+react-native-detour+<version>.patch
-Base URL: <url>. Release build → re-run with production target first.
+Base URL: <url> (re-run with prod target before release)
 
-Portal → app settings (link domain trust):
-- iOS app ID: <TEAMID>.<bundle ID>. Team ID: Apple Developer → Membership
+Portal Checklist (link domain trust):
+- iOS app ID: <Apple Team ID>.<bundle ID>
 - Android package: <package>
-- Android SHA-256 cert fingerprint: from signing key
+- Android cert fingerprint: from signing keystore
 
-<production only>
-App config, else links open in browser:
-- iOS: "associatedDomains": ["applinks:<DOMAIN>"] under "ios"
-- Android: "intentFilters" under "android": autoVerify, https, host <DOMAIN>
-- Bare: Associated Domains entitlement + AndroidManifest intent filter
+Universal / App links (prod only):
+- iOS: app.json "ios.associatedDomains": ["applinks:<DOMAIN>"]
+- Android: app.json "android.intentFilters": autoVerify, https, host <DOMAIN>
 
 Test:
-1. Delete app from device.
-2. Open a detur link in browser → store / fallback page.
-3. Install + open dev build.
-4. First launch → linked screen.
-5. Portal analytics → click + install.
+1. Delete app from device/simulator.
+2. Open detur link in browser → store / fallback page.
+3. Install and launch dev build → first launch opens linked screen.
+4. Verify click & install in portal analytics.
 ```
-
-Nothing changed → "detur already set up. Nothing changed."
+If already configured: "detur already set up. Nothing changed."
 
 ## Stops
 
-Say what failed, why, next step. Change nothing else.
-
 | When | Say |
 |---|---|
-| SDK missing | "Detour SDK not installed. Install `@swmansion/react-native-detour`, re-run." |
-| Unsupported setup | "No Expo Router or React Navigation: no SDK entry point. Nothing changed. Patch + wire by hand: README steps 3–4." |
-| `/health` fails | "detur unreachable at `<probe>`. Server down, or wrong host/port for target. Fix, re-run." |
-| Endpoints ≠ 10 | "SDK `<version>` doesn't match the 5 known endpoints. Found `<n>`: `<list>`. Nothing patched. Patch by hand (README step 3) or update this skill." |
-| `patch-package` install fails | "`patch-package` install failed: `<error>`. SDK unchanged. Fix install (often peer deps), re-run." |
-| Env not gitignored | "`<file>` not gitignored: API key could be committed. Add to `.gitignore`, or say write anyway." |
+| SDK missing | "Detour SDK not installed. Run `npm install @swmansion/react-native-detour` and re-run." |
+| Unsupported setup | "Neither Expo Router nor React Navigation detected. Set up manually via README steps 3–4." |
+| `/health` fails | "detur unreachable at `<probe>`. Ensure server is running on target host/port, then re-run." |
+| Endpoints ≠ 10 | "SDK `<version>` has `<n>` endpoint matches instead of 10. Manual patch required (README step 3)." |
+| `patch-package` fails | "`patch-package` install failed: `<error>`. Fix dependencies and re-run." |
+| Env not gitignored | "`<file>` is not gitignored. Add it to `.gitignore` before writing API key." |
