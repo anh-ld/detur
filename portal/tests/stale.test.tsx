@@ -163,3 +163,23 @@ it('switching apps: the old app, its links and its numbers never show under the 
   release('links', []);
   await screen.findByText('No links yet');
 });
+
+it('switching apps mid-load: a slow reply for the app left behind never lands under the new id', async () => {
+  const appB = { ...app, id: 'appB', name: 'Other App' };
+  let releaseA!: () => void;
+  vi.stubGlobal('fetch', (url: string) => {
+    if (url.endsWith('/apps/app1')) return new Promise<Response>((r) => (releaseA = () => r(new Response(JSON.stringify(app)))));
+    if (url.includes('/analytics?')) return json(stats(1));
+    if (url.endsWith('/links')) return json([]);
+    return json(appB);
+  });
+
+  const { rerender } = render(<AppPage id="app1" tab="analytics" />);
+  rerender(<AppPage id="appB" tab="analytics" />);
+  await screen.findByRole('heading', { name: 'Other App' });
+
+  releaseA();
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByRole('heading', { name: 'Stale App' })).toBeNull();
+  expect(screen.getByRole('heading', { name: 'Other App' })).toBeTruthy();
+});

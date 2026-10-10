@@ -1,5 +1,5 @@
 import { cloneElement, JSX } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   Alert,
   Badge,
@@ -80,17 +80,22 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [platform, setPlatform] = useState<Platform>('');
   const [error, setError] = useState('');
 
+  // Drop responses for an app the user already left.
+  const current = useRef(id);
+  current.current = id;
   const loadAll = () => {
     setError('');
+    const req = id;
+    const ok = () => current.current === req;
     return Promise.all([
       api
-        .getApp(id)
-        .then(setApp)
-        .catch((e) => setError(String(e))),
+        .getApp(req)
+        .then((a) => ok() && setApp(a))
+        .catch((e) => ok() && setError(String(e))),
       api
-        .listLinks(id)
-        .then(setLinks)
-        .catch((e) => setError(String(e))),
+        .listLinks(req)
+        .then((l) => ok() && setLinks(l))
+        .catch((e) => ok() && setError(String(e))),
     ]);
   };
   // Analytics (also feeds link counts): one request per id/filter/refresh; a superseded response is dropped (stale flag).
