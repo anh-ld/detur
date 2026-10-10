@@ -94,12 +94,17 @@ export function RulesDialog({
       .catch((e) => seq === reqSeq.current && setErr(String(e)));
   };
 
-  const openModal = () => {
-    setTab('rules');
+  // Close (Escape, backdrop, button) keeps unsaved edits; reopen shows them until Save or Discard.
+  const discardChanges = () => {
     setEditingIndex(null);
     setDraftRule(null);
     setSuccess('');
     loadData();
+  };
+  const openModal = () => {
+    setTab('rules');
+    if (dirty || draftRule) return;
+    discardChanges();
   };
 
   const startAddRule = () => {
@@ -199,7 +204,12 @@ export function RulesDialog({
           setErr('All variants must have a name');
           return;
         }
-        weightSum += Number(v.weight) || 0;
+        const w = Number(v.weight);
+        if (!Number.isInteger(w) || w < 1 || w > 100) {
+          setErr(`Variant "${v.name.trim()}" weight must be 1–100%`);
+          return;
+        }
+        weightSum += w;
       }
       if (weightSum !== 100) {
         setErr(`Variant weights must sum to 100% (currently ${weightSum}%)`);
@@ -286,6 +296,14 @@ export function RulesDialog({
             </Alert>
           )}
           {success && <Alert variant="default">{success}</Alert>}
+          {dirty && !saving && (
+            <Alert variant="default" style={{ ...row, justifyContent: 'space-between' }}>
+              <span>Unsaved changes. Save to apply them.</span>
+              <Button type="button" size="sm" variant="outline" onClick={discardChanges}>
+                Discard
+              </Button>
+            </Alert>
+          )}
 
           {loading && <Loading />}
 
@@ -591,7 +609,7 @@ export function RulesDialog({
                           ...draftRule,
                           action: {
                             ...draftRule.action,
-                            split: [...splitVariants, { name: newName, weight: 0, targets: {} }],
+                            split: [...splitVariants, { name: newName, weight: Math.max(0, 100 - totalWeight), targets: {} }],
                           },
                         });
                       }}

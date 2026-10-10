@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -98,5 +99,27 @@ func TestSafeHTTPClientBlocksProhibitedIP(t *testing.T) {
 	if !errors.Is(err, ErrProhibitedDestination) && !errors.Is(err, ErrInvalidScheme) {
 		// As long as it is an error from our safe client dialer or validator
 		t.Logf("blocked as expected with: %v", err)
+	}
+}
+
+func TestIsProhibitedIP(t *testing.T) {
+	for ip, want := range map[string]bool{
+		"8.8.8.8":            false,
+		"2606:4700::1111":    false,
+		"10.0.0.1":           true,
+		"169.254.169.254":    true,
+		"100.100.100.200":    true, // Alibaba metadata (CGNAT)
+		"192.0.0.192":        true, // Oracle metadata
+		"198.18.0.1":         true,
+		"::ffff:10.0.0.1":    true,
+		"64:ff9b::a9fe:a9fe": true, // NAT64 -> 169.254.169.254
+		"2002:a9fe:a9fe::1":  true, // 6to4 -> 169.254.169.254
+		"fd00::1":            true,
+		"0.0.0.0":            true,
+		"127.0.0.1":          true,
+	} {
+		if got := isProhibitedIP(net.ParseIP(ip), false); got != want {
+			t.Errorf("isProhibitedIP(%s) = %v; want %v", ip, got, want)
+		}
 	}
 }

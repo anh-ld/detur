@@ -55,7 +55,8 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 		}
 		return 0
 	case platform == "ios" && cv != "":
-		if normVersion(cv) == normVersion(fv) {
+		// OS token carries the patch (17_4 = 17.4.0): exact. Version/ has none: compare at its precision.
+		if _, approx := ua.IOSVersion(click.Fingerprint.UserAgent); (approx && iosVersionMatch(cv, fv)) || (!approx && normVersion(cv) == normVersion(fv)) {
 			return weightiOSSystemVersion
 		}
 		return 0
@@ -84,7 +85,7 @@ func clickSignals(click store.Click) (platform, model, sysVer string) {
 		}
 	case "ios":
 		platform = "ios"
-		sysVer = ua.IOSVersion(raw)
+		sysVer, _ = ua.IOSVersion(raw)
 	}
 	return platform, model, sysVer
 }
@@ -174,6 +175,26 @@ func normVersion(v string) string {
 		v = strings.TrimSuffix(v, ".0")
 	}
 	return v
+}
+
+// iosVersionMatch: click version vs SDK systemVersion, at the click's precision. iOS 26 Safari Version/ = major.minor
+// ("26.0"), SDK sends the patch ("26.0.1"). Missing SDK parts = 0 ("26" = "26.0").
+func iosVersionMatch(click, sdk string) bool {
+	c := strings.Split(strings.ReplaceAll(strings.TrimSpace(click), "_", "."), ".")
+	f := strings.Split(strings.ReplaceAll(strings.TrimSpace(sdk), "_", "."), ".")
+	if strings.TrimSpace(sdk) == "" {
+		return false
+	}
+	for i, v := range c {
+		w := "0"
+		if i < len(f) {
+			w = f[i]
+		}
+		if v != w {
+			return false
+		}
+	}
+	return true
 }
 
 // normModel: device model for comparison (case + whitespace).

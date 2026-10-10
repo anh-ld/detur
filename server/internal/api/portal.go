@@ -39,7 +39,7 @@ type portalServer struct {
 
 // RegisterPortal builds portal handler: apps/links CRUD, app matching, analytics routes, plus static UI
 // from staticDir (missing files/dir 404 plain text, never crash). Mux wrapped in origin/host guard;
-// allowedHosts = listener's own address, loopback always accepted, others 403. Viewer routes open to
+// allowedHosts = listener's own address + PORTAL_HOSTS, loopback always accepted, others 403. Viewer routes open to
 // anyone the gateway admits; app-management routes gated by requireAdmin. adminPassword "" = no gating
 // (today's single-operator behavior); adminSessionHours bounds the elevated session TTL (config-bounded 1-72).
 func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, logoutURL string, adminPassword string, adminSessionHours int) http.Handler {
@@ -85,14 +85,14 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	return guard(mux, allowedHosts)
 }
 
-// guard wraps portal mux with origin/host check: non-loopback/unallowed Host, or Origin naming different host, 403. DNS-rebinding + CSRF guard; no identity checks.
+// guard: 403 on unallowed Host or cross-origin Origin. DNS-rebinding + CSRF guard, no identity check.
 func guard(next http.Handler, allowedHosts []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !hostAllowed(r.Host, allowedHosts) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if o := r.Header.Get("Origin"); o != "" && !originAllowed(o, allowedHosts) {
+		if o := r.Header.Get("Origin"); o != "" && !originAllowed(o, r.Host, allowedHosts) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -100,27 +100,44 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 	})
 }
 
-// hostAllowed: request Host loopback or one of allowed hosts (listener's own address + tunnel hosts). Hostnames compared without port: published/zero-trust port in front still passes.
+// hostAllowed: Host is loopback, the listener, or PORTAL_HOSTS. Port ignored: a gateway or published port in front still passes.
 func hostAllowed(host string, allowedHosts []string) bool {
-	h := hostnameOf(host)
-	if h == "127.0.0.1" || h == "::1" || h == "localhost" {
+	if isLoopbackHost(hostnameOf(host)) {
 		return true
 	}
-	for _, a := range allowedHosts {
+	return inHosts(hostnameOf(host), allowedHosts)
+}
+
+// originAllowed: Origin = request's own host:port, or a non-loopback allowed host (gateway rewrote Host, e.g. nginx
+// default). Loopback needs the exact port: cookies ignore ports, so any localhost page would carry the admin cookie.
+// No Origin (curl, same-origin GET) passes.
+func originAllowed(origin, reqHost string, allowedHosts []string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if strings.EqualFold(u.Host, reqHost) {
+		return true
+	}
+	h := hostnameOf(u.Host)
+	if isLoopbackHost(h) {
+		return false
+	}
+	if ip := net.ParseIP(h); ip != nil && ip.IsUnspecified() {
+		return false
+	}
+	return inHosts(h, allowedHosts)
+}
+
+func isLoopbackHost(h string) bool { return h == "127.0.0.1" || h == "::1" || h == "localhost" }
+
+func inHosts(h string, hosts []string) bool {
+	for _, a := range hosts {
 		if hostnameOf(a) == h {
 			return true
 		}
 	}
 	return false
-}
-
-// originAllowed: Origin header (scheme://host[:port]) names loopback or allowed host. Missing Origins (curl, same-origin GETs without CORS preflight) pass guard untouched.
-func originAllowed(origin string, allowedHosts []string) bool {
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	return hostAllowed(u.Host, allowedHosts)
 }
 
 // hostnameOf: lowercase hostname from "host[:port]" (bracket-tolerant for IPv6; bare IPv6 like "::1" has no port to strip).

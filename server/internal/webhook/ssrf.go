@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -23,34 +24,40 @@ func isLoopbackHost(host string) bool {
 	return h == "localhost" || h == "127.0.0.1" || h == "::1"
 }
 
-// isProhibitedIP returns true if the IP belongs to a private network, link-local,
-// cloud instance metadata (169.254.169.254), or loopback (unless allowLoopback is true).
+// prohibitedPrefixes: non-public ranges stdlib misses. CGNAT 100.64/10 -> Alibaba metadata 100.100.100.200;
+// 192.0.0/24 -> Oracle 192.0.0.192; NAT64/6to4/Teredo embed an IPv4 a gateway may route to 169.254.169.254.
+var prohibitedPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("2001::/32"),
+}
+
+// isProhibitedIP: private, link-local, CGNAT, cloud metadata (169.254.169.254, 100.100.100.200, 192.0.0.192),
+// IPv4-embedding IPv6, loopback unless allowLoopback.
 func isProhibitedIP(ip net.IP, allowLoopback bool) bool {
-	if ip == nil {
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
 		return true
 	}
-	// Normalize IPv4-mapped IPv6 (::ffff:192.0.2.1 -> 192.0.2.1)
-	if v4 := ip.To4(); v4 != nil {
-		ip = v4
-	}
+	addr = addr.Unmap() // ::ffff:192.0.2.1 -> 192.0.2.1
 
-	if ip.IsLoopback() {
+	if addr.IsLoopback() {
 		return !allowLoopback
 	}
-
-	if ip.IsPrivate() { // RFC 1918 (10/8, 172.16/12, 192.168/16) and RFC 4193 (fc00::/7)
-		return true
+	if addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() {
+		return true // RFC 1918, RFC 4193, link-local (169.254.169.254 included)
 	}
-
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return true
+	for _, p := range prohibitedPrefixes {
+		if p.Contains(addr) {
+			return true
+		}
 	}
-
-	// Explicit check for cloud metadata address 169.254.169.254
-	if ip.Equal(net.ParseIP("169.254.169.254")) {
-		return true
-	}
-
 	return false
 }
 

@@ -661,7 +661,7 @@ func TestMatchLinkFlaggedClickIDOrganic(t *testing.T) {
 	if got := installRows(t, path, app.ID); len(got) != 1 || got[0] != want {
 		t.Errorf("installs = %v; want [%s]", got, want)
 	}
-	if _, err := s.ClickByClickID(app.ID, c.ClickID); err != nil {
+	if _, err := s.ClickByClickID(app.ID, c.ClickID, ""); err != nil {
 		t.Errorf("excluded click consumed: %v", err)
 	}
 }
@@ -727,7 +727,7 @@ func TestMatchLinkRetryAfterExcluded(t *testing.T) {
 	if got := installRows(t, path, app.ID); len(got) != 1 || got[0] != want {
 		t.Errorf("installs = %v; want [%s]", got, want)
 	}
-	if _, err := s.ClickByClickID(app.ID, flagged.ClickID); err != nil {
+	if _, err := s.ClickByClickID(app.ID, flagged.ClickID, ""); err != nil {
 		t.Errorf("excluded click consumed: %v", err)
 	}
 }

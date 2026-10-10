@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -278,9 +279,27 @@ func (s *Store) UpdateWebhook(id string, url *string, types []string, enabled *b
 		newEnabled = *enabled
 	}
 
-	_, err = s.db.Exec(`UPDATE webhooks SET url = ?, types = ?, enabled = ? WHERE id = ?`,
-		newURL, newTypesStr, boolInt(newEnabled), id)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return Webhook{}, fmt.Errorf("update webhook: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`UPDATE webhooks SET url = ?, types = ?, enabled = ? WHERE id = ?`,
+		newURL, newTypesStr, boolInt(newEnabled), id); err != nil {
+		return Webhook{}, fmt.Errorf("update webhook: %w", err)
+	}
+	// Added stream starts at its tail, like CreateWebhook. History only via Replay.
+	for _, t := range types {
+		col, err := webhookStreamCol(t)
+		if err != nil || slices.Contains(current.Types, t) {
+			continue
+		}
+		if _, err := tx.Exec(`UPDATE webhooks SET cursor_`+col+` = (SELECT COALESCE(MAX(rowid), 0) FROM `+col+` WHERE app_id = ?),
+			replay_until_`+col+` = 0, fails_`+col+` = 0, backoff_`+col+` = NULL WHERE id = ?`, current.AppID, id); err != nil {
+			return Webhook{}, fmt.Errorf("update webhook: %s cursor: %w", t, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return Webhook{}, fmt.Errorf("update webhook: %w", err)
 	}
 
@@ -339,15 +358,15 @@ func (s *Store) UpdateWebhookCursor(id, eventType string, prev WebhookStream, ne
 	return nil
 }
 
-// WebhookStreamMaxRowID: highest rowid in the stream's table across all apps (0 when empty).
-// A cursor above it means a purge lowered the table's rowid ceiling, so new rows may reuse rowids at or below the cursor.
+// WebhookStreamMaxRowID: highest rowid ever handed out in the stream's table (row_seq; deletes never lower it).
+// Cursor above it = database swapped (restored backup); new rows may land at or below the cursor.
 func (s *Store) WebhookStreamMaxRowID(eventType string) (int64, error) {
 	col, err := webhookStreamCol(eventType)
 	if err != nil {
 		return 0, err
 	}
 	var n int64
-	err = s.db.QueryRow(`SELECT COALESCE(MAX(rowid), 0) FROM ` + col).Scan(&n)
+	err = s.db.QueryRow(`SELECT COALESCE(MAX(n), 0) FROM row_seq WHERE name = ?`, col).Scan(&n)
 	return n, err
 }
 
@@ -441,7 +460,7 @@ func (s *Store) fetchInstallsBatch(appID string, cursor, until int64, limit int)
 		       i.fraud, i.fraud_action, i.variant
 		FROM installs i
 		LEFT JOIN links l ON l.id = i.link_id
-		WHERE i.app_id = ? AND i.rowid > ? AND i.rowid <= ?
+		WHERE i.app_id = ? AND i.rowid > ? AND i.rowid <= ? AND i.attribution != 'unknown'
 		ORDER BY i.rowid ASC
 		LIMIT ?`, appID, cursor, until, limit)
 	if err != nil {

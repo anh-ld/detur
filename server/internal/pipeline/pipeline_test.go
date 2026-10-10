@@ -20,6 +20,7 @@ import (
 	"detur.dev/server/internal/api"
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/ua"
 )
 
 const (
@@ -207,7 +208,7 @@ func TestAndroidClickRedirectsPlayWithClickIDReferrer(t *testing.T) {
 	if err != nil || values.Get("click_id") != clicks[0].ID {
 		t.Fatalf("referrer %q has click_id %q (%v); want %s", ref, values.Get("click_id"), err, clicks[0].ID)
 	}
-	if got, err := s.ClickByClickID(app.ID, clicks[0].ID); err != nil || got.ID != clicks[0].ID {
+	if got, err := s.ClickByClickID(app.ID, clicks[0].ID, ""); err != nil || got.ID != clicks[0].ID {
 		t.Fatalf("ClickByClickID(%s) = %+v, %v; want the recorded click", clicks[0].ID, got, err)
 	}
 }
@@ -663,7 +664,7 @@ func TestClickHostingIPFlagged(t *testing.T) {
 	t.Cleanup(func() { httpx.TrustProxy = false })
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
-	desktop := "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+	desktop := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 	doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": desktop, "X-Forwarded-For": "3.5.140.1"})
 	doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": desktop, "X-Forwarded-For": testIP})
 	got := map[string]bool{}
@@ -728,5 +729,29 @@ func TestRecordHitsFailureDoesNotBlockRedirect(t *testing.T) {
 	}
 	if n, err := s.CountClicks(app.ID); err != nil || n != 0 {
 		t.Errorf("clicks = %d, %v; want 0", n, err)
+	}
+}
+
+// iPadOS Safari sends a Mac UA. Hop 1 -> interstitial; touch reported -> hop 2 = iPad (App Store, iOS click).
+// Real Mac (no touch) -> fallback.
+func TestIPadDesktopUA(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	_, link := setupPipeline(t, s)
+	mac := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
+	hdr := map[string]string{"User-Agent": mac}
+	if resp, _ := doGET(t, ts, "/"+link.Key, hdr); resp.StatusCode != http.StatusOK {
+		t.Fatalf("hop 1 = %d; want 200 interstitial", resp.StatusCode)
+	}
+	resp, _ := doGET(t, ts, "/"+link.Key+"?_dt=1&_touch=1&tz=Europe%2FBerlin", hdr)
+	if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "https://apps.apple.com/") {
+		t.Errorf("iPad hop 2 Location = %q; want App Store", loc)
+	}
+	clicks := latestClicks(t, s, link.AppID)
+	if len(clicks) != 1 || !ua.IsIOS(clicks[0].Fingerprint.UserAgent) || clicks[0].Fingerprint.Timezone != "Europe/Berlin" {
+		t.Fatalf("clicks = %+v; want one iOS click with timezone", clicks)
+	}
+	resp, _ = doGET(t, ts, "/"+link.Key+"?_dt=1", map[string]string{"User-Agent": mac, "X-Forwarded-For": "198.51.100.9"})
+	if loc := resp.Header.Get("Location"); loc != link.FallbackURL {
+		t.Errorf("Mac hop 2 Location = %q; want fallback %q", loc, link.FallbackURL)
 	}
 }

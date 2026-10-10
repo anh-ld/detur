@@ -3,6 +3,7 @@ package webhook_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -308,4 +309,90 @@ func TestWorkerDeliversAfterPurgeEmptiesTable(t *testing.T) {
 		t.Fatalf("delivered = %d after purge + new event, want 4 (new row reused a rowid below the cursor)", delivered)
 	}
 	_ = wh
+}
+
+// Tail deleted + refilled before the next tick: no rowid reuse -> each new row delivered once.
+func TestWorkerDeliversRefilledTailOnce(t *testing.T) {
+	st := newTestStore(t)
+	app, _ := st.CreateApp("Refill App", "dk_refill")
+	var delivered int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		delivered += len(body)
+	}))
+	defer srv.Close()
+	if _, err := st.CreateWebhook(app.ID, srv.URL, []string{"events"}); err != nil {
+		t.Fatal(err)
+	}
+	w := webhook.NewWorker(st, 15*time.Second)
+	for range 3 {
+		_ = st.RecordEvent(app.ID, "old", "")
+	}
+	w.ProcessOnce(context.Background())
+	if _, err := st.PurgeExpired(time.Now().Add(48*time.Hour), 24); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 {
+		_ = st.RecordEvent(app.ID, "new", "")
+	}
+	w.ProcessOnce(context.Background())
+	if delivered != 7 {
+		t.Fatalf("delivered = %d, want 7 (3 old + 4 refilled, no skips, no duplicates)", delivered)
+	}
+}
+
+// Unknown install never sent; its replacement is.
+func TestWorkerSkipsUnknownSendsReplacement(t *testing.T) {
+	st := newTestStore(t)
+	app, _ := st.CreateApp("Unknown App", "dk_unknown")
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		for _, rec := range body {
+			got = append(got, fmt.Sprint(rec["attribution"]))
+		}
+	}))
+	defer srv.Close()
+	if _, err := st.CreateWebhook(app.ID, srv.URL, []string{"installs"}); err != nil {
+		t.Fatal(err)
+	}
+	w := webhook.NewWorker(st, 15*time.Second)
+	if _, err := st.RecordInstall(store.Install{AppID: app.ID, DeviceHash: "d1", Attribution: store.AttributionUnknown}); err != nil {
+		t.Fatal(err)
+	}
+	w.ProcessOnce(context.Background())
+	if _, err := st.RecordInstall(store.Install{AppID: app.ID, DeviceHash: "d1", Attribution: store.AttributionOrganic}); err != nil {
+		t.Fatal(err)
+	}
+	w.ProcessOnce(context.Background())
+	if len(got) != 1 || got[0] != store.AttributionOrganic {
+		t.Fatalf("delivered attributions = %v, want [organic]", got)
+	}
+}
+
+// Cursor above the rowid high-water mark (restored older backup): rewind, new rows still delivered.
+func TestWorkerRewindsCursorAboveHighWater(t *testing.T) {
+	st := newTestStore(t)
+	app, _ := st.CreateApp("Restore App", "dk_restore")
+	var delivered int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		delivered += len(body)
+	}))
+	defer srv.Close()
+	wh, err := st.CreateWebhook(app.ID, srv.URL, []string{"events"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateWebhookCursor(wh.ID, "events", store.WebhookStream{Cursor: wh.CursorEvents}, 1000, false); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.RecordEvent(app.ID, "after-restore", "")
+	webhook.NewWorker(st, 15*time.Second).ProcessOnce(context.Background())
+	if delivered != 1 {
+		t.Fatalf("delivered = %d, want 1 (cursor rewound below the new row)", delivered)
+	}
 }
