@@ -454,6 +454,59 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
+  it('rules and splits flow: open rules dialog, add rule with split, save, and verify', async () => {
+    const app = await api.createApp(uniq('rules-app'));
+    const link = await api.createLink(app.id, {
+      key: 'split-link',
+      url: 'https://example.com/base',
+      ios: '',
+      android: '',
+      fallbackUrl: '',
+    });
+    render(<AppPage id={app.id} tab="links" />);
+    const row = (await screen.findByText('split-link')).closest('tr')!;
+
+    // Open Rules dialog
+    fireEvent.click(within(row).getByRole('button', { name: 'Rules & Splits' }));
+    const dlg = openDialog();
+    await within(dlg).findByText('No rules configured');
+
+    // Click "+ Add First Rule"
+    fireEvent.click(within(dlg).getByRole('button', { name: '+ Add First Rule' }));
+    fireEvent.input(within(dlg).getByLabelText('Rule Name'), {
+      target: { value: 'Split Test 1' },
+    });
+
+    // Switch to Weighted A/B Split Test
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Weighted A/B Split Test' }));
+    // Done editing draft rule
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Done Editing' }));
+
+    // Rule is listed in dialog
+    await within(dlg).findByText('Split Test 1');
+
+    // Save changes to backend
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save Rule Order & Changes' }));
+    await within(dlg).findByText('Rules saved successfully');
+
+    // Verify persisted via API
+    const storedRules = await api.getLinkRules(app.id, link.id);
+    expect(storedRules).toHaveLength(1);
+    expect(storedRules[0].name).toBe('Split Test 1');
+    expect(storedRules[0].action.split).toHaveLength(2);
+
+    // Deleting the last rule can still be saved
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Delete' }));
+    await within(dlg).findByText('No rules configured');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save Rule Order & Changes' }));
+    await within(dlg).findByText('Rules saved successfully');
+    expect(await api.getLinkRules(app.id, link.id)).toHaveLength(0);
+
+    // Close dialog
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
+    await api.deleteApp(app.id);
+  });
+
   it('link validation flow: empty fields rejected', async () => {
     const app = await api.createApp(uniq('link-val-app'));
     render(<AppPage id={app.id} tab="links" />);

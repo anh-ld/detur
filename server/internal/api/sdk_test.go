@@ -885,3 +885,66 @@ func TestAnalyticsLinkRollupFailureStillOK(t *testing.T) {
 		t.Errorf("events = %d (%v); want 2 raw events kept", n, err)
 	}
 }
+
+// SDK match-link call matches a click tagged with Variant B, stores install with Variant B, and returns Variant B's deep link destination.
+func TestMatchLinkVariantAttribution(t *testing.T) {
+	ts, s, path := newTestServer(t)
+	app, link := setup(t, s)
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Seed click with variant and custom destination
+	c, err := s.RecordClick(store.Click{
+		AppID:       app.ID,
+		LinkID:      link.ID,
+		Variant:     "variant-b",
+		Destination: "myapp://promo/variant-b",
+		Fingerprint: store.Fingerprint{
+			IP:        testIP,
+			UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
+			Locale:    "en_US",
+			Timezone:  "America/New_York",
+			Screen:    "390x844@3",
+		},
+	}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+
+	body := `{"clickId":"` + c.ID + `"}`
+	resp, respBody := doPost(t, ts, "/api/link/match-link", body, authHeaders(app.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("match-link status = %d, body = %s", resp.StatusCode, respBody)
+	}
+
+	var res map[string]string
+	if err := json.Unmarshal(respBody, &res); err != nil {
+		t.Fatalf("unmarshal match-link response: %v", err)
+	}
+	if res["link"] != "myapp://promo/variant-b" {
+		t.Errorf("expected link destination %q, got %q", "myapp://promo/variant-b", res["link"])
+	}
+
+	// Verify install recorded with variant-b
+	var instVariant string
+	err = db.QueryRow(`SELECT COALESCE(variant, '') FROM installs WHERE app_id = ? AND click_id = ?`, app.ID, c.ID).Scan(&instVariant)
+	if err != nil {
+		t.Fatalf("query install variant: %v", err)
+	}
+	if instVariant != "variant-b" {
+		t.Errorf("expected install variant 'variant-b', got %q", instVariant)
+	}
+
+	// Verify variant_days rollup
+	stats, err := s.GetLinkVariantStats(app.ID, link.ID, time.Now().AddDate(0, 0, -1), time.Now().AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("GetLinkVariantStats: %v", err)
+	}
+	if len(stats) != 1 || stats[0].Variant != "variant-b" || stats[0].Clicks != 1 || stats[0].Installs != 1 {
+		t.Fatalf("unexpected variant stats: %+v", stats)
+	}
+}

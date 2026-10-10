@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS clicks (
     matched_at  TEXT
 );
 
--- clicks.kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source: addMissingColumns.
+-- clicks.kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant: addMissingColumns.
 
 CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS installs (
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (app_id, device_hash, click_id)
 );
--- installs.link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id: addMissingColumns.
+-- installs.link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id, variant: addMissingColumns.
 
 CREATE INDEX IF NOT EXISTS idx_installs_app_attribution ON installs (app_id, attribution);
 -- (app_id) index entries are (app_id, rowid): webhook delivery seeks app_id = ? AND rowid > cursor in order, no sort.
@@ -214,3 +214,25 @@ CREATE TABLE IF NOT EXISTS webhooks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_webhooks_app ON webhooks (app_id);
+
+CREATE TABLE IF NOT EXISTS link_rules (
+    id         TEXT PRIMARY KEY,
+    link_id    TEXT NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+    position   INTEGER NOT NULL,
+    name       TEXT NOT NULL,
+    cond       TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_link_rules_link ON link_rules (link_id, position);
+
+CREATE TABLE IF NOT EXISTS variant_days (
+    app_id   TEXT NOT NULL,
+    link_id  TEXT NOT NULL,
+    variant  TEXT NOT NULL,
+    day      TEXT NOT NULL,
+    clicks   INTEGER NOT NULL DEFAULT 0,
+    installs INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (app_id, link_id, variant, day)
+);

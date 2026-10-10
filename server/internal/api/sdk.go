@@ -136,7 +136,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	}
 	// failed install write: analytics row lost, link still returned (backend errors never deny link)
 	inst := store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic, LinkID: res.Click.LinkID, Platform: installPlatform(body),
-		Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp, Fraud: res.Fraud, FraudAction: res.FraudAction, FraudLinkID: res.FraudLinkID}
+		Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp, Fraud: res.Fraud, FraudAction: res.FraudAction, FraudLinkID: res.FraudLinkID, Variant: res.Click.Variant}
 	if inst.Platform == "" { // clickId-only payload: matched click's browser tells the platform
 		inst.Platform = ua.Platform(res.Click.Fingerprint.UserAgent)
 	}

@@ -186,6 +186,15 @@ export const api = {
   updateLink: (id: string, l: Partial<Omit<Link, 'id' | 'appId' | 'key'>>) =>
     req<Link>('PATCH', `/api/links/${id}`, l),
   deleteLink: (id: string) => req<void>('DELETE', `/api/links/${id}`),
+  getLinkRules: (appId: string, linkId: string) =>
+    req<LinkRule[]>('GET', `/api/apps/${appId}/links/${linkId}/rules`),
+  setLinkRules: (appId: string, linkId: string, rules: LinkRule[]) =>
+    req<LinkRule[]>('PUT', `/api/apps/${appId}/links/${linkId}/rules`, rules),
+  getLinkVariantStats: (appId: string, linkId: string, range?: DateRangeFilter | number) =>
+    req<VariantStat[]>(
+      'GET',
+      `/api/apps/${appId}/links/${linkId}/variants${range ? `?${dateRangeQuery(range)}` : ''}`
+    ),
   saveMatching: (id: string, m: { threshold: number; windowMinutes: number }) =>
     req<App>('PATCH', `/api/apps/${id}/matching`, m),
   saveTagging: (id: string, tagLinks: boolean) => req<App>('PATCH', `/api/apps/${id}/tagging`, { tagLinks }),
@@ -228,4 +237,48 @@ export interface Webhook {
   replayUntilEvents: number;
   enabled: boolean;
   createdAt: string;
+}
+
+export interface RuleCond {
+  platform?: Platform;
+  lang?: string;
+  param_key?: string;
+  param_val?: string;
+  from?: string;
+  until?: string;
+}
+
+export interface RuleTargets {
+  destination?: string;
+  ios?: string;
+  android?: string;
+  fallback_url?: string;
+}
+
+export interface SplitVariant {
+  name: string;
+  weight: number;
+  targets: RuleTargets;
+}
+
+export interface RuleAction {
+  targets?: RuleTargets;
+  split?: SplitVariant[];
+}
+
+export interface LinkRule {
+  id?: string;
+  link_id?: string;
+  position?: number;
+  name: string;
+  cond: RuleCond;
+  action: RuleAction;
+  created_at?: string;
+}
+
+export interface VariantStat {
+  variant: string;
+  clicks: number;
+  installs: number;
+  conversion_rate: number;
 }

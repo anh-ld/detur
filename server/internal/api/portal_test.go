@@ -1083,3 +1083,153 @@ func TestPortalTaggingDrivesDestinations(t *testing.T) {
 		t.Errorf("tagging on: %s, %s, %s; want %s twice and %s", m, r, k, want, kept.URL)
 	}
 }
+
+func TestPortalLinkRulesAndVariants(t *testing.T) {
+	portal, _, st := newPortalEnvAdmin(t, "admin-pass", 12)
+	app, link := setup(t, st)
+
+	base := fmt.Sprintf("/api/apps/%s/links/%s", app.ID, link.ID)
+
+	// 1. GET rules initially empty
+	resp, b := portalReq(t, portal, "GET", base+"/rules", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET rules status = %d: %s", resp.StatusCode, b)
+	}
+	var rules []store.LinkRule
+	mustJSON(t, b, &rules)
+	if len(rules) != 0 {
+		t.Fatalf("expected 0 initial rules, got %d", len(rules))
+	}
+
+	validRulesBody := `[
+		{
+			"name": "iOS Germany",
+			"position": 1,
+			"cond": {
+				"platform": "ios",
+				"lang": "de"
+			},
+			"action": {
+				"targets": {
+					"ios": "https://apps.apple.com/de/app/id999",
+					"destination": "myapp://de-promo"
+				}
+			}
+		},
+		{
+			"name": "Landing Split",
+			"position": 2,
+			"cond": {
+				"platform": "desktop"
+			},
+			"action": {
+				"split": [
+					{
+						"name": "variant-a",
+						"weight": 50,
+						"targets": { "fallback_url": "https://example.com/a" }
+					},
+					{
+						"name": "variant-b",
+						"weight": 50,
+						"targets": { "fallback_url": "https://example.com/b" }
+					}
+				]
+			}
+		}
+	]`
+
+	// 2. PUT rules without admin elevation -> 403 Forbidden
+	resp, _ = portalReq(t, portal, "PUT", base+"/rules", validRulesBody, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("PUT rules without admin elevation: want 403, got %d", resp.StatusCode)
+	}
+
+	// Elevate session
+	resp, b = portalReq(t, portal, "POST", "/api/admin/session", `{"password":"admin-pass"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin elevate failed: %d %s", resp.StatusCode, b)
+	}
+	adminHdr := map[string]string{"Cookie": adminCookie + "=" + resp.Cookies()[0].Value}
+
+	// 3. PUT rules with invalid split weights (sum != 100) -> 400 Bad Request
+	badWeightsBody := `[
+		{
+			"name": "Bad Split",
+			"action": {
+				"split": [
+					{ "name": "a", "weight": 40, "targets": {} },
+					{ "name": "b", "weight": 40, "targets": {} }
+				]
+			}
+		}
+	]`
+	resp, b = portalReq(t, portal, "PUT", base+"/rules", badWeightsBody, adminHdr)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("PUT rules with bad weights: want 400, got %d: %s", resp.StatusCode, b)
+	}
+
+	// 4. PUT rules with invalid target URL -> 400 Bad Request
+	badURLBody := `[
+		{
+			"name": "Bad URL",
+			"action": {
+				"targets": { "destination": "javascript:alert(1)" }
+			}
+		}
+	]`
+	resp, b = portalReq(t, portal, "PUT", base+"/rules", badURLBody, adminHdr)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("PUT rules with javascript: target: want 400, got %d: %s", resp.StatusCode, b)
+	}
+
+	// 5. PUT rules with valid body -> 200 OK
+	resp, b = portalReq(t, portal, "PUT", base+"/rules", validRulesBody, adminHdr)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT rules with admin: want 200, got %d: %s", resp.StatusCode, b)
+	}
+	mustJSON(t, b, &rules)
+	if len(rules) != 2 || rules[0].Name != "iOS Germany" || rules[1].Name != "Landing Split" {
+		t.Fatalf("unexpected rules returned: %+v", rules)
+	}
+
+	// 6. GET rules returns saved rules
+	resp, b = portalReq(t, portal, "GET", base+"/rules", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET rules status = %d: %s", resp.StatusCode, b)
+	}
+	rules = nil
+	mustJSON(t, b, &rules)
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 rules, got %d", len(rules))
+	}
+
+	// 7. GET variants returns stats for the link
+	// Seed a click and install for variant-b
+	c, _ := st.RecordClick(store.Click{
+		AppID: app.ID, LinkID: link.ID, Variant: "variant-b",
+		Fingerprint: store.Fingerprint{IP: "1.2.3.4", UserAgent: "Test"},
+		Destination: "https://example.com/b",
+	}, 24)
+	st.RecordInstall(store.Install{
+		AppID: app.ID, DeviceHash: "dev-stat", ClickID: c.ID,
+		Attribution: store.AttributionNonOrganic, LinkID: link.ID,
+		Variant: "variant-b",
+	})
+
+	resp, b = portalReq(t, portal, "GET", base+"/variants?days=7", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET variants status = %d: %s", resp.StatusCode, b)
+	}
+	var stats []store.VariantStat
+	mustJSON(t, b, &stats)
+	if len(stats) != 1 || stats[0].Variant != "variant-b" || stats[0].Clicks != 1 || stats[0].Installs != 1 {
+		t.Fatalf("unexpected variant stats: %+v", stats)
+	}
+
+	// 8. Tenancy check: accessing link with wrong app ID -> 404
+	resp, _ = portalReq(t, portal, "GET", "/api/apps/other-app/links/"+link.ID+"/rules", "", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("wrong app rules: want 404, got %d", resp.StatusCode)
+	}
+}

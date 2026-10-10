@@ -25,6 +25,7 @@ import { AnalyticsView, Filters, fmt } from './analytics';
 import { FraudPanel } from './fraud';
 import { SettingsPanel } from './settings';
 import { WebhooksPanel } from './webhooks';
+import { RulesDialog } from './rules-drawer';
 
 interface LinkDraft {
   key: string;
@@ -232,6 +233,16 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
                     </td>
                     <td>
                       <div style={{ ...row, justifyContent: 'flex-end' }}>
+                        <RulesDialog
+                          appId={app.id}
+                          link={l}
+                          onSaved={refresh}
+                          trigger={
+                            <Button size="sm" variant="outline">
+                              Rules & Splits
+                            </Button>
+                          }
+                        />
                         <LinkDialog
                           appId={app.id}
                           link={l}

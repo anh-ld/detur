@@ -55,6 +55,16 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | R6 | Targets absolute. `javascript:`, `data:`, `vbscript:`, `file:` rejected. App schemes + `market:` OK. | Ours | Typos became relative redirects. | 003 |
 | R7 | Expired → `expiredUrl`, else 410. | Dub | Dub expiry. | — |
 
+## Link rules & A/B testing
+
+| ID | Decision | Source | Why | Plan |
+|---|---|---|---|---|
+| LR1 | Ordered rules per link evaluated first-match-wins on visitor `platform` (`ios`/`android`/`desktop`), `lang` (`Accept-Language` prefix, e.g. `de`), `param` (query key and optional value), and `date` window (`from`/`until` in UTC). Unmatched traffic continues to subsequent rules or fallback link targets. | Dub + ours | Dub geo/device/param routing. Unified single table keeps evaluation deterministic. | feat-rules-ab |
+| LR2 | Partial target inheritance: empty destination, iOS, Android, or fallback URL in rule actions or split variants inherit directly from the parent link. | Ours | Operators configure only what deviates; zero duplication of store URLs. | feat-rules-ab |
+| LR3 | Sticky deterministic A/B split engine: 64-bit FNV-1a hash over `link_id\|ip\|ua` modulo 100 maps visitors to cumulative weight thresholds without cookies or client-side storage. | Ours | Stateless consistency across repeat clicks on the same device. | feat-rules-ab |
+| LR4 | Variant attribution: click records the matched label in `clicks.variant` (split variant name, or the rule name for a direct rule; labels unique per link), inherited by attributed install upon `matchLink`, aggregated daily in `variant_days`, delivered in webhook payloads, and displayed with live conversion rates in portal. | Ours | Direct attribution loop from click split to installed app without SDK modification. | feat-rules-ab |
+| LR5 | Gating: viewing rules and variant metrics is public to portal viewers; saving rule changes requires admin session when `ADMIN_PASSWORD` is set. | Ours | Consistent with P1 portal access model. | feat-rules-ab |
+
 ## Analytics
 
 | ID | Decision | Source | Why | Plan |
