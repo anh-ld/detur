@@ -202,7 +202,7 @@ func (s *Store) DeleteApp(id string) error {
 		return ErrNotFound
 	}
 	for _, t := range []string{"clicks", "installs", "events", "click_days", "click_sources", "event_days", "fraud_settings", "click_hits",
-		"device_links", "link_event_days", "link_cohorts"} {
+		"device_links", "link_event_days", "link_cohorts", "variant_days"} {
 		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE app_id = ?`, id); err != nil {
 			return fmt.Errorf("delete app %s: %w", t, err)
 		}
@@ -471,7 +471,7 @@ func (s *Store) DeleteLink(id string) error {
 	if _, err := tx.Exec(`DELETE FROM click_hits WHERE key_type = 'link' AND key = ?`, id); err != nil {
 		return fmt.Errorf("delete link hits: %w", err)
 	}
-	for _, t := range []string{"device_links", "link_event_days", "link_cohorts"} {
+	for _, t := range []string{"device_links", "link_event_days", "link_cohorts", "link_rules", "variant_days"} {
 		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE link_id = ?`, id); err != nil {
 			return fmt.Errorf("delete link %s: %w", t, err)
 		}
@@ -539,6 +539,8 @@ type Click struct {
 	UASuspect        bool
 	IPHosting        bool
 	HitsIP, HitsLink int
+	// Variant: assigned A/B split variant name ("" = default / no rule). Stored + variant_days rollup.
+	Variant string
 }
 
 // Click kinds for analytics rollups (click_days.kind).
@@ -581,8 +583,8 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	if c.Kind != KindOpen && c.Source == "" && c.Fingerprint.IP != "" {
 		existing, err = reopenCandidate(tx, c, now)
 		if err == nil {
-			// a reopen carries the same URL: keep the in-app click's destination and pasteboard signal
-			c.Destination, c.Fingerprint.PastedLink = "", ""
+			// a reopen carries the same URL: keep the in-app click's destination, variant and pasteboard signal
+			c.Destination, c.Variant, c.Fingerprint.PastedLink = "", "", ""
 			return s.refreshClick(tx, existing, c, now, now.Add(expires))
 		}
 		if !errors.Is(err, ErrNotFound) {
@@ -600,13 +602,13 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	c.ExpiresAt = now.Add(expires)
 	_, err = tx.Exec(
 		`INSERT INTO clicks (id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at,
-		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.AppID, c.LinkID, nullStr(c.Fingerprint.IP), nullStr(c.Fingerprint.Device),
 		nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone), nullStr(c.Fingerprint.Screen),
 		nullStr(c.Fingerprint.UserAgent), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink), c.Destination,
 		nullStr(c.ClickID), boolInt(c.IsBot), rfc3339(c.CreatedAt), rfc3339(c.ExpiresAt),
-		nullStr(c.Kind), rfc3339(c.CreatedAt), boolInt(c.UASuspect), boolInt(c.IPHosting), c.HitsIP, c.HitsLink, nullStr(c.Source),
+		nullStr(c.Kind), rfc3339(c.CreatedAt), boolInt(c.UASuspect), boolInt(c.IPHosting), c.HitsIP, c.HitsLink, nullStr(c.Source), nullStr(c.Variant),
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
@@ -628,6 +630,15 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 				c.AppID, c.LinkID, day(now), c.Source,
 			); err != nil {
 				return Click{}, fmt.Errorf("record click source rollup: %w", err)
+			}
+		}
+		if c.Variant != "" {
+			if _, err := tx.Exec(
+				`INSERT INTO variant_days (app_id, link_id, variant, day, clicks, installs) VALUES (?, ?, ?, ?, 1, 0)
+				 ON CONFLICT(app_id, link_id, variant, day) DO UPDATE SET clicks = clicks + 1`,
+				c.AppID, c.LinkID, c.Variant, day(now),
+			); err != nil {
+				return Click{}, fmt.Errorf("record click variant rollup: %w", err)
 			}
 		}
 	}
@@ -676,15 +687,26 @@ func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (
 		   device = COALESCE(?, device), locale = COALESCE(?, locale), timezone = COALESCE(?, timezone),
 		   screen = COALESCE(?, screen), os_version = COALESCE(?, os_version), pasted_link = COALESCE(?, pasted_link),
 		   destination = COALESCE(NULLIF(?, ''), destination),
+		   variant = CASE WHEN ? = '' THEN variant ELSE ? END,
 		   hits_ip = MAX(hits_ip, ?), hits_link = MAX(hits_link, ?)
 		 WHERE id = ?`,
 		rfc3339(now), rfc3339(expires),
 		nullStr(c.Fingerprint.Device), nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone),
 		nullStr(c.Fingerprint.Screen), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink),
-		c.Destination, c.HitsIP, c.HitsLink, old.ID,
+		c.Destination, c.Destination, nullStr(c.Variant), c.HitsIP, c.HitsLink, old.ID,
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click refresh: %w", err)
+	}
+	// variant follows the served destination; a switch (rule edited mid-window) is a new exposure for the new variant
+	if c.Destination != "" && c.Variant != "" && c.Variant != old.Variant && !c.UASuspect {
+		if _, err := tx.Exec(
+			`INSERT INTO variant_days (app_id, link_id, variant, day, clicks, installs) VALUES (?, ?, ?, ?, 1, 0)
+			 ON CONFLICT(app_id, link_id, variant, day) DO UPDATE SET clicks = clicks + 1`,
+			old.AppID, old.LinkID, c.Variant, day(now),
+		); err != nil {
+			return Click{}, fmt.Errorf("record click refresh variant rollup: %w", err)
+		}
 	}
 	refreshed, err := scanClick(tx.QueryRow(`SELECT `+clickCols+` FROM clicks WHERE id = ?`, old.ID))
 	if err != nil {
@@ -697,10 +719,10 @@ func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (
 }
 
 const clickCols = `id, app_id, link_id, COALESCE(ip, ''), COALESCE(device, ''), COALESCE(locale, ''), COALESCE(timezone, ''), COALESCE(screen, ''), COALESCE(user_agent, ''), COALESCE(os_version, ''), COALESCE(pasted_link, ''), destination, COALESCE(click_id, ''), is_bot, created_at, expires_at,
-  COALESCE(kind, ''), COALESCE(first_seen_at, created_at), ua_suspect, ip_hosting, hits_ip, hits_link, COALESCE(source, '')`
+  COALESCE(kind, ''), COALESCE(first_seen_at, created_at), ua_suspect, ip_hosting, hits_ip, hits_link, COALESCE(source, ''), COALESCE(variant, '')`
 
 const clickColsC = `c.id, c.app_id, c.link_id, COALESCE(c.ip, ''), COALESCE(c.device, ''), COALESCE(c.locale, ''), COALESCE(c.timezone, ''), COALESCE(c.screen, ''), COALESCE(c.user_agent, ''), COALESCE(c.os_version, ''), COALESCE(c.pasted_link, ''), c.destination, COALESCE(c.click_id, ''), c.is_bot, c.created_at, c.expires_at,
-  COALESCE(c.kind, ''), COALESCE(c.first_seen_at, c.created_at), c.ua_suspect, c.ip_hosting, c.hits_ip, c.hits_link, COALESCE(c.source, '')`
+  COALESCE(c.kind, ''), COALESCE(c.first_seen_at, c.created_at), c.ua_suspect, c.ip_hosting, c.hits_ip, c.hits_link, COALESCE(c.source, ''), COALESCE(c.variant, '')`
 
 func (s *Store) GetClick(id string) (Click, error) {
 	return scanClick(s.db.QueryRow(
@@ -816,7 +838,7 @@ func scanClickRows(row rowScanner) (Click, error) {
 	)
 	err := row.Scan(&c.ID, &c.AppID, &c.LinkID, &ip, &device, &locale, &timezone,
 		&screen, &ua, &osVer, &pasted, &c.Destination, &clickID, &c.IsBot, &createdAt, &expiresAt,
-		&c.Kind, &firstSeen, &c.UASuspect, &c.IPHosting, &c.HitsIP, &c.HitsLink, &c.Source)
+		&c.Kind, &firstSeen, &c.UASuspect, &c.IPHosting, &c.HitsIP, &c.HitsLink, &c.Source, &c.Variant)
 	if err != nil {
 		return Click{}, err
 	}
@@ -843,6 +865,7 @@ type Install struct {
 	Fraud       string // fired signals, comma list (fraud.Signal*); "" = clean (KTD7)
 	FraudAction string // FraudAction*; "" = attribution untouched
 	FraudLinkID string // excluded best click's link
+	Variant     string // matched click's variant; analytics
 }
 
 // RecordInstall: upsert install attribution idempotently per app, device, click; empty click_id marks organic/unknown installs, deduped per app + device too. Only an unknown row is upgraded by a later real attribution.
@@ -852,34 +875,47 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	}
 	now := time.Now().UTC()
 	i.CreatedAt = now
-	_, err := s.db.Exec(
-		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at, link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	res, err := s.db.Exec(
+		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at, link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id, variant)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(app_id, device_hash, click_id) DO UPDATE SET attribution = excluded.attribution,
 			   link_id = excluded.link_id, platform = excluded.platform,
 			   method = excluded.method, score = excluded.score, runner_up = excluded.runner_up,
-			   fraud = excluded.fraud, fraud_action = excluded.fraud_action, fraud_link_id = excluded.fraud_link_id
+			   fraud = excluded.fraud, fraud_action = excluded.fraud_action, fraud_link_id = excluded.fraud_link_id,
+			   variant = COALESCE(NULLIF(excluded.variant, ''), installs.variant)
 			 WHERE installs.attribution = ?`,
 		i.ID, i.AppID, i.DeviceHash, i.ClickID, i.Attribution, rfc3339(now), nullStr(i.LinkID), nullStr(i.Platform),
-		nullStr(i.Method), i.nullScore(i.Score), i.nullScore(i.RunnerUp), nullStr(i.Fraud), nullStr(i.FraudAction), nullStr(i.FraudLinkID), AttributionUnknown,
+		nullStr(i.Method), i.nullScore(i.Score), i.nullScore(i.RunnerUp), nullStr(i.Fraud), nullStr(i.FraudAction), nullStr(i.FraudLinkID), nullStr(i.Variant), AttributionUnknown,
 	)
 	if err != nil {
 		return Install{}, fmt.Errorf("record install: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 && i.Variant != "" && i.LinkID != "" && i.Attribution != AttributionOrganic && i.Attribution != AttributionUnknown {
+		if _, err := s.db.Exec(
+			`INSERT INTO variant_days (app_id, link_id, variant, day, clicks, installs) VALUES (?, ?, ?, ?, 0, 1)
+			 ON CONFLICT(app_id, link_id, variant, day) DO UPDATE SET installs = installs + 1`,
+			i.AppID, i.LinkID, i.Variant, day(now),
+		); err != nil {
+			return Install{}, fmt.Errorf("record install variant rollup: %w", err)
+		}
 	}
 	// Return stored row (surviving row on conflict).
 	var (
 		got       Install
 		createdAt string
+		variant   string
 	)
 	err = s.db.QueryRow(
-		`SELECT id, app_id, device_hash, click_id, attribution, created_at
+		`SELECT id, app_id, device_hash, click_id, attribution, created_at, COALESCE(variant, '')
 		 FROM installs WHERE app_id = ? AND device_hash = ? AND click_id = ?`,
 		i.AppID, i.DeviceHash, i.ClickID,
-	).Scan(&got.ID, &got.AppID, &got.DeviceHash, &got.ClickID, &got.Attribution, &createdAt)
+	).Scan(&got.ID, &got.AppID, &got.DeviceHash, &got.ClickID, &got.Attribution, &createdAt, &variant)
 	if err != nil {
 		return Install{}, fmt.Errorf("record install readback: %w", err)
 	}
 	got.CreatedAt = parseTime(createdAt)
+	got.Variant = variant
 	return got, nil
 }
 
@@ -910,6 +946,8 @@ func addMissingColumns(db *sql.DB) error {
 		{"installs", "fraud_action", "TEXT"},
 		{"installs", "fraud_link_id", "TEXT"},
 		{"apps", "tag_links", "INTEGER NOT NULL DEFAULT 0"},
+		{"clicks", "variant", "TEXT"},
+		{"installs", "variant", "TEXT"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {

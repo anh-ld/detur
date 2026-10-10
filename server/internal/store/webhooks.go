@@ -88,6 +88,7 @@ type WebhookInstallPayload struct {
 	RunnerUp    *int    `json:"runnerUp,omitempty"`
 	Fraud       *string `json:"fraud,omitempty"`
 	FraudAction *string `json:"fraudAction,omitempty"`
+	Variant     *string `json:"variant,omitempty"`
 	CreatedAt   string  `json:"createdAt"`
 }
 
@@ -108,6 +109,7 @@ type WebhookClickPayload struct {
 	Timezone    *string `json:"timezone,omitempty"`
 	Screen      *string `json:"screen,omitempty"`
 	Source      *string `json:"source,omitempty"` // in-app browser (messenger, zalo, ..., unknown-inapp)
+	Variant     *string `json:"variant,omitempty"`
 	IsBot       bool    `json:"isBot"`
 	CreatedAt   string  `json:"createdAt"`
 }
@@ -436,7 +438,7 @@ func (s *Store) fetchInstallsBatch(appID string, cursor, until int64, limit int)
 	rows, err := s.db.Query(`
 		SELECT i.rowid, i.id, i.app_id, i.click_id, i.attribution, i.created_at,
 		       i.link_id, l.key, i.platform, i.method, i.score, i.runner_up,
-		       i.fraud, i.fraud_action
+		       i.fraud, i.fraud_action, i.variant
 		FROM installs i
 		LEFT JOIN links l ON l.id = i.link_id
 		WHERE i.app_id = ? AND i.rowid > ? AND i.rowid <= ?
@@ -450,15 +452,15 @@ func (s *Store) fetchInstallsBatch(appID string, cursor, until int64, limit int)
 	var records []WebhookRecord
 	for rows.Next() {
 		var (
-			rowID                                                          int64
-			id, aID, attr, createdAt                                       string
-			clickID, linkID, linkKey, platform, method, fraud, fraudAction sql.NullString
-			score, runnerUp                                                sql.NullInt64
+			rowID                                                                   int64
+			id, aID, attr, createdAt                                                string
+			clickID, linkID, linkKey, platform, method, fraud, fraudAction, variant sql.NullString
+			score, runnerUp                                                         sql.NullInt64
 		)
 		if err := rows.Scan(
 			&rowID, &id, &aID, &clickID, &attr, &createdAt,
 			&linkID, &linkKey, &platform, &method, &score, &runnerUp,
-			&fraud, &fraudAction,
+			&fraud, &fraudAction, &variant,
 		); err != nil {
 			return nil, err
 		}
@@ -485,6 +487,7 @@ func (s *Store) fetchInstallsBatch(appID string, cursor, until int64, limit int)
 		}
 		payload.Fraud = nonEmpty(fraud)
 		payload.FraudAction = nonEmpty(fraudAction)
+		payload.Variant = nonEmpty(variant)
 
 		records = append(records, WebhookRecord{RowID: rowID, Payload: payload})
 	}
@@ -495,7 +498,7 @@ func (s *Store) fetchClicksBatch(appID string, cursor, until int64, limit int) (
 	rows, err := s.db.Query(`
 		SELECT c.rowid, c.id, c.app_id, c.link_id, l.key, c.device, c.locale,
 		       c.timezone, c.screen, c.os_version, c.destination, c.click_id,
-		       c.is_bot, c.created_at, c.kind, c.user_agent, c.source
+		       c.is_bot, c.created_at, c.kind, c.user_agent, c.source, c.variant
 		FROM clicks c
 		LEFT JOIN links l ON l.id = c.link_id
 		WHERE c.app_id = ? AND c.rowid > ? AND c.rowid <= ?
@@ -509,15 +512,15 @@ func (s *Store) fetchClicksBatch(appID string, cursor, until int64, limit int) (
 	var records []WebhookRecord
 	for rows.Next() {
 		var (
-			rowID                                                                                  int64
-			id, aID, linkID, destination, createdAt                                                string
-			linkKey, device, locale, timezone, screen, osVersion, clickID, kind, userAgent, source sql.NullString
-			isBot                                                                                  int
+			rowID                                                                                           int64
+			id, aID, linkID, destination, createdAt                                                         string
+			linkKey, device, locale, timezone, screen, osVersion, clickID, kind, userAgent, source, variant sql.NullString
+			isBot                                                                                           int
 		)
 		if err := rows.Scan(
 			&rowID, &id, &aID, &linkID, &linkKey, &device, &locale,
 			&timezone, &screen, &osVersion, &destination, &clickID,
-			&isBot, &createdAt, &kind, &userAgent, &source,
+			&isBot, &createdAt, &kind, &userAgent, &source, &variant,
 		); err != nil {
 			return nil, err
 		}
@@ -549,6 +552,7 @@ func (s *Store) fetchClicksBatch(appID string, cursor, until int64, limit int) (
 		payload.Timezone = nonEmpty(timezone)
 		payload.Screen = nonEmpty(screen)
 		payload.Source = nonEmpty(source)
+		payload.Variant = nonEmpty(variant)
 
 		records = append(records, WebhookRecord{RowID: rowID, Payload: payload})
 	}

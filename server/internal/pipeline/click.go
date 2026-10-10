@@ -66,6 +66,18 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "link expired", http.StatusGone)
 		return
 	}
+	rules, err := p.st.GetLinkRules(link.ID)
+	if err != nil {
+		p.log.Printf("get link rules failed for %q (%s): %v", key, link.ID, err)
+		rules = nil
+	}
+	route := EvaluateRules(rules, link, r, time.Now())
+	effectiveLink := link
+	effectiveLink.URL = route.Destination
+	effectiveLink.IOS = route.IOS
+	effectiveLink.Android = route.Android
+	effectiveLink.FallbackURL = route.FallbackURL
+
 	q := r.URL.Query()
 	agent := r.UserAgent()
 	_, noTrackQ := q[paramNoTrack]
@@ -80,7 +92,7 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	named := source != "" && source != ua.SourceUnknownInApp
 	if trackedMobile && q.Get(paramDone) == "" {
 		// recognized in-app: auto reload, never the copy page — hop 2 serves the tap page
-		serveInterstitial(w, q, ua.IsIOS(agent) && isAppStoreURL(link.IOS) && !named, safetyNetDelay(source))
+		serveInterstitial(w, q, ua.IsIOS(agent) && isAppStoreURL(effectiveLink.IOS) && !named, safetyNetDelay(source))
 		return
 	}
 	// clickId minted first, embedded in redirect (Dub link.ts). Click stores link.URL + params as deferred destination, not store URL. Dedup hit returns earlier click's id
@@ -88,25 +100,26 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	if track {
 		clickID = store.Nanoid(16)
 	}
-	dest := redirectTarget(link, agent, clickID, q)
+	dest := redirectTarget(effectiveLink, agent, clickID, q)
 	if track {
 		fp := fingerprint(r, q, link)
 		rec, err := p.st.RecordClick(store.Click{
-			ID: clickID, AppID: link.AppID, LinkID: link.ID, Destination: deepLinkURL(link, q),
+			ID: clickID, AppID: link.AppID, LinkID: link.ID, Destination: deepLinkURL(effectiveLink, q),
 			Fingerprint: fp, Platform: clickPlatform(agent), Kind: clickKind(dest),
 			UASuspect: fraud.SuspectUA(agent), IPHosting: fraud.Hosting(fp.IP), // raw facts, judged at match (KTD1)
-			Source: source,
+			Source:  source,
+			Variant: route.Variant,
 		}, p.retentionHours)
 		if err != nil {
 			p.log.Printf("click record failed (redirect continues): %v", err)
-			dest = redirectTarget(link, agent, "", q) // no recorded click -> no referrer
+			dest = redirectTarget(effectiveLink, agent, "", q) // no recorded click -> no referrer
 		} else if rec.ID != clickID {
-			dest = redirectTarget(link, agent, rec.ID, q)
+			dest = redirectTarget(effectiveLink, agent, rec.ID, q)
 		}
 	}
 	// in-app browsers block the automatic hand-off: recognized ones, and the safety-net reload, get a link to tap instead
-	if _, tap := q[paramTap]; trackedMobile && (named || tap) && hasStoreTarget(link, agent) {
-		p.serveTap(w, r, link, dest, source, q)
+	if _, tap := q[paramTap]; trackedMobile && (named || tap) && hasStoreTarget(effectiveLink, agent) {
+		p.serveTap(w, r, effectiveLink, dest, source, q)
 		return
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
@@ -191,16 +204,7 @@ func serveInterstitial(w http.ResponseWriter, q url.Values, copy bool, delay int
 
 // fingerprint: click-time device signals — IP, device model (client hint, else UA), OS version hint, first Accept-Language tag, user-agent, screen/timezone/pasted_link from interstitial
 func fingerprint(r *http.Request, q url.Values, link store.Link) store.Fingerprint {
-	locale := ""
-	if al := r.Header.Get("Accept-Language"); al != "" {
-		if i := strings.IndexByte(al, ','); i >= 0 {
-			al = al[:i]
-		}
-		if i := strings.IndexByte(al, ';'); i >= 0 {
-			al = al[:i]
-		}
-		locale = strings.TrimSpace(al)
-	}
+	locale := primaryLang(r.Header.Get("Accept-Language"))
 	device := hint(r, "Sec-CH-UA-Model")
 	if device == "" {
 		device = ua.DeviceLabel(r.UserAgent())

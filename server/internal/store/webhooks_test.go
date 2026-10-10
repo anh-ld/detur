@@ -368,3 +368,68 @@ func TestWebhookReplay(t *testing.T) {
 		t.Errorf("ReplayUntilInstalls = %d, want %d", whReplayed.ReplayUntilInstalls, initialCursor)
 	}
 }
+
+// Webhook delivery worker / fetch batches serialize click and install payloads containing "variant".
+func TestWebhookVariantPayload(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := s.CreateApp("Variant Hook App", "dk_var_hook")
+	link, _ := s.CreateLink(Link{AppID: app.ID, Key: "vlink", URL: "https://example.com"})
+
+	// 1. Record click with variant
+	c, err := s.RecordClick(Click{
+		AppID:       app.ID,
+		LinkID:      link.ID,
+		Variant:     "Variant Alpha",
+		Destination: "https://example.com/alpha",
+	}, 24)
+	if err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+
+	// 2. Record install with variant
+	_, err = s.RecordInstall(Install{
+		AppID:       app.ID,
+		DeviceHash:  "dev-var-hook",
+		ClickID:     c.ID,
+		Attribution: AttributionNonOrganic,
+		LinkID:      link.ID,
+		Variant:     "Variant Alpha",
+	})
+	if err != nil {
+		t.Fatalf("RecordInstall: %v", err)
+	}
+
+	// 3. Fetch clicks batch
+	clicks, err := s.FetchPendingWebhookBatch(app.ID, "clicks", 0, 0, 100)
+	if err != nil {
+		t.Fatalf("FetchPendingWebhookBatch(clicks): %v", err)
+	}
+	if len(clicks) != 1 {
+		t.Fatalf("expected 1 click, got %d", len(clicks))
+	}
+	cp := clicks[0].Payload.(WebhookClickPayload)
+	if cp.Variant == nil || *cp.Variant != "Variant Alpha" {
+		t.Errorf("expected click payload variant 'Variant Alpha', got %v", cp.Variant)
+	}
+	clickJSON, _ := json.Marshal(cp)
+	if !strings.Contains(string(clickJSON), `"variant":"Variant Alpha"`) {
+		t.Errorf("serialized click JSON missing variant: %s", string(clickJSON))
+	}
+
+	// 4. Fetch installs batch
+	installs, err := s.FetchPendingWebhookBatch(app.ID, "installs", 0, 0, 100)
+	if err != nil {
+		t.Fatalf("FetchPendingWebhookBatch(installs): %v", err)
+	}
+	if len(installs) != 1 {
+		t.Fatalf("expected 1 install, got %d", len(installs))
+	}
+	ip := installs[0].Payload.(WebhookInstallPayload)
+	if ip.Variant == nil || *ip.Variant != "Variant Alpha" {
+		t.Errorf("expected install payload variant 'Variant Alpha', got %v", ip.Variant)
+	}
+	instJSON, _ := json.Marshal(ip)
+	if !strings.Contains(string(instJSON), `"variant":"Variant Alpha"`) {
+		t.Errorf("serialized install JSON missing variant: %s", string(instJSON))
+	}
+}
