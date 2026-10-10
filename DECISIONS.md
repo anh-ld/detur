@@ -17,14 +17,14 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | M1 | Weights: IP 500, model+version 450, iOS version 350, UA signature 350, pasteboard 350/175, timezone 200, screen 200 (±1, ±0.01 scale), language 100. One device signal per candidate. Max 1700 iOS / 1450 Android. | Detour | Documented. | — |
 | M2 | Threshold 850 (700–1200), window 15 min (5–180), per app. No global default, no per-link override. | Detour | "App-level settings." Upgrade copies the old global value into each app. | 005 |
 | M3 | Matched click is consumed: 1 click, 1 install. | Detour | Candidates = "unmatched clicks". Dub doesn't consume. | 006 |
-| M4 | Same device retries → same earlier click. | Ours | SDK retries must be idempotent. Detour silent. | 006 |
+| M4 | Same device retries → same earlier click. Claim stores the device hash: an overlapping retry (install not written yet) still wins its own click. | Ours | SDK retries must be idempotent. Detour silent. Client timeout + retry raced to organic. | 006 |
 | M5 | `clickId` match: exact, unmatched, no window, lives `CLICK_ID_DAYS` (30, 1–90). Fingerprint scrubbed at `RETENTION_HOURS`; matched clicks deleted then. | Detour + ours | Play referrer comes back days later. 90 = its limit. No extra PII. | — |
 | M6 | Window starts at SDK `timestamp`; ignored if >180 min off or in the future. | Detour + ours | Clamp is ours: clock drift. | 007 |
-| M7 | iOS 26 frozen UA (`OS 18_6`): use Safari `Version/` major if higher. | Detour | Documented workaround. | 007 |
+| M7 | iOS 26 frozen UA (`OS 18_6`): use Safari `Version/` if its major is higher. `Version/` click compared at its precision (`26.0` = SDK `26.0.1`); OS-token click exact (`17_4` = `17.4.0`). | Detour + ours | Documented workaround. `Version/` has no patch; exact compare lost 350 on every 26.x.y. | 007 |
 | M8 | UA signature scored on Android only. | Detour | Weights table. | 007 |
 | M9 | Pasteboard: install's pasted URL vs clicked short link. Click `pasted_link` stored only if it is that link. | Detour + ours | Server check is ours: query param is forgeable. | 007 |
 | M10 | Tie → newer click. | Detour | Documented. | — |
-| M11 | No match → organic + 404. Backend error → 404 + hidden `unknown` install, replaced by the next real result. | Detour + ours | Fail-open is ours: never block the app. | 003 |
+| M11 | No match → organic + 404. Backend error → 404 + hidden `unknown` install, replaced by the next real result (new row). Unknown never sent to webhooks. | Detour + ours | Fail-open is ours: never block the app. New row: webhook cursor already past the unknown one. | 003 |
 | M12 | Device hash = SHA-256 of fingerprint, no timestamp. | Ours | Stable key, idempotent installs. | — |
 | M13 | Install receipt: method (`click_id`, `probabilistic`, `prior`, `organic`, `unknown`), best score, runner-up. Organic keeps its best below-threshold score. Settings shows method mix, histogram, threshold what-if. | Ours | Otherwise the threshold is set blind. | — |
 
@@ -32,7 +32,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
-| C1 | Mobile first hop: one-reload interstitial (screen, timezone); `Accept-CH` for model + OS. | Dub | Dub deeplink preview. Detour fingerprints immediately. | — |
+| C1 | Mobile first hop: one-reload interstitial (screen, timezone); `Accept-CH` for model + OS. Mac Safari UA too: touch screen → iPad (UA rewritten to iPad for rules, redirect, click, scoring). | Dub + ours | Dub deeplink preview. Detour fingerprints immediately. iPadOS Safari sends a Mac UA: got the web fallback, never matched. | — |
 | C2 | iOS + App Store target → tap-to-copy page (feeds M9). Always on. Copy + reload in one tap. | Detour + ours | Detour's per-app toggle: skipped. One tap: webviews block a hand-off after an async copy. | 008, in-app |
 | C3 | Bots: Dub `UA_BOTS`, HEAD, `?bot=`. Exempt: Google webview, TikTok `Channel/googleplay`. | Dub + ours | Detour has no list. TikTok's webview tripped "google". | in-app |
 | C4 | Dedup: link + IP + UA, 1h. Re-tap refreshes time + signals, keeps id + matched. Also merged: a real-browser click (no in-app source, same platform) on the same link + IP within 1h of an in-app click. Keeps the in-app destination + pasteboard. SDK opens and other in-app browsers never merge. | Dub + ours | Dub click cache. "Open in browser" changes the UA. | in-app |
@@ -110,15 +110,16 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
 | P1 | Gateway lets everyone in as viewer (links + monitoring). Admin actions need `ADMIN_PASSWORD` → 12h signed session per browser. No user table, no RBAC. | Ours | One operator, self-hosted, team brings its own auth. One password beats roles at this scale. | 009 |
+| P2 | Portal guard: Host = loopback, listener, or `PORTAL_HOSTS`. Origin = same origin (port included), or a `PORTAL_HOSTS` name. Other localhost ports rejected. | Ours | DNS rebinding + CSRF. Cookies ignore ports: any localhost page rode the admin cookie. Gateway names were 403. | — |
 
 ## Webhooks
 
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
-| W1 | Background worker drains SQLite `rowid` cursors. No outbox table. | Ours | Zero cost on redirects and SDK calls. Replay for free. | feat-webhooks |
+| W1 | Background worker drains SQLite `rowid` cursors. No outbox table. Rowids never reused (`row_seq` high-water mark). Stream added later → starts at its tail. | Ours | Zero cost on redirects and SDK calls. Replay for free. Deleted tail + refill skipped rows under the cursor. | feat-webhooks |
 | W2 | Per endpoint, opt in to `installs`, `events`, `clicks`. | Ours | Installs without the click flood. | feat-webhooks |
 | W3 | `Detur-Signature: t=<unix>,v1=<hex>`, HMAC-SHA256 over `t.<unix>.<raw_body>`. Replays carry `Detur-Replay: true`. | Stripe + ours | Standard verification; timestamp stops replay. | feat-webhooks |
-| W4 | Dial-time SSRF block: private ranges (RFC 1918, RFC 4193), link-local, cloud metadata (169.254.169.254). Loopback HTTP allowed for dev. No redirects followed. | Ours | Cloud hosts + DNS rebinding. | feat-webhooks |
+| W4 | Dial-time SSRF block: private ranges (RFC 1918, RFC 4193), link-local, CGNAT `100.64/10`, `192.0.0/24`, `198.18/15`, reserved, NAT64 / 6to4 / Teredo. Covers metadata at 169.254.169.254, 100.100.100.200 (Alibaba), 192.0.0.192 (Oracle). Loopback HTTP allowed for dev. No redirects followed. | Ours | Cloud hosts + DNS rebinding. IPv6 ranges embed an IPv4. | feat-webhooks |
 | W5 | Backoff per `(endpoint, event_type)`: `min(30s * 2^fails, 1h)`. Failing clicks don't block installs. | Ours | One bad stream can't stall the rest. | feat-webhooks |
 | W6 | Managing webhooks needs admin. `ADMIN_PASSWORD` unset → 403. | Ours | Guards secrets, endpoints, replay. | feat-webhooks |
 | W7 | No outbound calls unless a webhook is configured and enabled. | Ours | Offline by default. | feat-webhooks |

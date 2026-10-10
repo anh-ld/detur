@@ -4,7 +4,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 
 ## Security
 
-- **Portal network access**: The portal has no user-level authentication. Anyone who can reach `:8081` can view links and analytics. If `ADMIN_PASSWORD` is unset, anyone can create, edit, or delete apps. Run on loopback or gate behind a zero-trust proxy (Cloudflare Access, Tailscale).
+- **Portal network access**: The portal has no user-level authentication. Anyone who can reach `:8081` can view links and analytics. If `ADMIN_PASSWORD` is unset, anyone can create, edit, or delete apps. Run on loopback or gate behind a zero-trust proxy (Cloudflare Access, Tailscale); set `PORTAL_HOSTS` to the gateway hostname or every request through it gets 403.
 - **Admin session cookie**: The admin session cookie is directly derived from the password (offline-crackable if intercepted). Use a long, random password and enforce HTTPS. Changing `ADMIN_PASSWORD` immediately invalidates all active sessions.
 - **Login brute-force delays**: Failed login attempts introduce a serialized delay per remote IP. If running behind a reverse proxy with `TRUST_PROXY=0`, all users share the gateway IP; a brute-force attempt will queue and delay logins for everyone.
 - **Logout behavior (`LOGOUT_URL`)**: The "Log out" button only redirects to `LOGOUT_URL`. If your identity provider re-authenticates automatically (or if using Tailscale), sessions do not truly terminate on click.
@@ -20,6 +20,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 - **Matching thresholds & windows**: Configured per app (threshold default 850, window default 15 min). There are no per-link threshold overrides.
 - **Reinstalls within retention**: A user reinstalling the app within `RETENTION_HOURS` receives their earlier matched link again, even if they tapped a newer link in between.
 - **Device clock drift**: The matching window uses the SDK client timestamp only if it is within 180 minutes of server time; otherwise, it clamps to server time.
+- **iPad Safari**: iPadOS Safari sends a Mac UA. Mac Safari visitors also get the interstitial (one extra reload on real Macs); a touch screen marks the visit as iPad. No tap-to-copy page for iPad (unknown at hop 1) → no pasteboard signal.
 - **One-hop interstitial**: Mobile browsers reload through an interstitial to capture screen, timezone, and client hints (model + OS). Maximum probabilistic score on iOS is 1350 without pasteboard.
 - **iOS App Store pasteboard**: Redirecting to the App Store shows a tap-to-copy page to feed pasteboard matching (350 points exact / 175 points domain). If the user denies pasteboard permission in iOS, the signal is lost. Note: The SDK's `pastedLink` is checked server-side against the clicked link to prevent tampering.
 - **In-app browser escape (iOS)**: In-app webviews (Messenger, TikTok, Zalo) show an interstitial "Get the app" tap-page to escape sandbox restrictions. If the app is already installed on iOS, it can only open to the home screen rather than the deep link due to iOS webview sandbox limitations.
@@ -58,9 +59,11 @@ Operational gotchas, architectural limits, and security constraints to read befo
 ## Webhooks
 
 - **Outbound network calls**: Detur only initiates outbound HTTP requests when webhooks are explicitly configured and enabled.
-- **Dial-time SSRF protection**: Webhook delivery blocks private networks (RFC 1918, RFC 4193), link-local ranges, and cloud metadata services (`169.254.169.254`). HTTP redirects are never followed.
+- **Dial-time SSRF protection**: Webhook delivery blocks private networks (RFC 1918, RFC 4193), link-local, CGNAT (`100.64.0.0/10`), reserved ranges, and IPv4-embedding IPv6 (NAT64, 6to4, Teredo), covering metadata services at `169.254.169.254`, `100.100.100.200`, `192.0.0.192`. HTTP redirects are never followed.
 - **Secrets at rest**: Webhook signing secrets are stored in plaintext in SQLite (`detur.db`) so admins can view and rotate them in the portal. Ensure database file permissions are restricted (`chmod 600 detur.db`).
-- **Replay & retention limits**: Only `installs` are retained permanently. Raw `clicks` and `events` are purged after `RETENTION_HOURS` (default 24h); webhook replaying past that window starts at the oldest retained record. If a purge empties a table, new rows reuse low rowids, which causes the worker to rewind the cursor to 0; receivers may receive duplicates, so always deduplicate on record `id`.
+- **Replay & retention limits**: Only `installs` are retained permanently. Raw `clicks` and `events` are purged after `RETENTION_HOURS` (default 24h); webhook replaying past that window starts at the oldest retained record. Rowids never reused → purges and deletes never hide new rows. Restoring an older `detur.db` backup rewinds cursors to 0 → duplicates; always deduplicate on record `id`.
+- **Adding a stream**: New type on an existing webhook starts at the current tail. Past records → Replay.
+- **Hidden installs**: Backend-error `unknown` installs never sent. Their replacement arrives as a new record.
 - **Consumer signature verification**: Webhook consumers must verify signatures with constant-time comparison (`crypto/subtle.ConstantTimeCompare`) and enforce a timestamp tolerance window (e.g., 5 minutes) to defend against replay attacks.
 
 ## Link rules & A/B testing
@@ -68,6 +71,8 @@ Operational gotchas, architectural limits, and security constraints to read befo
 - **Sticky A/B visitor bucket stability**: Hashing relies on `link_id|client_ip|user_agent`. On cellular CGNAT or shared corporate Wi-Fi with identical mobile models/browsers, multiple visitors share the same bucket. If a visitor moves from Wi-Fi to cellular, their IP changes and their bucket may shift on subsequent clicks.
 - **Rule order evaluation**: Rules evaluate in strict ascending position order (`1..N`); first match terminates evaluation. A broad rule (e.g., matching iOS with no language condition) placed before a more specific rule (iOS + German) will shadow the specific rule.
 - **Date window timezone**: Rule date conditions (`from` and `until`) operate in UTC (RFC 3339). When configuring rules in the portal, ensure input times are aligned with UTC.
+- **Variant weights**: Each variant 1–100%, total 100%. New variant defaults to the remaining percentage.
+- **Unsaved rule edits**: Closing the rules drawer keeps edits until Save or Discard. Nothing applies until Save.
 - **Variant weight changes**: Reallocating variant percentages in active tests does not migrate previously matched users; because the bucket is computed as `hash mod 100`, existing hash values may fall into a new cumulative threshold band.
 - **Installed-app opens skip rules**: Rules run on browser clicks and carry into deferred installs. An app that is already installed opens the link through the SDK (`resolve-short`), which returns the base link destination and records no variant.
 - **Variant label = analytics key**: `variant_days` keys on link + label, so labels (direct rule names and split variant names) must be unique per link. Renaming a variant starts a new stats row; old rows keep the old name.

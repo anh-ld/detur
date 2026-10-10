@@ -68,6 +68,7 @@ Prod: pin version (`:0.1.0`).
 | `LOGOUT_URL` | no | empty | Sign-out URL |
 | `ADMIN_PASSWORD` | no | empty | Admin password |
 | `ADMIN_SESSION_HOURS` | no | `12` | Session length (hours) |
+| `PORTAL_HOSTS` | gateway | empty | Portal hostnames behind a proxy |
 
 See [.env.example](.env.example) for detailed explanations.
 
