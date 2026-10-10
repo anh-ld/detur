@@ -63,6 +63,16 @@ Operational gotchas, architectural limits, and security constraints to read befo
 - **Replay & retention limits**: Only `installs` are retained permanently. Raw `clicks` and `events` are purged after `RETENTION_HOURS` (default 24h); webhook replaying past that window starts at the oldest retained record. If a purge empties a table, new rows reuse low rowids, which causes the worker to rewind the cursor to 0; receivers may receive duplicates, so always deduplicate on record `id`.
 - **Consumer signature verification**: Webhook consumers must verify signatures with constant-time comparison (`crypto/subtle.ConstantTimeCompare`) and enforce a timestamp tolerance window (e.g., 5 minutes) to defend against replay attacks.
 
+## Link rules & A/B testing
+
+- **Sticky A/B visitor bucket stability**: Hashing relies on `link_id|client_ip|user_agent`. On cellular CGNAT or shared corporate Wi-Fi with identical mobile models/browsers, multiple visitors share the same bucket. If a visitor moves from Wi-Fi to cellular, their IP changes and their bucket may shift on subsequent clicks.
+- **Rule order evaluation**: Rules evaluate in strict ascending position order (`1..N`); first match terminates evaluation. A broad rule (e.g., matching iOS with no language condition) placed before a more specific rule (iOS + German) will shadow the specific rule.
+- **Date window timezone**: Rule date conditions (`from` and `until`) operate in UTC (RFC 3339). When configuring rules in the portal, ensure input times are aligned with UTC.
+- **Variant weight changes**: Reallocating variant percentages in active tests does not migrate previously matched users; because the bucket is computed as `hash mod 100`, existing hash values may fall into a new cumulative threshold band.
+- **Installed-app opens skip rules**: Rules run on browser clicks and carry into deferred installs. An app that is already installed opens the link through the SDK (`resolve-short`), which returns the base link destination and records no variant.
+- **Variant label = analytics key**: `variant_days` keys on link + label, so labels (direct rule names and split variant names) must be unique per link. Renaming a variant starts a new stats row; old rows keep the old name.
+- **Cascading deletion**: Deleting a link cascades to delete all associated link rules and variant daily aggregation statistics (`variant_days`).
+
 ## Compatibility
 
 - **Single-segment link paths**: Only single-segment slugs (e.g., `links.example.com/promo`) are supported. Multi-segment paths like `/app/promo` will return 404 without recording clicks.

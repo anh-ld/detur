@@ -6,6 +6,7 @@ Self-hosted backend for `@swmansion/react-native-detour`. Drop-in for
 Deferred deep links + analytics: tap link → install → first launch opens link. Clicks, installs, events tracked.
 
 - **Single binary**: Go + SQLite + Preact portal. ~30 MB RAM, <0.1 vCPU. Zero outbound calls.
+- **Link rules & A/B splits**: Route by platform, language, query, or date. Sticky weighted splits.
 - **In-app browser bypass**: Tap-through page for Messenger, TikTok, Zalo so users never get stuck.
 - **Fraud protection**: Detect & block click floods, bots, datacenter IPs, and repeat devices.
 - **Analytics & webhooks**: Per-link conversions, D1/D7/D30 retention, and HMAC-signed webhook delivery.
@@ -36,6 +37,7 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 | Cost & data ownership | Free & unlimited · Yours | Tiered · Vendor-hosted | Volume-based · Vendor-hosted |
 | SDK | Detour (drop-in) | Detour (official) | AppsFlyer SDK |
 | Matching & attribution | Detour weights (tunable) · 1:1 install | Detour weights · 1:1 install | Proprietary · Multi-touch |
+| Routing rules & A/B splits | ✅ Rules & sticky splits | ❌ | ✅ Enterprise |
 | Analytics | Events tracking | Events tracking | Events, revenue, cohorts |
 | Fraud detection | ✅ Built-in | ❌ | ✅ Enterprise |
 | MMP & ad networks | ❌ | ❌ | ✅ |
