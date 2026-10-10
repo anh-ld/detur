@@ -433,3 +433,26 @@ func TestWebhookVariantPayload(t *testing.T) {
 		t.Errorf("serialized install JSON missing variant: %s", string(instJSON))
 	}
 }
+
+// Stream added after creation starts at its tail: older history never sent as live rows.
+func TestUpdateWebhookAddedStreamStartsAtTail(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	wh, err := s.CreateWebhook(app.ID, "https://example.com/hook", []string{"clicks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"d1", "d2"} {
+		if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: d, Attribution: AttributionOrganic}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wh, err = s.UpdateWebhook(wh.ID, nil, []string{"clicks", "installs"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err := s.FetchPendingWebhookBatch(app.ID, "installs", wh.CursorInstalls, 0, 100)
+	if err != nil || len(recs) != 0 {
+		t.Fatalf("pending installs after adding stream = %d, %v; want 0", len(recs), err)
+	}
+}

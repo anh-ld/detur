@@ -115,15 +115,15 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 		return
 	}
 
-	// Rowids are not AUTOINCREMENT: once a purge empties the table's tail, new rows reuse rowids at or below
-	// the cursor and `rowid > cursor` would skip them forever. Rewind to 0: duplicates beat silent loss.
+	// Rowids only grow (row_seq). Cursor above the high-water mark = database swapped (restored backup);
+	// `rowid > cursor` would skip new rows forever. Rewind to 0: duplicates beat silent loss.
 	tableMax, err := w.st.WebhookStreamMaxRowID(stream)
 	if err != nil {
 		w.logger.Printf("webhook %s %s max rowid failed: %v", wh.ID, stream, err)
 		return
 	}
 	if st.Cursor > tableMax {
-		w.logger.Printf("webhook %s %s: cursor %d above table max %d after purge, rewinding to 0", wh.ID, stream, st.Cursor, tableMax)
+		w.logger.Printf("webhook %s %s: cursor %d above rowid high-water mark %d, rewinding to 0", wh.ID, stream, st.Cursor, tableMax)
 		if !w.advance(wh.ID, stream, &st, 0, true) {
 			return
 		}

@@ -200,11 +200,11 @@ func TestDeterministicLookupByClickID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
 	}
-	got, err := s.ClickByClickID(app.ID, "play-click-42")
+	got, err := s.ClickByClickID(app.ID, "play-click-42", "")
 	if err != nil || got.ID != c.ID {
 		t.Fatalf("ClickByClickID = %+v, %v", got, err)
 	}
-	if _, err := s.ClickByClickID(app.ID, "missing"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.ClickByClickID(app.ID, "missing", ""); !errors.Is(err, ErrNotFound) {
 		t.Errorf("ClickByClickID(missing) = %v; want ErrNotFound", err)
 	}
 }
@@ -216,16 +216,16 @@ func TestMarkClickMatchedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
 	}
-	if ok, err := s.MarkClickMatched(c.ID); !ok || err != nil {
+	if ok, err := s.MarkClickMatched(c.ID, ""); !ok || err != nil {
 		t.Fatalf("first MarkClickMatched = %v, %v; want true", ok, err)
 	}
-	if ok, err := s.MarkClickMatched(c.ID); ok || err != nil {
+	if ok, err := s.MarkClickMatched(c.ID, ""); ok || err != nil {
 		t.Fatalf("second MarkClickMatched = %v, %v; want false", ok, err)
 	}
 	if cs, err := s.ClicksSince(app.ID, time.Now().Add(-time.Hour)); err != nil || len(cs) != 0 {
 		t.Errorf("ClicksSince = %d, %v; want 0 after match", len(cs), err)
 	}
-	if _, err := s.ClickByClickID(app.ID, "k1"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.ClickByClickID(app.ID, "k1", ""); !errors.Is(err, ErrNotFound) {
 		t.Errorf("ClickByClickID after match = %v; want ErrNotFound", err)
 	}
 }
@@ -723,20 +723,20 @@ func TestClickIDOutlivesRetention(t *testing.T) {
 			t.Fatalf("age click: %v", err)
 		}
 	}
-	if ok, _ := s.MarkClickMatched(used.ID); !ok {
+	if ok, _ := s.MarkClickMatched(used.ID, ""); !ok {
 		t.Fatal("MarkClickMatched failed")
 	}
 	if _, err := s.PurgeExpired(time.Now(), 24); err != nil {
 		t.Fatalf("PurgeExpired: %v", err)
 	}
-	got, err := s.ClickByClickID(app.ID, "late")
+	got, err := s.ClickByClickID(app.ID, "late", "")
 	if err != nil || got.Destination != link.URL {
 		t.Fatalf("ClickByClickID(late) = %+v, %v; want resolved after 3 days", got, err)
 	}
 	if got.Fingerprint != (Fingerprint{}) {
 		t.Errorf("fingerprint = %+v; want scrubbed", got.Fingerprint)
 	}
-	if _, err := s.ClickByClickID(app.ID, "gone"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.ClickByClickID(app.ID, "gone", ""); !errors.Is(err, ErrNotFound) {
 		t.Errorf("ClickByClickID(gone) = %v; want ErrNotFound after 31 days", err)
 	}
 	for _, id := range []string{gone.ID, used.ID} {
@@ -1524,5 +1524,30 @@ func TestRecordClickReopenSkipsOtherPlatform(t *testing.T) {
 	}
 	if n, _ := s.CountClicks(app.ID); n != 2 {
 		t.Errorf("clicks = %d; want 2", n)
+	}
+}
+
+// Same-device retry that lost the claim race (install not written yet) gets the click; another device doesn't (M3, M4).
+func TestMarkClickMatchedSameDevice(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	c, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, ClickID: "k-dev"}, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.MarkClickMatched(c.ID, "dev-a"); !ok || err != nil {
+		t.Fatalf("first claim = %v, %v; want true", ok, err)
+	}
+	if ok, _ := s.MarkClickMatched(c.ID, "dev-a"); !ok {
+		t.Error("same-device retry claim = false; want true")
+	}
+	if ok, _ := s.MarkClickMatched(c.ID, "dev-b"); ok {
+		t.Error("other-device claim = true; want false")
+	}
+	if _, err := s.ClickByClickID(app.ID, "k-dev", "dev-a"); err != nil {
+		t.Errorf("same-device clickId lookup after claim: %v; want the click", err)
+	}
+	if _, err := s.ClickByClickID(app.ID, "k-dev", "dev-b"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("other-device clickId lookup = %v; want ErrNotFound", err)
 	}
 }

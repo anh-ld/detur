@@ -594,6 +594,21 @@ func TestIOS26SafariScoresDeviceSignal(t *testing.T) {
 	if diff := got - Score(c, fp, testIP); diff != 350 {
 		t.Errorf("device signal diff = %d; want 350", diff)
 	}
+	// Version/ is major.minor; the SDK sends the patch.
+	for v, want := range map[string]bool{"26.0.1": true, "26": true, "26.1": false, "26.1.2": false} {
+		fp.SystemVersion = v
+		if hit := Score(c, fp, testIP) == got; hit != want {
+			t.Errorf("Version/26.0 vs SDK %s: match %v; want %v", v, hit, want)
+		}
+	}
+	// Pre-26 OS token carries the patch: 17_4 is 17.4.0, never 17.4.1.
+	c.Fingerprint.UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+	fp.SystemVersion = "17.4"
+	exact := Score(c, fp, testIP)
+	fp.SystemVersion = "17.4.1"
+	if diff := exact - Score(c, fp, testIP); diff != 350 {
+		t.Errorf("OS token 17_4 vs SDK 17.4.1: diff = %d; want 350 (no version credit)", diff)
+	}
 }
 
 // UA device signature fallback is Android-only.
@@ -702,7 +717,7 @@ func secondLink(t *testing.T, s *store.Store, appID string) store.Link {
 
 func unconsumed(t *testing.T, s *store.Store, appID, clickID string) bool {
 	t.Helper()
-	_, err := s.ClickByClickID(appID, clickID)
+	_, err := s.ClickByClickID(appID, clickID, "")
 	return err == nil
 }
 

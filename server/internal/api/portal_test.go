@@ -332,15 +332,15 @@ func TestPortalAnalytics(t *testing.T) {
 	}
 
 	for q, want := range map[string]int{
-		"/api/apps/" + app.ID + "/analytics?days=5":                    http.StatusBadRequest,
-		"/api/apps/" + app.ID + "/analytics?platform=web":              http.StatusBadRequest,
-		"/api/apps/" + app.ID + "/analytics?from=2026-10-01":          http.StatusBadRequest,
-		"/api/apps/" + app.ID + "/analytics?to=2026-10-08":            http.StatusBadRequest,
-		"/api/apps/" + app.ID + "/analytics?from=bad&to=2026-10-08":   http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?days=5":                        http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?platform=web":                  http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?from=2026-10-01":               http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?to=2026-10-08":                 http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?from=bad&to=2026-10-08":        http.StatusBadRequest,
 		"/api/apps/" + app.ID + "/analytics?from=2026-10-08&to=2026-10-01": http.StatusBadRequest,
-		"/api/apps/missing/analytics":                                  http.StatusNotFound,
-		"/api/apps/" + app.ID + "/match-quality?days=5":                http.StatusBadRequest,
-		"/api/apps/missing/match-quality":                              http.StatusNotFound,
+		"/api/apps/missing/analytics":                                      http.StatusNotFound,
+		"/api/apps/" + app.ID + "/match-quality?days=5":                    http.StatusBadRequest,
+		"/api/apps/missing/match-quality":                                  http.StatusNotFound,
 	} {
 		if resp, b := portalReq(t, portal, "GET", q, "", nil); resp.StatusCode != want {
 			t.Errorf("GET %s: %d %s; want %d", q, resp.StatusCode, b, want)
@@ -356,11 +356,51 @@ func TestPortalRejectsCrossOrigin(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("cross-origin POST must be 403, got %d %s", resp.StatusCode, b)
 	}
-	// Same-origin (loopback) Origin passes.
+	// Same-origin Origin passes.
 	resp, b = portalReq(t, portal, "POST", "/api/apps", `{"name":"ok"}`,
-		map[string]string{"Origin": "http://localhost:8081"})
+		map[string]string{"Origin": portal.URL})
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("loopback-origin POST must pass, got %d %s", resp.StatusCode, b)
+		t.Fatalf("same-origin POST must pass, got %d %s", resp.StatusCode, b)
+	}
+	// Other localhost port: 403 (cookies ignore ports).
+	resp, b = portalReq(t, portal, "POST", "/api/apps", `{"name":"x"}`,
+		map[string]string{"Origin": "http://localhost:3000"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("other-port loopback POST must be 403, got %d %s", resp.StatusCode, b)
+	}
+}
+
+// Gateway: PORTAL_HOSTS name passes as Host (Host kept by Caddy/cloudflared) and as Origin (Host rewritten by nginx).
+func TestPortalGatewayHost(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "gw.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ts := httptest.NewServer(RegisterPortal(st, t.TempDir(), []string{portalAddr, "portal.example.com"}, "", "", 12))
+	t.Cleanup(ts.Close)
+	for _, tc := range []struct {
+		host, origin string
+		want         int
+	}{
+		{"portal.example.com", "https://portal.example.com", http.StatusCreated},
+		{"", "https://portal.example.com", http.StatusCreated},
+		{"evil.example", "https://evil.example", http.StatusForbidden},
+		{"", "https://evil.example", http.StatusForbidden},
+	} {
+		req, _ := http.NewRequest("POST", ts.URL+"/api/apps", strings.NewReader(`{"name":"gw"}`))
+		if tc.host != "" {
+			req.Host = tc.host
+		}
+		req.Header.Set("Origin", tc.origin)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("POST: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.want {
+			t.Errorf("host %q origin %q: %d, want %d", tc.host, tc.origin, resp.StatusCode, tc.want)
+		}
 	}
 }
 

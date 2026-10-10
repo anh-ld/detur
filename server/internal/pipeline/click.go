@@ -28,6 +28,7 @@ const (
 	paramPasted   = "pasted_link"
 	paramNoTrack  = "detur-no-track" // Dub's dub-no-track
 	paramTap      = "_tap"           // safety-net reload: hop 2 answers with the tap page
+	paramTouch    = "_touch"         // interstitial saw a touch screen (iPadOS Safari behind a Mac UA)
 )
 
 type pipelineServer struct {
@@ -66,6 +67,11 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "link expired", http.StatusGone)
 		return
 	}
+	// iPadOS Safari sends a Mac UA. Interstitial reported touch -> rewrite UA to iPad for everything after
+	// (rules, store redirect, stored click, scoring).
+	if r.URL.Query().Get(paramTouch) == "1" && ua.MaybeIPad(r.UserAgent()) {
+		r.Header.Set("User-Agent", strings.Replace(r.UserAgent(), "Macintosh", "iPad", 1))
+	}
 	rules, err := p.st.GetLinkRules(link.ID)
 	if err != nil {
 		p.log.Printf("get link rules failed for %q (%s): %v", key, link.ID, err)
@@ -90,7 +96,7 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 		source = ua.InApp(agent)
 	}
 	named := source != "" && source != ua.SourceUnknownInApp
-	if trackedMobile && q.Get(paramDone) == "" {
+	if track && (mobile || ua.MaybeIPad(agent)) && q.Get(paramDone) == "" {
 		// recognized in-app: auto reload, never the copy page — hop 2 serves the tap page
 		serveInterstitial(w, q, ua.IsIOS(agent) && isAppStoreURL(effectiveLink.IOS) && !named, safetyNetDelay(source))
 		return
@@ -125,7 +131,7 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, dest, http.StatusFound)
 }
 
-// interstitialTmpl: reloads short link once with screen + timezone appended (no-JS browsers fall through with neither); Accept-CH: Chromium sends device model + OS version on reload.
+// interstitialTmpl: reloads short link once with screen + timezone (+ _touch on touch screens) appended (no-JS browsers fall through with neither); Accept-CH: Chromium sends device model + OS version on reload.
 // Copy mode (iOS + App Store target): waits for a tap, copies short link to pasteboard (needs user gesture), reloads with pasted_link in the same tap. SDK reads pasteboard on first launch: pasteboard signal (350/175).
 // Safety net: page still visible after delay ms = the browser blocked the hand-off -> reload with _tap, hop 2 serves the tap page. Hidden/pagehide or a late timer (frozen in background) cancels; 0 = off.
 var interstitialTmpl = template.Must(template.New("i").Parse(`<!doctype html>
@@ -143,6 +149,7 @@ function buildQuery(pasted) {
   q.set("screen", screen.width + "x" + screen.height + "@" + (window.devicePixelRatio || 1));
   try { q.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone || ""); } catch (e) {}
   if (pasted) q.set("pasted_link", pasted);
+  if (navigator.maxTouchPoints > 1) q.set("_touch", "1");
   return q;
 }
 function go(pasted) {

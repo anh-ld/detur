@@ -81,6 +81,21 @@ func IsIOS(ua string) bool {
 	return strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad") || strings.Contains(ua, "ipod")
 }
 
+// MaybeIPad: Mac Safari UA, the iPadOS Safari default ("Request Desktop Website"). Only a touch screen tells them
+// apart; the interstitial reports it. Mac Chrome/Firefox/Edge carry their own tokens -> excluded.
+func MaybeIPad(ua string) bool {
+	l := strings.ToLower(ua)
+	if !strings.Contains(l, "macintosh") || !strings.Contains(l, "version/") || !strings.Contains(l, "safari/") {
+		return false
+	}
+	for _, t := range []string{"chrome", "crios", "firefox", "fxios", "edg"} {
+		if strings.Contains(l, t) {
+			return false
+		}
+	}
+	return true
+}
+
 // AndroidVersion: Android OS version from browser UA.
 func AndroidVersion(ua string) string {
 	m := reAndroidVersion.FindStringSubmatch(ua)
@@ -91,15 +106,15 @@ func AndroidVersion(ua string) string {
 }
 
 // IOSVersion: iOS system version from click UA, normalizing "17_2" to "17.2". iOS 26 WebKit freezes the OS token at 18_6; Safari's Version/ token carries the real version (Detour reads it too). Version/ wins only when its major is above the OS token's major: on older iOS the OS token is more precise (17_2_1 vs Version/17.2).
-func IOSVersion(ua string) string {
-	v := ""
+// fromSafari: version came from Version/ (major.minor only, no patch).
+func IOSVersion(ua string) (v string, fromSafari bool) {
 	if m := reIOSVersion.FindStringSubmatch(ua); m != nil {
 		v = strings.ReplaceAll(m[1], "_", ".")
 	}
 	if m := reSafariVersion.FindStringSubmatch(ua); m != nil && major(m[1]) > major(v) {
-		return m[1]
+		return m[1], true
 	}
-	return v
+	return v, false
 }
 
 // major: integer before first ".", non-numeric = 0.

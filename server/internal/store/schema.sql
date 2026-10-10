@@ -236,3 +236,23 @@ CREATE TABLE IF NOT EXISTS variant_days (
     installs INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (app_id, link_id, variant, day)
 );
+
+-- row_seq: highest rowid handed out per webhook stream table. TEXT primary keys = no AUTOINCREMENT: SQLite reuses
+-- rowids after a tail delete, and the webhook cursor skips the new rows. Inserts take n + 1; triggers keep n >= any
+-- rowid. Seeded from MAX(rowid) on every Open.
+CREATE TABLE IF NOT EXISTS row_seq (
+    name TEXT PRIMARY KEY,
+    n    INTEGER NOT NULL
+);
+INSERT INTO row_seq (name, n) SELECT 'clicks', COALESCE(MAX(rowid), 0) FROM clicks WHERE true
+    ON CONFLICT(name) DO UPDATE SET n = MAX(n, excluded.n);
+INSERT INTO row_seq (name, n) SELECT 'installs', COALESCE(MAX(rowid), 0) FROM installs WHERE true
+    ON CONFLICT(name) DO UPDATE SET n = MAX(n, excluded.n);
+INSERT INTO row_seq (name, n) SELECT 'events', COALESCE(MAX(rowid), 0) FROM events WHERE true
+    ON CONFLICT(name) DO UPDATE SET n = MAX(n, excluded.n);
+CREATE TRIGGER IF NOT EXISTS clicks_row_seq AFTER INSERT ON clicks
+BEGIN UPDATE row_seq SET n = MAX(n, NEW.rowid) WHERE name = 'clicks'; END;
+CREATE TRIGGER IF NOT EXISTS installs_row_seq AFTER INSERT ON installs
+BEGIN UPDATE row_seq SET n = MAX(n, NEW.rowid) WHERE name = 'installs'; END;
+CREATE TRIGGER IF NOT EXISTS events_row_seq AFTER INSERT ON events
+BEGIN UPDATE row_seq SET n = MAX(n, NEW.rowid) WHERE name = 'events'; END;

@@ -80,7 +80,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	now := time.Now()
 	// Deterministic lookup has no window; unknown clickId is no-match, never probabilistic fallback.
 	if req.ClickID != "" {
-		c, err := st.ClickByClickID(appID, req.ClickID)
+		c, err := st.ClickByClickID(appID, req.ClickID, req.DeviceHash)
 		if errors.Is(err, store.ErrNotFound) {
 			return label(noMatch(-1, -1), req), nil
 		}
@@ -93,7 +93,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 			r.FraudAction, r.FraudLinkID = store.FraudActionExcluded, c.LinkID
 			return label(r, req, f), nil
 		}
-		r, err := claim(st, c, Result{Method: store.MethodClickID, Score: -1, RunnerUp: -1})
+		r, err := claim(st, c, req.DeviceHash, Result{Method: store.MethodClickID, Score: -1, RunnerUp: -1})
 		if err != nil {
 			return Result{}, err
 		}
@@ -155,7 +155,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	}
 	f = append(f, fired(bestClick, set, tref, false))
 	action, linkID := r.FraudAction, r.FraudLinkID
-	r, err = claim(st, bestClick, Result{Method: store.MethodProbabilistic, Score: best, RunnerUp: second})
+	r, err = claim(st, bestClick, req.DeviceHash, Result{Method: store.MethodProbabilistic, Score: best, RunnerUp: second})
 	if err != nil {
 		return Result{}, err
 	}
@@ -218,9 +218,9 @@ func noMatch(score, runnerUp int) Result {
 	return Result{Method: store.MethodOrganic, Score: score, RunnerUp: runnerUp}
 }
 
-// claim: mark matched, fill r; lost race = no-match.
-func claim(st *store.Store, c store.Click, r Result) (Result, error) {
-	ok, err := st.MarkClickMatched(c.ID)
+// claim: mark matched by deviceHash, fill r; lost race to another device = no-match.
+func claim(st *store.Store, c store.Click, deviceHash string, r Result) (Result, error) {
+	ok, err := st.MarkClickMatched(c.ID, deviceHash)
 	if err != nil {
 		return Result{}, err
 	}

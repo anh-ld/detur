@@ -54,7 +54,7 @@ func main() {
 
 	// Portal: own listener; static UI from ./portal/dist (missing dir = API only).
 	go func() {
-		portal := api.RegisterPortal(st, "portal/dist", []string{*portalAddr}, cfg.LogoutURL, cfg.AdminPassword, cfg.AdminSessionHours)
+		portal := api.RegisterPortal(st, "portal/dist", append([]string{*portalAddr}, cfg.PortalHosts...), cfg.LogoutURL, cfg.AdminPassword, cfg.AdminSessionHours)
 		if cfg.AdminPassword != "" {
 			log.Printf("portal admin gating: ON")
 		} else {

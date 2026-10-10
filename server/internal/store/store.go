@@ -90,6 +90,11 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("seed app match settings: %w", err)
 		}
 	}
+	// Re-apply: legacy installs rebuild dropped its indexes + row_seq trigger; new columns exist now.
+	if _, err := db.Exec(schemaSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("re-apply schema: %w", err)
+	}
 	return &Store{db: db}, nil
 }
 
@@ -601,9 +606,9 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	c.CreatedAt = now
 	c.ExpiresAt = now.Add(expires)
 	_, err = tx.Exec(
-		`INSERT INTO clicks (id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at,
+		`INSERT INTO clicks (rowid, id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at,
 		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ((SELECT n + 1 FROM row_seq WHERE name = 'clicks'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.AppID, c.LinkID, nullStr(c.Fingerprint.IP), nullStr(c.Fingerprint.Device),
 		nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone), nullStr(c.Fingerprint.Screen),
 		nullStr(c.Fingerprint.UserAgent), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink), c.Destination,
@@ -731,11 +736,12 @@ func (s *Store) GetClick(id string) (Click, error) {
 }
 
 // ClickByClickID: no window. Live until max(expires_at, created_at + ClickIDHours); scrubbed rows keep destination.
-func (s *Store) ClickByClickID(appID, clickID string) (Click, error) {
+func (s *Store) ClickByClickID(appID, clickID, deviceHash string) (Click, error) {
 	now := time.Now()
 	return scanClick(s.db.QueryRow(
-		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND click_id = ? AND (expires_at >= ? OR created_at > ?) AND matched_at IS NULL`,
-		appID, clickID, rfc3339(now), rfc3339(s.clickIDCutoff(now)),
+		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND click_id = ? AND (expires_at >= ? OR created_at > ?)
+		   AND (matched_at IS NULL OR matched_device = ?)`,
+		appID, clickID, rfc3339(now), rfc3339(s.clickIDCutoff(now)), nullStr(deviceHash),
 	))
 }
 
@@ -745,13 +751,28 @@ func (s *Store) clickIDCutoff(now time.Time) time.Time {
 }
 
 // MarkClickMatched: claim click for one install (Detour: "marks the click as matched"). false = already matched.
-func (s *Store) MarkClickMatched(id string) (bool, error) {
-	res, err := s.db.Exec(`UPDATE clicks SET matched_at = ? WHERE id = ? AND matched_at IS NULL`, rfc3339(time.Now()), id)
+func (s *Store) MarkClickMatched(id, deviceHash string) (bool, error) {
+	res, err := s.db.Exec(`UPDATE clicks SET matched_at = ?, matched_device = ? WHERE id = ? AND matched_at IS NULL`,
+		rfc3339(time.Now()), nullStr(deviceHash), id)
 	if err != nil {
 		return false, fmt.Errorf("mark click matched: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	return n == 1, nil
+	if n, _ := res.RowsAffected(); n == 1 {
+		return true, nil
+	}
+	// lost claim, same device: retry overlapped the first request (install not written yet) -> still wins (M4)
+	if deviceHash == "" {
+		return false, nil
+	}
+	var one int
+	err = s.db.QueryRow(`SELECT 1 FROM clicks WHERE id = ? AND matched_device = ?`, id, deviceHash).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("mark click matched: %w", err)
+	}
+	return true, nil
 }
 
 // PriorMatch: still-retained click this device was already attributed to (idempotent match-link retries).
@@ -868,16 +889,28 @@ type Install struct {
 	Variant     string // matched click's variant; analytics
 }
 
-// RecordInstall: upsert install attribution idempotently per app, device, click; empty click_id marks organic/unknown installs, deduped per app + device too. Only an unknown row is upgraded by a later real attribution.
+// RecordInstall: upsert install attribution idempotently per app, device, click; empty click_id marks organic/unknown installs, deduped per app + device too. Only an unknown row gets replaced by a later real attribution: delete + re-insert -> new rowid, so webhook
+// cursors already past the hidden unknown still see it. One transaction: install + variant rollup.
 func (s *Store) RecordInstall(i Install) (Install, error) {
 	if i.ID == "" {
 		i.ID = Nanoid(16)
 	}
 	now := time.Now().UTC()
 	i.CreatedAt = now
-	res, err := s.db.Exec(
-		`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at, link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id, variant)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Install{}, fmt.Errorf("record install: %w", err)
+	}
+	defer tx.Rollback()
+	if i.Attribution != AttributionUnknown {
+		if _, err := tx.Exec(`DELETE FROM installs WHERE app_id = ? AND device_hash = ? AND click_id = ? AND attribution = ?`,
+			i.AppID, i.DeviceHash, i.ClickID, AttributionUnknown); err != nil {
+			return Install{}, fmt.Errorf("record install replace unknown: %w", err)
+		}
+	}
+	res, err := tx.Exec(
+		`INSERT INTO installs (rowid, id, app_id, device_hash, click_id, attribution, created_at, link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id, variant)
+		 VALUES ((SELECT n + 1 FROM row_seq WHERE name = 'installs'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(app_id, device_hash, click_id) DO UPDATE SET attribution = excluded.attribution,
 			   link_id = excluded.link_id, platform = excluded.platform,
 			   method = excluded.method, score = excluded.score, runner_up = excluded.runner_up,
@@ -892,7 +925,7 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	}
 	n, _ := res.RowsAffected()
 	if n > 0 && i.Variant != "" && i.LinkID != "" && i.Attribution != AttributionOrganic && i.Attribution != AttributionUnknown {
-		if _, err := s.db.Exec(
+		if _, err := tx.Exec(
 			`INSERT INTO variant_days (app_id, link_id, variant, day, clicks, installs) VALUES (?, ?, ?, ?, 0, 1)
 			 ON CONFLICT(app_id, link_id, variant, day) DO UPDATE SET installs = installs + 1`,
 			i.AppID, i.LinkID, i.Variant, day(now),
@@ -906,13 +939,16 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 		createdAt string
 		variant   string
 	)
-	err = s.db.QueryRow(
+	err = tx.QueryRow(
 		`SELECT id, app_id, device_hash, click_id, attribution, created_at, COALESCE(variant, '')
 		 FROM installs WHERE app_id = ? AND device_hash = ? AND click_id = ?`,
 		i.AppID, i.DeviceHash, i.ClickID,
 	).Scan(&got.ID, &got.AppID, &got.DeviceHash, &got.ClickID, &got.Attribution, &createdAt, &variant)
 	if err != nil {
 		return Install{}, fmt.Errorf("record install readback: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Install{}, fmt.Errorf("record install commit: %w", err)
 	}
 	got.CreatedAt = parseTime(createdAt)
 	got.Variant = variant
@@ -926,6 +962,7 @@ func addMissingColumns(db *sql.DB) error {
 		{"links", "expired_url", "TEXT"},
 		{"clicks", "os_version", "TEXT"},
 		{"clicks", "matched_at", "TEXT"},
+		{"clicks", "matched_device", "TEXT"},
 		{"apps", "match_threshold", "INTEGER NOT NULL DEFAULT 850"},
 		{"apps", "match_window_minutes", "INTEGER NOT NULL DEFAULT 15"},
 		{"installs", "link_id", "TEXT"},
@@ -1098,7 +1135,7 @@ func (s *Store) RecordEvent(appID, event, metadata string) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(
-		`INSERT INTO events (id, app_id, event, metadata) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO events (rowid, id, app_id, event, metadata) VALUES ((SELECT n + 1 FROM row_seq WHERE name = 'events'), ?, ?, ?, ?)`,
 		Nanoid(21), appID, event, nullStr(metadata),
 	); err != nil {
 		return fmt.Errorf("record event: %w", err)
