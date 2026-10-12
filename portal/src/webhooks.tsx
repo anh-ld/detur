@@ -46,7 +46,7 @@ const surface = {
 
 const DEFAULT_TYPES: WebhookEventType[] = ['installs', 'events'];
 
-// tick: the page's Refresh counter; bumping it reloads the list.
+// tick: page Refresh counter; bump reloads list
 export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
   const [webhooks, setWebhooks] = useState<Webhook[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,17 +56,17 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
     admin: getAdmin(),
   }));
 
-  // Replay dialog state
+  // replay dialog
   const [replayTarget, setReplayTarget] = useState<Webhook | null>(null);
   const [replayHours, setReplayHours] = useState('1');
   const [replaying, setReplaying] = useState(false);
 
-  // Rotate secret dialog state
+  // rotate secret dialog
   const [rotateTarget, setRotateTarget] = useState<Webhook | null>(null);
   const [newSecret, setNewSecret] = useState('');
   const [rotating, setRotating] = useState(false);
 
-  // New secret reveal dialog (after create)
+  // secret reveal after create
   const [createdSecret, setCreatedSecret] = useState<{ id: string; url: string; secret: string } | null>(null);
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
   const reload = async () => {
     setError('');
     if (!getAdmin()) {
-      // Server answers 403 until elevated: skip the request
+      // server 403s until elevated: skip
       setWebhooks([]);
       setLoading(false);
       return;
@@ -307,7 +307,6 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
         </Table>
       )}
 
-      {/* Add Webhook Dialog */}
       <AddWebhookDialog
         appId={app.id}
         onCreated={(wh) => {
@@ -317,7 +316,6 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
         }}
       />
 
-      {/* Created Secret Dialog */}
       <Dialog id="dlg-created-secret">
         <Dialog.Content>
           <div style={{ display: 'grid', gap: 16 }}>
@@ -341,7 +339,6 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
         </Dialog.Content>
       </Dialog>
 
-      {/* Replay Webhook Dialog */}
       <Dialog id="dlg-replay-webhook">
         <Dialog.Content>
           <div style={{ display: 'grid', gap: 16 }}>
@@ -377,7 +374,6 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
         </Dialog.Content>
       </Dialog>
 
-      {/* Rotate Secret Dialog */}
       <Dialog id="dlg-rotate-secret">
         <Dialog.Content>
           <div style={{ display: 'grid', gap: 16 }}>

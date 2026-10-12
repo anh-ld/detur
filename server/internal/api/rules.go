@@ -101,7 +101,7 @@ func validRuleTargets(t store.RuleTargets) error {
 	return nil
 }
 
-// validateLinkRules: variant labels (direct rule names + split variant names) are unique per link, since variant_days keys on link + label.
+// validateLinkRules: variant labels (rule names + split variant names) unique per link: variant_days keys on link + label.
 func validateLinkRules(rules []store.LinkRule) error {
 	labels := map[string]bool{}
 	for i, r := range rules {
@@ -110,7 +110,6 @@ func validateLinkRules(rules []store.LinkRule) error {
 			return fmt.Errorf("rule #%d: name is required", i+1)
 		}
 
-		// Validate conditions
 		if r.Cond.Platform != "" {
 			plat := strings.ToLower(strings.TrimSpace(r.Cond.Platform))
 			if plat != "ios" && plat != "android" && plat != "desktop" {
@@ -128,7 +127,6 @@ func validateLinkRules(rules []store.LinkRule) error {
 			}
 		}
 
-		// Validate action
 		hasTargets := r.Action.Targets != nil
 		hasSplit := len(r.Action.Split) > 0
 		if !hasTargets && !hasSplit {

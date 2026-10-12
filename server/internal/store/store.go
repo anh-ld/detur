@@ -1,8 +1,8 @@
 // Package store persists detur state in SQLite (WAL mode).
 //
-// Attribution: organic | non_organic | unknown (backend-error path). Clicks carry
-// expires_at = retention; deterministic clickId lookups skip the window filter
-// (deterministic match has no window), match applies the app's window at query time.
+// Attribution: organic | non_organic | unknown (backend error). Clicks carry
+// expires_at = retention; clickId lookups skip the window (deterministic match has none);
+// match applies the app's window at query time.
 package store
 
 import (
@@ -27,11 +27,11 @@ import (
 var schemaSQL string
 
 const (
-	// AttributionOrganic: install with no matched click.
+	// AttributionOrganic: no matched click.
 	AttributionOrganic = "organic"
-	// AttributionNonOrganic: install matched to a click.
+	// AttributionNonOrganic: matched to a click.
 	AttributionNonOrganic = "non_organic"
-	// AttributionUnknown: backend-error path (logged, not surfaced in analytics).
+	// AttributionUnknown: backend error (logged, not in analytics).
 	AttributionUnknown = "unknown"
 )
 
@@ -44,7 +44,7 @@ const (
 	MethodUnknown       = "unknown"       // backend error
 )
 
-// ErrNotFound: requested row does not exist.
+// ErrNotFound: no such row.
 var ErrNotFound = errors.New("not found")
 var ErrKeyConflict = errors.New("short key already exists")
 var ErrAmbiguousKey = errors.New("short key is ambiguous")
@@ -55,7 +55,7 @@ type Store struct {
 	ClickIDHours int
 }
 
-// Open: open SQLite database at path, creating if needed.
+// Open: open/create SQLite db at path.
 func Open(path string) (*Store, error) {
 	sep := "?"
 	if strings.Contains(path, "?") {
@@ -100,19 +100,19 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-// Ping: database answers trivial query (healthcheck probe).
+// Ping: trivial query (healthcheck).
 func (s *Store) Ping() error {
 	var one int
 	return s.db.QueryRow(`SELECT 1`).Scan(&one)
 }
 
-// HashKey: SHA-256 hex digest of API key (hash-at-rest).
+// HashKey: SHA-256 hex of API key (hash-at-rest).
 func HashKey(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:])
 }
 
-// App: registered app holding links + API keys; trailing fields carry well-known hosting details: iOS appID (TEAMID.BUNDLEID), Android package + SHA-256 cert fingerprint.
+// App: owns links + API keys; trailing fields = well-known hosting details: iOS appID (TEAMID.BUNDLEID), Android package + SHA-256 cert fingerprint.
 type App struct {
 	ID                     string
 	Name                   string
@@ -137,7 +137,7 @@ func (s *Store) CreateApp(name, apiKey string) (App, error) {
 	return App{ID: id, Name: name, APIKeyHash: hash, MatchThreshold: 850, MatchWindowMinutes: 15}, nil
 }
 
-// GetApp: app by id incl. well-known hosting details.
+// GetApp: app by id, incl. hosting details.
 func (s *Store) GetApp(id string) (App, error) {
 	var a App
 	err := s.db.QueryRow(
@@ -153,7 +153,7 @@ func (s *Store) GetApp(id string) (App, error) {
 	return a, nil
 }
 
-// UpdateAppDetails: set hosting details; empty string clears field (nullable columns); ErrNotFound if app unknown.
+// UpdateAppDetails: set hosting details; "" clears (nullable); ErrNotFound if app unknown.
 func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint string) error {
 	res, err := s.db.Exec(
 		`UPDATE apps SET ios_app_id = ?, android_package = ?, android_cert_fingerprint = ? WHERE id = ?`,
@@ -168,7 +168,7 @@ func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint s
 	return nil
 }
 
-// UpdateAppMatchSettings: set app's match threshold + window (Detour: app-level); ErrNotFound if app unknown. Range checks live in match.
+// UpdateAppMatchSettings: set app's match threshold + window (Detour: app-level); ErrNotFound if app unknown. Range checks in match.
 func (s *Store) UpdateAppMatchSettings(id string, threshold, windowMinutes int) error {
 	res, err := s.db.Exec(`UPDATE apps SET match_threshold = ?, match_window_minutes = ? WHERE id = ?`, threshold, windowMinutes, id)
 	if err != nil {
@@ -180,7 +180,7 @@ func (s *Store) UpdateAppMatchSettings(id string, threshold, windowMinutes int) 
 	return nil
 }
 
-// UpdateAppTagLinks: turn destination link tagging on or off; ErrNotFound if app unknown.
+// UpdateAppTagLinks: toggle destination link tagging; ErrNotFound if app unknown.
 func (s *Store) UpdateAppTagLinks(id string, on bool) error {
 	res, err := s.db.Exec(`UPDATE apps SET tag_links = ? WHERE id = ?`, boolInt(on), id)
 	if err != nil {
@@ -192,7 +192,7 @@ func (s *Store) UpdateAppTagLinks(id string, on bool) error {
 	return nil
 }
 
-// DeleteApp: remove app; links cascade (schema ON DELETE CASCADE), clicks/installs/events have no FK so deleted explicitly. New app_id tables go here.
+// DeleteApp: links cascade (ON DELETE CASCADE); clicks/installs/events have no FK -> deleted explicitly. New app_id tables go here.
 func (s *Store) DeleteApp(id string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -234,7 +234,7 @@ func (s *Store) ListApps() ([]App, error) {
 	return apps, rows.Err()
 }
 
-// UpdateAppKey: replace API key hash (rotation); previous key stops working immediately.
+// UpdateAppKey: replace API key hash (rotation); old key dies immediately.
 func (s *Store) UpdateAppKey(id, apiKey string) error {
 	res, err := s.db.Exec(`UPDATE apps SET api_key_hash = ? WHERE id = ?`, HashKey(apiKey), id)
 	if err != nil {
@@ -361,7 +361,7 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL),
 	)
 	if err != nil {
-		// Unknown app_id hits FK; portal treats it as 404.
+		// unknown app_id hits FK; portal -> 404
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
 			return Link{}, ErrNotFound
 		}
@@ -380,7 +380,7 @@ func (s *Store) GetLinkByKey(appID, key string) (Link, error) {
 	))
 }
 
-// GetLinkByKeyGlobal: resolve short key across all apps; historic duplicates fail closed, no silent traffic to wrong app.
+// GetLinkByKeyGlobal: resolve short key across all apps; historic dupes fail closed (no traffic to wrong app).
 func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
 	rows, err := s.db.Query(
 		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, '')
@@ -433,7 +433,7 @@ func (s *Store) ListLinks(appID string) ([]Link, error) {
 	return links, rows.Err()
 }
 
-// UpdateLink: update mutable link fields.
+// UpdateLink: update mutable fields.
 func (s *Store) UpdateLink(l Link) error {
 	res, err := s.db.Exec(
 		`UPDATE links SET url = ?, ios = ?, android = ?, fallback_url = ?, expires_at = ?, expired_url = ?
@@ -512,7 +512,7 @@ func nullTime(t *time.Time) any {
 	return rfc3339(*t)
 }
 
-// Fingerprint: device signal set captured at click time (IP, device, locale, timezone, screen, user-agent, pasted link), matched against first-launch fingerprint.
+// Fingerprint: device signals at click time (IP, device, locale, timezone, screen, UA, pasted link); matched against first-launch fingerprint.
 type Fingerprint struct {
 	IP         string
 	Device     string
@@ -520,7 +520,7 @@ type Fingerprint struct {
 	Timezone   string
 	Screen     string
 	UserAgent  string
-	OSVersion  string // UA Client Hint Sec-CH-UA-Platform-Version; empty = derive from UA
+	OSVersion  string // Sec-CH-UA-Platform-Version; "" = derive from UA
 	PastedLink string
 }
 
@@ -537,14 +537,14 @@ type Click struct {
 	// Platform (ios | android | desktop | ""): click_days rollup only, not stored. Kind (KindApp | KindWeb | KindOpen): rollup + stored (open clicks skip UA/short-timing, KTD3).
 	Platform string
 	Kind     string
-	// Source: in-app browser that sent the click (ua.InApp name or "unknown-inapp"), "" = real browser or SDK. Stored + click_sources rollup; not device data, survives the scrub.
+	// Source: in-app browser that sent the click (ua.InApp name or "unknown-inapp"); "" = real browser or SDK. Stored + click_sources rollup; not device data -> survives scrub.
 	Source string
 	// Fraud facts (KTD1), judged at match time. FirstSeenAt: first tap (refresh keeps it). HitsIP/HitsLink: max hits seen over the velocity window, set by RecordClick.
 	FirstSeenAt      time.Time
 	UASuspect        bool
 	IPHosting        bool
 	HitsIP, HitsLink int
-	// Variant: assigned A/B split variant name ("" = default / no rule). Stored + variant_days rollup.
+	// Variant: A/B variant name ("" = default/no rule). Stored + variant_days rollup.
 	Variant string
 }
 
@@ -555,10 +555,10 @@ const (
 	KindOpen = "open" // SDK universal-link open: app already installed
 )
 
-// clickDedupWindow: mirrors Dub's recordClickCache — one click per link + device (IP + user agent) per hour.
+// clickDedupWindow: Dub's recordClickCache: one click per link + device (IP + UA) per hour.
 const clickDedupWindow = time.Hour
 
-// RecordClick: persist click, or refresh same device's (IP + user agent) click on same link within last hour (Dub record-click-cache); one clickId per device. Re-tap re-enters match window (Dub rewrites deepLinkClickCache per tap). Expiry = retention: deterministic lookups live that long; probabilistic window applied by match at query time.
+// RecordClick: insert, or refresh same device's (IP + UA) click on same link within the hour (Dub record-click-cache); one clickId per device. Re-tap re-enters match window (Dub rewrites deepLinkClickCache per tap). Expiry = retention = deterministic lookup life; probabilistic window applied by match at query time.
 func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	expires := time.Duration(retentionHours) * time.Hour
 	now := time.Now().UTC()
@@ -584,11 +584,11 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	if !errors.Is(err, ErrNotFound) {
 		return Click{}, fmt.Errorf("record click dedup: %w", err)
 	}
-	// in-app reopen: "Open in browser" reloads the link in a real browser (no source) on the same network and platform. SDK opens stay their own counter.
+	// in-app reopen: "Open in browser" reloads link in real browser (no source), same network + platform. SDK opens stay separate.
 	if c.Kind != KindOpen && c.Source == "" && c.Fingerprint.IP != "" {
 		existing, err = reopenCandidate(tx, c, now)
 		if err == nil {
-			// a reopen carries the same URL: keep the in-app click's destination, variant and pasteboard signal
+			// reopen = same URL: keep in-app click's destination, variant, pasteboard signal
 			c.Destination, c.Variant, c.Fingerprint.PastedLink = "", "", ""
 			return s.refreshClick(tx, existing, c, now, now.Add(expires))
 		}
@@ -599,7 +599,7 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	if c.ID == "" {
 		c.ID = Nanoid(16)
 	}
-	// id handed to clients (rec.ID, Android Play referrer, universal-link clickId) is the deterministic match key: default click_id to it so ClickByClickID resolves SDK echo.
+	// id handed to clients (rec.ID, Android Play referrer, universal-link clickId) = deterministic match key: default click_id to it so ClickByClickID resolves SDK echo.
 	if c.ClickID == "" {
 		c.ClickID = c.ID
 	}
@@ -618,7 +618,7 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
 	}
-	// rollup counts new clicks only; a dedup refresh is the same click. UA-suspect stays out (R3).
+	// rollup counts new clicks only (dedup refresh = same click). UA-suspect stays out (R3).
 	if !c.UASuspect {
 		_, err = tx.Exec(
 			`INSERT INTO click_days (app_id, link_id, day, platform, kind, n) VALUES (?, ?, ?, ?, ?, 1)
@@ -656,7 +656,7 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	return c, nil
 }
 
-// reopenCandidate: newest in-app click on the same link + IP within the dedup window, from a different UA on the visitor's platform. Platform lives only in the UA, so candidates are filtered here, newest first.
+// reopenCandidate: newest in-app click, same link + IP, within dedup window, other UA, visitor's platform. Platform lives only in UA -> filtered here, newest first.
 func reopenCandidate(tx *sql.Tx, c Click, now time.Time) (Click, error) {
 	rows, err := tx.Query(
 		`SELECT `+clickCols+` FROM clicks
@@ -703,7 +703,7 @@ func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (
 	if err != nil {
 		return Click{}, fmt.Errorf("record click refresh: %w", err)
 	}
-	// variant follows the served destination; a switch (rule edited mid-window) is a new exposure for the new variant
+	// variant follows served destination; switch (rule edited mid-window) = new exposure for new variant
 	if c.Destination != "" && c.Variant != "" && c.Variant != old.Variant && !c.UASuspect {
 		if _, err := tx.Exec(
 			`INSERT INTO variant_days (app_id, link_id, variant, day, clicks, installs) VALUES (?, ?, ?, ?, 1, 0)
@@ -760,7 +760,7 @@ func (s *Store) MarkClickMatched(id, deviceHash string) (bool, error) {
 	if n, _ := res.RowsAffected(); n == 1 {
 		return true, nil
 	}
-	// lost claim, same device: retry overlapped the first request (install not written yet) -> still wins (M4)
+	// same device lost claim: retry overlapped first request -> wins (M4)
 	if deviceHash == "" {
 		return false, nil
 	}
@@ -775,7 +775,7 @@ func (s *Store) MarkClickMatched(id, deviceHash string) (bool, error) {
 	return true, nil
 }
 
-// PriorMatch: still-retained click this device was already attributed to (idempotent match-link retries).
+// PriorMatch: retained click this device already got attributed to (idempotent match-link retries).
 func (s *Store) PriorMatch(appID, deviceHash string) (Click, error) {
 	return scanClick(s.db.QueryRow(
 		`SELECT `+clickColsC+` FROM clicks c JOIN installs i ON i.click_id = c.id
@@ -805,7 +805,7 @@ func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	return clicks, rows.Err()
 }
 
-// PurgeExpired: expired clicks scrubbed; matched or past ClickIDHours deleted. Old events deleted. Hit buckets past the 24h max window and device tags past deviceLinkDays deleted (not counted). Returns rows deleted.
+// PurgeExpired: scrub expired clicks; delete matched or past-ClickIDHours ones, old events, hit buckets past 24h max window, device tags past deviceLinkDays (last two not counted). Returns rows deleted.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
 	if _, err := s.db.Exec(
@@ -889,8 +889,8 @@ type Install struct {
 	Variant     string // matched click's variant; analytics
 }
 
-// RecordInstall: upsert install attribution idempotently per app, device, click; empty click_id marks organic/unknown installs, deduped per app + device too. Only an unknown row gets replaced by a later real attribution: delete + re-insert -> new rowid, so webhook
-// cursors already past the hidden unknown still see it. One transaction: install + variant rollup.
+// RecordInstall: idempotent upsert per app, device, click; empty click_id = organic/unknown, deduped per app + device too. Only an unknown row is replaced by
+// a later real attribution: delete + re-insert -> new rowid, so webhook cursors past the unknown still see it. One tx: install + variant rollup.
 func (s *Store) RecordInstall(i Install) (Install, error) {
 	if i.ID == "" {
 		i.ID = Nanoid(16)
@@ -933,7 +933,7 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 			return Install{}, fmt.Errorf("record install variant rollup: %w", err)
 		}
 	}
-	// Return stored row (surviving row on conflict).
+	// surviving row on conflict
 	var (
 		got       Install
 		createdAt string
@@ -955,7 +955,7 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 	return got, nil
 }
 
-// addMissingColumns: columns introduced after v0.1, added to existing databases (CREATE TABLE IF NOT EXISTS leaves old tables untouched).
+// addMissingColumns: post-v0.1 columns added to existing dbs (CREATE TABLE IF NOT EXISTS leaves old tables alone).
 func addMissingColumns(db *sql.DB) error {
 	for _, c := range []struct{ table, column, decl string }{
 		{"links", "expires_at", "TEXT"},
@@ -1007,7 +1007,7 @@ func tableExists(db *sql.DB, name string) bool {
 	return n > 0
 }
 
-// seedAppMatchFromSettings: one-time upgrade, old instance-wide settings become every app's settings. Out-of-range/garbage values ignored (defaults stay).
+// seedAppMatchFromSettings: one-time upgrade: old instance-wide settings -> every app's. Out-of-range/garbage ignored (defaults stay).
 func seedAppMatchFromSettings(db *sql.DB) error {
 	if !tableExists(db, "settings") {
 		return nil
@@ -1156,7 +1156,7 @@ func (s *Store) CountEvents(appID string) (int64, error) {
 	return n, err
 }
 
-// rawExec: execute statement directly (test-only hook for expiry/purge setup).
+// rawExec: test-only hook for expiry/purge setup.
 func (s *Store) rawExec(q string, args ...any) (sql.Result, error) {
 	return s.db.Exec(q, args...)
 }
@@ -1202,10 +1202,10 @@ func boolInt(b bool) int {
 	return 0
 }
 
-// timeLayout: matches SQLite strftime('%Y-%m-%dT%H:%M:%fZ') column defaults — fixed width, stored timestamps compare correctly as text.
+// timeLayout: = SQLite strftime('%Y-%m-%dT%H:%M:%fZ') column defaults; fixed width -> text compare works.
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
-// maxRollupEventName: event_days keeps names forever (no purge); long free-form names are cut so a name carrying device data cannot grow unbounded.
+// maxRollupEventName: event_days keeps names forever (no purge); cut long free-form names so one carrying device data can't grow unbounded.
 const maxRollupEventName = 64
 
 func rollupEventName(e string) string {

@@ -15,7 +15,7 @@ var (
 	hosting6 []byte
 )
 
-// Routable: parsed public address (IPv4-in-IPv6 unmapped); false for empty, unparsable, private, loopback, link-local or unspecified. Behind a misconfigured proxy every client shows a private peer, so IP signals skip those (KTD8).
+// Routable: parsed public address (IPv4-in-IPv6 unmapped); false for empty, unparsable, private, loopback, link-local, unspecified. Misconfigured proxy -> every client looks private, so IP signals skip those (KTD8).
 func Routable(ip string) (netip.Addr, bool) {
 	a, err := netip.ParseAddr(ip)
 	if err != nil {
@@ -25,7 +25,7 @@ func Routable(ip string) (netip.Addr, bool) {
 	return a, !(a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsUnspecified())
 }
 
-// Hosting: ip falls in a bundled datacenter/proxy range. Private, loopback, empty and unparsable input is never hosting (KTD8).
+// Hosting: ip in bundled datacenter/proxy range. Private, loopback, empty, unparsable = never hosting (KTD8).
 func Hosting(ip string) bool {
 	a, ok := Routable(ip)
 	if !ok {

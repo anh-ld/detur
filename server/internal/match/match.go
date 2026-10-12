@@ -10,7 +10,7 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// Configurable matching bounds: threshold 700..1200, window 5..180 minutes.
+// Matching bounds: threshold 700..1200, window 5..180 min.
 const (
 	MinThreshold = 700
 	MaxThreshold = 1200
@@ -18,13 +18,13 @@ const (
 	MaxWindow    = 180
 )
 
-// Errors returned for out-of-range matching parameters.
+// Out-of-range matching param errors.
 var (
 	ErrThresholdOutOfRange = errors.New("threshold out of range 700..1200")
 	ErrWindowOutOfRange    = errors.New("window out of range 5..180 minutes")
 )
 
-// Fingerprint: first-launch device fingerprint SDK sends on match-link (full payload, no clickId). Platform not stored: scoring engine derives it from click's UA (one-device-signal rule).
+// Fingerprint: first-launch device fingerprint from SDK match-link (full payload, no clickId). No Platform: scoring derives it from click UA (one-device-signal rule).
 type Fingerprint struct {
 	Model, Manufacturer, SystemVersion      string
 	ScreenWidth, ScreenHeight               int
@@ -33,7 +33,7 @@ type Fingerprint struct {
 	CapturedAt                              time.Time // SDK capture time; zero = unknown
 }
 
-// Request: match-link request, exact ClickID (Android Play referrer) or Fingerprint payload, never both.
+// Request: match-link request: exact ClickID (Android Play referrer) or Fingerprint, never both.
 type Request struct {
 	ClickID     string
 	IP          string
@@ -41,7 +41,7 @@ type Request struct {
 	Fingerprint *Fingerprint
 }
 
-// Result: match outcome. Matched=false is no-match (404, organic install).
+// Result: match outcome. Matched=false = no-match (404, organic install).
 // Method/Score/RunnerUp: receipt (store.Method*). Score kept on no-match; -1 = no candidate.
 type Result struct {
 	Matched     bool
@@ -50,11 +50,11 @@ type Result struct {
 	Method      string
 	Score       int
 	RunnerUp    int
-	// Fraud labels (KTD7, store.Install): Fraud = fired signals comma list; FraudAction = store.FraudAction*; FraudLinkID = excluded best click's link.
+	// Fraud labels (KTD7, store.Install): Fraud = fired signals, comma list; FraudAction = store.FraudAction*; FraudLinkID = excluded best click's link.
 	Fraud, FraudAction, FraudLinkID string
 }
 
-// ValidateSettings: app match settings within Detour's documented ranges.
+// ValidateSettings: match settings within Detour's documented ranges.
 func ValidateSettings(threshold, windowMinutes int) error {
 	if windowMinutes < MinWindow || windowMinutes > MaxWindow {
 		return fmt.Errorf("%w: got %d", ErrWindowOutOfRange, windowMinutes)
@@ -65,19 +65,19 @@ func ValidateSettings(threshold, windowMinutes int) error {
 	return nil
 }
 
-// Match: deterministic when ClickID present, else probabilistic with the app's threshold/window. Fraud settings apply to both; active-flagged clicks are excluded (KTD4).
+// Match: ClickID -> deterministic, else probabilistic (app threshold/window). Fraud settings apply to both; active-flagged clicks excluded (KTD4).
 func Match(st *store.Store, appID string, req Request) (Result, error) {
-	// Same-device retry: already attributed to a retained click, same answer, no new consumption.
+	// same-device retry: already attributed to retained click -> same answer, no new consumption
 	if req.DeviceHash != "" {
-		// lookup error falls through to normal matching: backend trouble never denies a link
+		// lookup error -> normal matching: backend trouble never denies a link
 		if c, err := st.PriorMatch(appID, req.DeviceHash); err == nil {
 			return Result{Matched: true, Click: c, Destination: c.Destination, Method: store.MethodPrior, Score: -1, RunnerUp: -1}, nil
 		}
 	}
-	// a settings read error comes back with Defaults (every signal tagged), so a clickId match is never blocked (KTD4); the error surfaces on the next portal settings read
+	// settings read error returns Defaults (all tagged) -> clickId match never blocked (KTD4); error surfaces on next portal settings read
 	set, _ := st.FraudSettings(appID)
 	now := time.Now()
-	// Deterministic lookup has no window; unknown clickId is no-match, never probabilistic fallback.
+	// deterministic: no window; unknown clickId = no-match, no probabilistic fallback
 	if req.ClickID != "" {
 		c, err := st.ClickByClickID(appID, req.ClickID, req.DeviceHash)
 		if errors.Is(err, store.ErrNotFound) {
@@ -87,7 +87,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 			return Result{}, err
 		}
 		f := fired(c, set, now, true)
-		if set.Excluded(f) { // flagged clickId: organic, click left unconsumed, no fingerprint to fall back on (R7)
+		if set.Excluded(f) { // flagged clickId: organic, click unconsumed, no fingerprint fallback (R7)
 			r := noMatch(-1, -1)
 			r.FraudAction, r.FraudLinkID = store.FraudActionExcluded, c.LinkID
 			return label(r, req, f), nil
@@ -99,7 +99,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 		return label(r, req, f), nil
 	}
 
-	// Probabilistic: window scan per app (match-link fingerprint carries no link identity).
+	// probabilistic: window scan per app (fingerprint carries no link identity)
 	app, err := st.GetApp(appID)
 	if err != nil {
 		return Result{}, err
@@ -111,7 +111,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	if req.Fingerprint != nil {
 		fp = *req.Fingerprint
 	}
-	// ref: Detour measures the window from the fingerprint timestamp. Client clocks drift: use it only within MaxWindow of server time, else server now.
+	// ref: Detour measures window from fingerprint time. Client clocks drift: use it only within MaxWindow of server time, else server now.
 	ref := now
 	if t := fp.CapturedAt; !t.IsZero() && t.After(now.Add(-MaxWindow*time.Minute)) && t.Before(now.Add(time.Minute)) {
 		ref = t
@@ -120,10 +120,10 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	// all candidates, not only >= threshold: near misses feed the what-if. top: overall best; best/second: valid (non-excluded) set, reported in the receipt (KTD4).
+	// score all candidates, not just >= threshold: near misses feed what-if. top = overall best; best/second = valid (non-excluded) set, in receipt (KTD4).
 	top, topClick := -1, store.Click{}
 	best, second, bestClick := -1, -1, store.Click{}
-	// timing measures to the fingerprint time, never past server now: a client clock running ahead must not stretch "too soon" away
+	// timing to fingerprint time, capped at server now: fast client clock must not stretch "too soon" away
 	tref := ref
 	if tref.After(now) {
 		tref = now
@@ -158,7 +158,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if !r.Matched { // lost the claim race: organic, but an excluded best click still took credit away
+	if !r.Matched { // lost claim race: organic, but excluded best click still took credit
 		r.FraudAction, r.FraudLinkID = action, linkID
 	} else {
 		if action != "" {
@@ -191,14 +191,14 @@ func noMatch(score, runnerUp int) Result {
 	return Result{Method: store.MethodOrganic, Score: score, RunnerUp: runnerUp}
 }
 
-// claim: mark matched by deviceHash, fill r; lost race to another device = no-match.
+// claim: mark matched by deviceHash, fill r; lost race to other device = no-match.
 func claim(st *store.Store, c store.Click, deviceHash string, r Result) (Result, error) {
 	ok, err := st.MarkClickMatched(c.ID, deviceHash)
 	if err != nil {
 		return Result{}, err
 	}
 	if !ok {
-		// lost the claim race: rare (two first-opens on one click within ms), falls to organic
+		// lost claim race (2 first-opens, same click, ms apart): organic
 		return noMatch(r.Score, r.RunnerUp), nil
 	}
 	r.Matched, r.Click, r.Destination = true, c, c.Destination

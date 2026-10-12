@@ -19,7 +19,7 @@ export function AppsPage() {
   };
   useEffect(load, []);
 
-  // Runs when trigger clicked, before the dialog opens (elevation first when gated).
+  // on trigger click, before dialog opens (elevate first if gated)
   const resetCreate = () => {
     setCreated(null);
     setName('');
@@ -33,7 +33,7 @@ export function AppsPage() {
     setError('');
     try {
       const app = await adminCall(() => api.createApp(name.trim()));
-      setCreated(app); // show-once panel: plaintext key from this one response
+      setCreated(app); // show-once: plaintext key only in this response
       load();
     } catch (e) {
       if (e instanceof AdminGateAborted) return;
@@ -137,7 +137,7 @@ export function AppsPage() {
               <tr
                 key={a.id}
                 class="row-link"
-                // row click opens the app; buttons, links and the delete dialog keep their own
+                // row click opens app; buttons, links, delete dialog keep their own
                 onClick={(e) => {
                   if (!(e.target as Element).closest('a, button, dialog')) location.hash = `#/apps/${a.id}`;
                 }}

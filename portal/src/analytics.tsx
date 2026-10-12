@@ -4,10 +4,10 @@ import { Badge, Button, Card, Empty, Input, Select, Table } from 'kinu';
 import { Analytics, DateRangeFilter, DayStat, Mark, Platform } from './api';
 import { mono, muted, row } from './ui';
 
-// Series colors: a blue ramp around the brand cyan, one warm gray.
+// blue ramp around brand cyan + one warm gray
 const CYAN = 'hsl(205 87% 59%)';
 
-// Analytics view (Detour overview parity): filters, totals, daily charts, top events. Charts are plain SVG.
+// Detour overview parity: filters, totals, daily charts, top events. Plain SVG charts.
 
 type Metric = keyof Omit<DayStat, 'day'>;
 
@@ -23,7 +23,7 @@ const BARS: { key: Metric; label: string; color: string }[] = [
   { key: 'organic', label: 'Organic', color: 'hsl(204 77% 86%)' },
 ];
 
-// In-app source ids (server ua.InApp) → display names.
+// server ua.InApp ids → display names
 const SOURCE_NAMES: Record<string, string> = {
   messenger: 'Messenger',
   facebook: 'Facebook',
@@ -45,10 +45,9 @@ const fmtDay = (d: string) =>
 
 const sum = (days: DayStat[], k: Metric) => days.reduce((n, d) => n + d[k], 0);
 
-// Thousands separators: 12500 → 12,500.
+// 12500 → 12,500
 export const fmt = (n: number) => n.toLocaleString('en');
 
-// Placeholder bar while data loads.
 export const Skeleton = ({ w = '100%', h }: { w?: number | string; h: number }) => (
   <span class="skeleton" style={{ width: w, height: h }} />
 );
@@ -206,7 +205,7 @@ export function Filters({
   );
 }
 
-// Tile icons: Lucide paths (ISC), 24px grid, outline.
+// Lucide icon paths (ISC), 24px grid
 const ICONS: Partial<Record<Metric, string>> = {
   clicks:
     'M14 4.1 12 6M5.1 8l-2.9-.8M6 12l-1.9 2M7.2 2.2 8 5.1M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z',
@@ -215,7 +214,7 @@ const ICONS: Partial<Record<Metric, string>> = {
   webFallbacks: 'M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 2a14.5 14.5 0 0 0 0 20a14.5 14.5 0 0 0 0-20M2 12h20',
 };
 
-// Stat tile: icon + label, total, one-line hint, per-day sparkline in the chart's color.
+// tile: icon + label, total, hint, sparkline in chart color
 function Tile({
   data,
   metric,
@@ -455,7 +454,7 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
   );
 }
 
-// Empty section in range: same Card + Empty as the Links tab.
+// empty in range: same Card + Empty as Links tab
 const EmptySection = ({ title, children }: { title: string; children: ComponentChildren }) => (
   <Card>
     <Empty>
@@ -465,11 +464,11 @@ const EmptySection = ({ title, children }: { title: string; children: ComponentC
   </Card>
 );
 
-// Retention cell: share of the mark's devices that came back; – when no cohort has reached that mark in range.
+// share of mark's devices that returned; – = no cohort reached the mark in range
 const rate = (m: Mark) => (m.devices === 0 ? '–' : `${Math.round((m.returned / m.devices) * 100)}%`);
 const markTitle = (m: Mark) => (m.devices === 0 ? 'No cohort reached this day in range' : `${fmt(m.returned)} of ${fmt(m.devices)} devices`);
 
-// Container width for the SVG, so axis text stays at real pixel size on any screen.
+// measure container so SVG axis text stays real pixel size
 function useWidth() {
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(640);
@@ -485,7 +484,7 @@ function useWidth() {
 
 type Series = { key: Metric; label: string; color: string }[];
 
-// Chart, or a skeleton while loading, or a message when every value in range is 0.
+// chart | skeleton while loading | message when all 0
 function ChartOr({ data, series, kind, empty }: { data: Analytics | null; series: Series; kind: 'line' | 'bar'; empty: string }) {
   if (!data) return <Skeleton h={H + 28} />;
   const total = series.reduce((n, s) => n + sum(data.days, s.key), 0);
@@ -559,7 +558,7 @@ function Chart({
           ) : null,
         )}
         {kind === 'line'
-          ? [...series].reverse().map((s) => ( // first series drawn last, on top
+          ? [...series].reverse().map((s) => ( // first series drawn last = on top
               <polyline
                 key={s.key}
                 fill="none"
@@ -588,7 +587,7 @@ function Chart({
                 return rect;
               });
             })}
-        {/* hovered day: guide line + a dot per line series */}
+        {/* hovered day: guide line + dot per line series */}
         {hover !== null && (
           <g pointer-events="none">
             <line x1={x(hover)} x2={x(hover)} y1={PAD.t} y2={PAD.t + plotH} stroke="hsl(var(--k-input))" stroke-dasharray="3 3" />
@@ -617,7 +616,7 @@ function Chart({
           role="status"
           style={{
             top: PAD.t,
-            // past the middle, flip left so the card stays inside the chart
+            // past middle: flip left, card stays inside chart
             ...(x(hover) > w / 2 ? { right: w - x(hover) + 10 } : { left: x(hover) + 10 }),
           }}
         >

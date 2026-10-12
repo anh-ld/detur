@@ -15,23 +15,23 @@ func TestSignAndVerify(t *testing.T) {
 		t.Fatal("expected non-empty signature")
 	}
 
-	// Verify valid signature
+	// valid
 	if !VerifySignature(payload, secret, sig, 5*time.Minute) {
 		t.Error("expected signature verification to succeed")
 	}
 
-	// Verify invalid secret fails
+	// wrong secret fails
 	if VerifySignature(payload, "wrong_secret", sig, 5*time.Minute) {
 		t.Error("expected signature with wrong secret to fail")
 	}
 
-	// Verify tampered payload fails
+	// tampered payload fails
 	tampered := []byte(`[{"type":"install","id":"inst_2"}]`)
 	if VerifySignature(tampered, secret, sig, 5*time.Minute) {
 		t.Error("expected tampered payload to fail verification")
 	}
 
-	// Verify expired timestamp fails tolerance check
+	// expired timestamp fails tolerance
 	oldTime := time.Now().Add(-10 * time.Minute).Unix()
 	oldSig := Sign(payload, secret, oldTime)
 	if VerifySignature(payload, secret, oldSig, 5*time.Minute) {

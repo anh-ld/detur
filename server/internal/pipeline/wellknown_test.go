@@ -1,7 +1,7 @@
 package pipeline
 
-// Well-known hosting tests. Real store + real mux via httptest; request hosts
-// come from configured domain set built same way main.go builds it (config.DomainSet).
+// Well-known hosting tests. Real store + real mux via httptest; hosts from
+// domain set built like main.go (config.DomainSet).
 
 import (
 	"encoding/json"
@@ -17,13 +17,13 @@ import (
 
 const primaryDomain = "detur.example.com"
 
-// testDomains builds domain set the way main.go does.
+// testDomains: domain set, built like main.go.
 func testDomains(t *testing.T) []string {
 	t.Helper()
 	return config.DomainSet(&config.Config{Domain: primaryDomain})
 }
 
-// newWellKnownServer wires real store + short-link pipeline + well-known routes on one mux (same composition main.go builds), served over httptest
+// newWellKnownServer: real store + short-link pipeline + well-known routes on one mux (same as main.go), over httptest
 func newWellKnownServer(t *testing.T, domains []string) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, err := store.Open(t.TempDir() + "/detur-wellknown.db")
@@ -39,7 +39,7 @@ func newWellKnownServer(t *testing.T, domains []string) (*httptest.Server, *stor
 	return ts, st
 }
 
-// getWithHost issues GET for path with fixed Host, not following redirects (well-known responses have none; short-link tests assert 302 itself)
+// getWithHost: GET path with fixed Host, no redirect following (short-link tests assert 302 itself)
 func getWithHost(t *testing.T, ts *httptest.Server, path, host string) (*http.Response, []byte) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, ts.URL+path, nil)
@@ -60,7 +60,7 @@ func getWithHost(t *testing.T, ts *httptest.Server, path, host string) (*http.Re
 	return resp, b
 }
 
-// aasaResp decodes Apple App Site Association shape.
+// aasaResp: AASA shape.
 type aasaResp struct {
 	AppLinks struct {
 		Apps    []string `json:"apps"`
@@ -73,7 +73,7 @@ type aasaResp struct {
 	} `json:"applinks"`
 }
 
-// assetlinksResp decodes one assetlinks.json entry shape.
+// assetlinksResp: one assetlinks.json entry.
 type assetlinksResp []struct {
 	Relation []string `json:"relation"`
 	Target   struct {
@@ -83,7 +83,7 @@ type assetlinksResp []struct {
 	} `json:"target"`
 }
 
-// setupWellKnownApp creates app carrying iOS + Android well-known details.
+// setupWellKnownApp: app with iOS + Android well-known details.
 func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	t.Helper()
 	app, err := s.CreateApp("well-known app", "sekrit-key-123")
@@ -96,7 +96,7 @@ func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	return app
 }
 
-// Scenario 1: AASA valid JSON per app. Several iOS apps: each claims only own link keys — iOS routes URL to first matching entry (blanket ["*"] per app shadows all but first). Single iOS app still claims every path.
+// Scenario 1: AASA valid JSON per app. Several iOS apps: each claims only own link keys (iOS routes URL to first matching entry; blanket ["*"] per app shadows all but first). Single iOS app claims every path.
 func TestAASAValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	iosOnly, err := st.CreateApp("ios only", "key-1")
@@ -149,14 +149,14 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 				break
 			}
 		}
-		// iOS 13+ format mirrors same claim (appIDs + components)
+		// iOS 13+ format, same claim (appIDs + components)
 		if len(d.AppIDs) != 1 || d.AppIDs[0] != d.AppID || len(d.Components) != len(d.Paths) {
 			t.Errorf("appID %s appIDs/components = %v/%v; want one entry mirroring paths", d.AppID, d.AppIDs, d.Components)
 		}
 	}
 }
 
-// Scenario 2: assetlinks.json valid per app, one entry per app with android package AND cert fingerprint; ios-only apps absent
+// Scenario 2: assetlinks.json, one entry per app with android package AND cert fingerprint; ios-only apps absent
 func TestAssetlinksValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	iosOnly, err := st.CreateApp("ios only", "key-1")
@@ -197,7 +197,7 @@ func TestAssetlinksValidJSONPerApp(t *testing.T) {
 	}
 }
 
-// Scenario 3: apps without details omitted; AASA details empty (apps still []), assetlinks empty array, both 200 valid JSON
+// Scenario 3: apps without details omitted; AASA details empty (apps still []), assetlinks [], both 200 valid JSON
 func TestAppsWithoutDetailsOmitted(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	if _, err := st.CreateApp("no details", "key-1"); err != nil {
@@ -233,7 +233,7 @@ func TestAppsWithoutDetailsOmitted(t *testing.T) {
 	}
 }
 
-// Scenario 4: host outside configured domain set gets 404 (host gate).
+// Scenario 4: host outside domain set -> 404 (host gate).
 func TestUnknownDomain404(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	setupWellKnownApp(t, st)
@@ -245,7 +245,7 @@ func TestUnknownDomain404(t *testing.T) {
 	}
 }
 
-// Scenario 7: UpdateAppDetails persists well-known details; GetApp (and ListApps) return them; unknown ids give ErrNotFound; empty strings clear
+// Scenario 7: UpdateAppDetails persists details; GetApp/ListApps return them; unknown id -> ErrNotFound; empty strings clear
 func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 	st, err := store.Open(t.TempDir() + "/detur-appdetails.db")
 	if err != nil {
@@ -279,7 +279,7 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 		t.Errorf("ListApps = %+v; want the persisted details", apps)
 	}
 
-	// unknown app -> ErrNotFound on both methods
+	// unknown app -> ErrNotFound, both methods
 	if err := st.UpdateAppDetails("nope", "x", "", ""); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("UpdateAppDetails(unknown) err = %v; want ErrNotFound", err)
 	}
@@ -287,7 +287,7 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 		t.Errorf("GetApp(unknown) err = %v; want ErrNotFound", err)
 	}
 
-	// empty strings clear stored values (nullable columns read back "")
+	// empty strings clear (nullable columns read back "")
 	if err := st.UpdateAppDetails(app.ID, "", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails(clear): %v", err)
 	}
@@ -300,7 +300,7 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 	}
 }
 
-// Scenario 8: AASA + assetlinks + short link all served on same configured domain by same mux
+// Scenario 8: AASA + assetlinks + short link on same domain, same mux
 func TestIntegrationWellKnownAndShortLinksOnConfiguredDomain(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	setupWellKnownApp(t, st)

@@ -22,7 +22,7 @@ const settingsOf = (v: FraudSettings): FraudSettings => ({
   fingerprintWindowDays: v.fingerprintWindowDays,
 });
 
-// Fraud tab: signal configuration, then the installs those signals flagged. AppPage remounts it on app change, so state never crosses apps.
+// Fraud tab: signal config + flagged installs. AppPage remounts on app change -> no state crosses apps.
 export function FraudPanel({ appId, tick }: { appId: string; tick: number }) {
   return (
     <div style={{ display: 'grid', gap: 40 }}>
@@ -32,14 +32,14 @@ export function FraudPanel({ appId, tick }: { appId: string; tick: number }) {
   );
 }
 
-// Every change saves on its own: a mode on press, a threshold on blur or Enter. Each save toasts; a rejected one reverts and toasts why.
-// Admin-gated config surface: a viewer's load 403s — the gate routes to the password prompt (elevate in place) instead of a raw error.
+// each change saves alone: mode on press, threshold on blur/Enter. Toast per save; rejected -> revert + toast why.
+// admin-gated: viewer load 403s -> password prompt (elevate in place), not a raw error
 function Signals({ appId, tick }: { appId: string; tick: number }) {
   const [view, setView] = useState<FraudSettings | null>(null);
   const [loadError, setLoadError] = useState('');
   const [locked, setLocked] = useState(false);
-  // The viewer canceled this section's prompt: Refresh (tick) stays locked instead of
-  // prompting again. Survives effect re-runs; FraudPanel remounts on app change.
+  // viewer canceled this section's prompt: Refresh (tick) stays locked, no re-prompt.
+  // survives effect re-runs; FraudPanel remounts on app change.
   const canceled = useRef(false);
 
   useEffect(() => {
@@ -60,8 +60,8 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
       );
     };
     load();
-    // Elevating from the top bar while locked re-loads the section (recovery). Only
-    // when locked: an in-flight load's own prompt already retries after elevation.
+    // top-bar elevation while locked reloads the section. Only when locked:
+    // an in-flight load's own prompt already retries after elevation.
     const unsub = subscribeAdmin(() => {
       if (canceled.current && getAdmin() && !stale) load();
     });
@@ -85,7 +85,7 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
     return loadError ? <Alert variant="destructive">{loadError}</Alert> : <Loading />;
   }
 
-  // Patch one field on top of the saved settings; unsaved edits elsewhere never ride along.
+  // patch one field over saved settings; other unsaved edits never ride along
   const save = async (what: string, patch: Partial<FraudSettings>) => {
     const before = view;
     setView({ ...view, ...patch });
@@ -116,7 +116,7 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
   );
 }
 
-// Thresholds as one sentence with inline number fields; signals without thresholds explain themselves in the meaning line.
+// thresholds = one sentence w/ inline number fields; threshold-less signals explain in the meaning line
 const RULES: Record<string, (n: (k: FraudNumKey) => JSX.Element) => JSX.Element> = {
   velocity: (n) => (
     <>
@@ -176,7 +176,7 @@ function SignalRow({
               size="sm"
               data-mode={m}
               pressed={mode === m}
-              // Controlled by state: drop kinu's own DOM flip, which un-presses the current mode on a re-press.
+              // state-controlled: drop kinu's DOM flip (un-presses current mode on re-press)
               onClickCapture={() => {}}
               onClick={() => mode !== m && onSave(`${s.label}: ${m}`, { [s.mode!]: m })}
             >
@@ -191,7 +191,7 @@ function SignalRow({
   );
 }
 
-// Number input that saves when it loses focus or on Enter, only if the value changed.
+// saves on blur/Enter, only if changed
 function Threshold({
   k,
   label,
@@ -233,7 +233,7 @@ const signalLabel = (k: string) => SIGNALS.find((s) => s.key === k)?.label ?? k;
 const fmtTime = (t: string) =>
   new Date(t).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-// Outcome in plain words; the flagged click's link when credit moved or was dropped.
+// outcome in plain words + flagged click's link when credit moved or dropped
 function Outcome({ i }: { i: FlaggedInstall }) {
   const text =
     i.fraudAction === 'reattributed'
@@ -252,7 +252,7 @@ function Outcome({ i }: { i: FlaggedInstall }) {
   );
 }
 
-// Flagged installs for the chosen range; a superseded response is dropped (stale flag).
+// flagged installs for range; superseded response dropped (stale flag)
 function Flagged({ appId, tick }: { appId: string; tick: number }) {
   const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
   const [data, setData] = useState<Fraud | null>(null);

@@ -1,4 +1,4 @@
-// Package config loads runtime configuration from the environment.
+// Package config: runtime config from env.
 package config
 
 import (
@@ -17,12 +17,12 @@ type Config struct {
 	ClickIDDays       int      // unmatched click_id lifetime
 	TrustProxy        bool     // honor X-Forwarded-For (only behind a trusted proxy)
 	LogoutURL         string   // gateway sign-out URL for the Log out link; "" hides it
-	AdminPassword     string   // master password for portal admin elevation; "" = no gating (today's behavior)
-	AdminSessionHours int      // elevated admin session TTL (1-72h, default 12)
-	PortalHosts       []string // PORTAL_HOSTS: gateway hostnames for the portal, comma-separated
+	AdminPassword     string   // master password for admin elevation; "" = no gating
+	AdminSessionHours int      // elevated session TTL (1-72h, default 12)
+	PortalHosts       []string // PORTAL_HOSTS: gateway hostnames, comma-separated
 }
 
-// Load: configuration from environment, sensible defaults.
+// Load: config from env, with defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
 		Domain:            envOr("DOMAIN", "localhost"),
@@ -78,7 +78,7 @@ func envOr(key, def string) string {
 	return def
 }
 
-// envIntRange: int env var; out-of-range or malformed values fail fast with clear error, misconfigured deploy never runs silently.
+// envIntRange: int env var; malformed/out-of-range = fail fast, no silent misconfig.
 func envIntRange(key string, def, min, max int) (int, error) {
 	v := os.Getenv(key)
 	if v == "" {

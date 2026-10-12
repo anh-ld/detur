@@ -1,4 +1,4 @@
-// Package ua: user-agent parsing shared by matching and browser pipeline so the two cannot drift: one feeds click-time fingerprint capture, the other scoring.
+// Package ua: UA parsing shared by matching + browser pipeline so they can't drift (click-time fingerprint capture vs scoring).
 package ua
 
 import (
@@ -31,7 +31,7 @@ var uaBots = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	"deadlinkchecker", "brokenlinkcheck", "xenu", "scrutiny", "powermapper", "siteimprove", "monsido",
 }, "|"))
 
-// uaFalsePositive: Dub's UA_FALSE_POSITIVES — Instagram's webview on Pixel appends "Google/google", would otherwise trip "google". Same for TikTok's webview "Channel/googleplay" (not in Dub's list).
+// uaFalsePositive: Dub's UA_FALSE_POSITIVES. Instagram webview on Pixel appends "Google/google" (would trip "google"); same for TikTok webview "Channel/googleplay" (not in Dub's list).
 var uaFalsePositive = regexp.MustCompile(`Google/google\b|Channel/googleplay\b`)
 
 // IsBotUA: UA matches Dub's bot list.
@@ -39,7 +39,7 @@ func IsBotUA(ua string) bool {
 	return uaBots.MatchString(uaFalsePositive.ReplaceAllString(ua, ""))
 }
 
-// IsBot: Dub's detectBot for browser clicks — ?bot= param, any HEAD request, or bot UA.
+// IsBot: Dub's detectBot for browser clicks: ?bot= param, any HEAD request, or bot UA.
 func IsBot(r *http.Request) bool {
 	return r.URL.Query().Get("bot") != "" || r.Method == http.MethodHead || IsBotUA(r.UserAgent())
 }
@@ -60,7 +60,7 @@ func IsAndroid(ua string) bool {
 	return strings.Contains(strings.ToLower(ua), "android")
 }
 
-// AppPlatform: platform of an in-app (SDK) request, "ios"/"android"/"": browser UA markers, then native HTTP client markers (iOS CFNetwork/Darwin, Android okhttp/Dalvik).
+// AppPlatform: in-app (SDK) request platform, "ios"/"android"/"": browser UA markers, then native HTTP client markers (iOS CFNetwork/Darwin, Android okhttp/Dalvik).
 func AppPlatform(ua string) string {
 	if p := Platform(ua); p != "" {
 		return p
@@ -81,8 +81,8 @@ func IsIOS(ua string) bool {
 	return strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad") || strings.Contains(ua, "ipod")
 }
 
-// MaybeIPad: Mac Safari UA, the iPadOS Safari default ("Request Desktop Website"). Only a touch screen tells them
-// apart; the interstitial reports it. Mac Chrome/Firefox/Edge carry their own tokens -> excluded.
+// MaybeIPad: Mac Safari UA = iPadOS Safari default ("Request Desktop Website"). Only touch screen tells them
+// apart; interstitial reports it. Mac Chrome/Firefox/Edge carry own tokens -> excluded.
 func MaybeIPad(ua string) bool {
 	l := strings.ToLower(ua)
 	if !strings.Contains(l, "macintosh") || !strings.Contains(l, "version/") || !strings.Contains(l, "safari/") {
@@ -105,8 +105,8 @@ func AndroidVersion(ua string) string {
 	return m[1]
 }
 
-// IOSVersion: iOS system version from click UA, normalizing "17_2" to "17.2". iOS 26 WebKit freezes the OS token at 18_6; Safari's Version/ token carries the real version (Detour reads it too). Version/ wins only when its major is above the OS token's major: on older iOS the OS token is more precise (17_2_1 vs Version/17.2).
-// fromSafari: version came from Version/ (major.minor only, no patch).
+// IOSVersion: iOS version from click UA, "17_2" -> "17.2". iOS 26 WebKit freezes OS token at 18_6; Safari Version/ carries real version (Detour reads it too). Version/ wins only when its major > OS token major: on older iOS the OS token is more precise (17_2_1 vs Version/17.2).
+// fromSafari: version from Version/ (major.minor, no patch).
 func IOSVersion(ua string) (v string, fromSafari bool) {
 	if m := reIOSVersion.FindStringSubmatch(ua); m != nil {
 		v = strings.ReplaceAll(m[1], "_", ".")
@@ -172,7 +172,7 @@ func DeviceLabel(ua string) string {
 // SourceUnknownInApp: click source for a generic webview no token names.
 const SourceUnknownInApp = "unknown-inapp"
 
-// inAppTokens: in-app browser UA tokens, first match wins (Messenger before Facebook: both carry FB_IAB; Threads before Instagram). Written from ua-parser-js v2 token facts + vendor UA samples, not copied (AGPL). Narrow tokens keep crawlers out ("Twitter for", not "Twitter").
+// inAppTokens: in-app browser UA tokens, first match wins (Messenger before Facebook: both carry FB_IAB; Threads before Instagram). From ua-parser-js v2 token facts + vendor UA samples, not copied (AGPL). Narrow tokens keep crawlers out ("Twitter for", not "Twitter").
 var inAppTokens = []struct {
 	name string
 	re   *regexp.Regexp
@@ -191,10 +191,10 @@ var inAppTokens = []struct {
 	{"wechat", regexp.MustCompile(`MicroMessenger`)},
 }
 
-// reIOSBrowser: real iOS browsers (not webviews), excluded from the missing-"Safari/" webview check.
+// reIOSBrowser: real iOS browsers (not webviews), excluded from missing-"Safari/" webview check.
 var reIOSBrowser = regexp.MustCompile(`CriOS|FxiOS|EdgiOS|OPiOS`)
 
-// InApp: in-app browser of a mobile UA — app name, SourceUnknownInApp for a generic webview (Android "; wv)", iOS without "Safari/"), "" for a real browser or non-mobile UA. SFSafariViewController / Custom Tabs send the plain browser UA: undetectable.
+// InApp: in-app browser of mobile UA: app name, SourceUnknownInApp for generic webview (Android "; wv)", iOS without "Safari/"), "" for real browser or non-mobile UA. SFSafariViewController / Custom Tabs send plain browser UA: undetectable.
 func InApp(ua string) string {
 	ios, android := IsIOS(ua), IsAndroid(ua)
 	if !ios && !android {

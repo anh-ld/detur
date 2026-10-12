@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
 import { AppPage } from '../src/detail';
 
-// Unit, mocked fetch: responses the real binary can't produce on demand (a slow reply released later, every outcome/signal at once).
+// unit, mocked fetch: cases the real binary can't produce on demand (delayed reply, every outcome/signal at once)
 
 const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
 const stats = (clicks: number) => ({
@@ -15,7 +15,7 @@ const app = {
   androidCertFingerprint: '', matchThreshold: 850, matchWindowMinutes: 15,
 };
 
-// Clicks tile value as shown ('' while its skeleton is up).
+// Clicks tile value ('' while skeleton up)
 const clicksTileText = () =>
   screen
     .getAllByText('Clicks', { exact: true })

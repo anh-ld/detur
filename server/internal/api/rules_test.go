@@ -8,7 +8,7 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// One case per reject branch of validateLinkRules, plus valid controls. Each case states its full input.
+// One case per validateLinkRules reject branch + valid controls. Full input per case.
 func TestValidateLinkRules(t *testing.T) {
 	direct := func(name string) store.LinkRule {
 		return store.LinkRule{Name: name, Action: store.RuleAction{Targets: &store.RuleTargets{Destination: "myapp://x"}}}

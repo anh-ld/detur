@@ -1,4 +1,4 @@
-// Package httpx: small HTTP helpers shared across API and pipeline packages (remote IP extraction, JSON responses).
+// Package httpx: shared HTTP helpers (remote IP, JSON responses).
 package httpx
 
 import (
@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 )
 
-// TrustProxy gates X-Forwarded-For path: only set when TLS terminates at trusted reverse proxy (TRUST_PROXY). Off by default, client-supplied header cannot spoof IP match signal.
+// TrustProxy: honor X-Forwarded-For (TRUST_PROXY). Set only when TLS ends at a trusted proxy; off = client header can't spoof IP match signal.
 var TrustProxy bool
 
-// RemoteIP: client IP. TrustProxy: last X-Forwarded-For entry (proxy appends its peer; earlier entries client-set), else X-Real-IP. Caddy/ALB/Cloudflare pass client X-Real-IP through; Dub trusts it only because Vercel sets it.
+// RemoteIP: client IP. TrustProxy: last XFF entry (proxy appends its peer; earlier entries client-set), else X-Real-IP. Caddy/ALB/Cloudflare pass client X-Real-IP through; Dub trusts it only because Vercel sets it.
 func RemoteIP(r *http.Request) string {
 	if TrustProxy {
 		if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
@@ -55,14 +55,14 @@ func PeerStats() (total, private int64) {
 	return peers.Load(), privatePeers.Load()
 }
 
-// WriteJSON: v as JSON response with given status.
+// WriteJSON: v as JSON with status.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// AddParams: appends allowed q keys missing from target's query; operator's query bytes untouched, nothing added -> target unchanged.
+// AddParams: append allowed q keys missing from target's query; operator's query bytes untouched; nothing added -> target unchanged.
 func AddParams(target string, q url.Values, allow func(k, v string) bool) string {
 	u, err := url.Parse(target)
 	if err != nil {

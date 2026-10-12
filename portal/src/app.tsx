@@ -13,13 +13,13 @@ export function parseHash(h: string = location.hash): Route {
     try {
       return { name: 'app', id: decodeURIComponent(m[1]), tab: (m[2] as AppTab | undefined) ?? 'links' };
     } catch {
-      // malformed %-encoding in id: treat as unknown route
+      // bad %-encoding: unknown route
     }
   }
   return { name: 'apps' };
 }
 
-// "Admin · until HH:MM" in the top bar (local clock; the server enforces expiry).
+// top-bar "Admin · until HH:MM"; local clock, server enforces expiry
 const fmtUntil = (iso: string) => {
   const d = new Date(iso);
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -27,11 +27,10 @@ const fmtUntil = (iso: string) => {
 
 const adminSnapshot = () => ({ adminSet: getAdminSet(), admin: getAdmin(), until: getAdminUntil() });
 
-// Thin SPA shell: hash routing (refresh keeps the page), no auth — the gateway
-// decides who enters, admin decides who manages.
+// SPA shell: hash routing (survives refresh), no auth. Gateway gates entry, admin gates management.
 export function App() {
   const [route, setRoute] = useState<Route>(parseHash);
-  // LOGOUT_URL from the server; '' (unset or fetch failed) hides Log out.
+  // server LOGOUT_URL; '' (unset/fetch failed) hides Log out
   const [logoutUrl, setLogoutUrl] = useState('');
   const [ui, setUi] = useState(adminSnapshot);
   useEffect(() => subscribeAdmin(() => setUi(adminSnapshot())), []);
@@ -42,8 +41,7 @@ export function App() {
     }, () => {});
     refreshAdminSession();
   }, []);
-  // The chip is a local estimate: clear it at the session's own expiry; a mid-use
-  // 403 clears it earlier via refreshAdminSession.
+  // chip = local estimate: clear at session expiry; mid-use 403 clears earlier (refreshAdminSession)
   useEffect(() => {
     if (!ui.admin || !ui.until) return;
     const ms = new Date(ui.until).getTime() - Date.now();
@@ -66,7 +64,7 @@ export function App() {
   const exitAdmin = async () => {
     try {
       await api.exitAdminMode();
-      setElevated(false); // the DELETE response already carries admin:false
+      setElevated(false); // DELETE response already says admin:false
     } catch {
       await refreshAdminSession();
     }

@@ -9,7 +9,7 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// Documented scoring weights (detour.swmansion.com/docs/platform/architecture/matching/). Only ONE device signal scored per candidate: Android model+system version (450) when click supplies both, else iOS system version (350), else UA device signature (350), never two. Keeps documented maxima 1700 iOS / 1450 Android.
+// Documented scoring weights (detour.swmansion.com/docs/platform/architecture/matching/). ONE device signal per candidate: Android model+system version (450) if click has both, else iOS system version (350), else UA device signature (350); never two. Keeps documented max 1700 iOS / 1450 Android.
 const (
 	weightIPExact           = 500
 	weightModelSystemVer    = 450
@@ -22,7 +22,7 @@ const (
 	weightLanguage          = 100
 )
 
-// Score: probabilistic score of one candidate click vs first-launch fingerprint fp and request connection IP. Unavailable click-side signals skip weight; nothing fabricated. Chosen device-signal branch mismatch scores 0; UA fallback never stacks on top.
+// Score: one candidate click vs first-launch fingerprint fp + request IP. Missing click-side signal -> weight skipped, nothing fabricated. Chosen device-signal branch mismatch = 0; UA fallback never stacks.
 func Score(click store.Click, fp Fingerprint, ip string) int {
 	s := 0
 	if ip != "" && click.Fingerprint.IP != "" && ip == click.Fingerprint.IP {
@@ -40,7 +40,7 @@ func Score(click store.Click, fp Fingerprint, ip string) int {
 	return s
 }
 
-// deviceSignal: one-device-signal ladder — Android model+system version when click supplies both, else iOS system version from click UA, else UA device signature fallback.
+// deviceSignal: one-device-signal ladder: Android model+system version if click has both, else iOS system version from click UA, else UA device signature.
 func deviceSignal(click store.Click, fp Fingerprint) int {
 	platform, cm, cv := clickSignals(click)
 	fm := fp.Model
@@ -61,7 +61,7 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 		}
 		return 0
 	default:
-		// UA device signature fallback (Android only, per Detour weights table)
+		// UA device signature fallback (Android only, Detour weights table)
 		if platform == "android" && cm != "" && fm != "" && normModel(cm) == normModel(fm) {
 			return weightUADeviceSignature
 		}
@@ -69,7 +69,7 @@ func deviceSignal(click store.Click, fp Fingerprint) int {
 	}
 }
 
-// clickSignals: click-side device signals. Empty = not derivable from click fingerprint (weight skipped).
+// clickSignals: click-side device signals. Empty = not derivable (weight skipped).
 func clickSignals(click store.Click) (platform, model, sysVer string) {
 	raw := click.Fingerprint.UserAgent
 	if model = click.Fingerprint.Device; model == "" {
@@ -78,7 +78,7 @@ func clickSignals(click store.Click) (platform, model, sysVer string) {
 	switch ua.Platform(raw) {
 	case "android":
 		platform = "android"
-		// Client hint carries real version. Reduced UA freezes "Android 10; K" and drops model: UA version trusted only when UA still names model.
+		// Client hint = real version. Reduced UA freezes "Android 10; K", drops model: trust UA version only when UA still names model.
 		sysVer = click.Fingerprint.OSVersion
 		if sysVer == "" && ua.AndroidModel(raw) != "" {
 			sysVer = ua.AndroidVersion(raw)
@@ -90,7 +90,7 @@ func clickSignals(click store.Click) (platform, model, sysVer string) {
 	return platform, model, sysVer
 }
 
-// pasteboard: iOS pasteboard two-tier match — 350 when short-link token matches AND first-launch pasted URL starts with click's pasted URL; 175 for URL prefix alone.
+// pasteboard: iOS two-tier: 350 = short-link token match AND first-launch pasted URL starts with click's pasted URL; 175 = URL prefix only.
 func pasteboard(click store.Click, fp Fingerprint) int {
 	cp, pp := click.Fingerprint.PastedLink, fp.PastedLink
 	if cp == "" || pp == "" || !strings.HasPrefix(pp, cp) {
@@ -115,7 +115,7 @@ func linkToken(u string) string {
 	return ""
 }
 
-// screen: screen match, tolerance ±1 width/height, ±0.01 scale.
+// screen: tolerance ±1 width/height, ±0.01 scale.
 func screen(click store.Click, fp Fingerprint) int {
 	cw, ch, cs, ok := parseScreen(click.Fingerprint.Screen)
 	if !ok || fp.ScreenWidth <= 0 || fp.ScreenHeight <= 0 || fp.Scale <= 0 {
@@ -127,7 +127,7 @@ func screen(click store.Click, fp Fingerprint) int {
 	return 0
 }
 
-// langMatch: click's browser language (first tag) shares primary subtag with any device locale (comma-separated SDK tags), case-insensitive: en-GB matches en-US; browser en matches device vi-VN,en-US.
+// langMatch: click browser lang (first tag) shares primary subtag with any device locale (comma-separated SDK tags), case-insensitive: en-GB ~ en-US; browser en ~ device vi-VN,en-US.
 func langMatch(click, device string) bool {
 	c := primaryLang(click)
 	if c == "" {
@@ -168,7 +168,7 @@ func parseScreen(s string) (w, h int, scale float64, ok bool) {
 	return w, h, scale, true
 }
 
-// normVersion: system version for comparison — underscores -> dots, trailing ".0" dropped ("14.0.0" client hint == "14" SDK).
+// normVersion: underscores -> dots, trailing ".0" dropped ("14.0.0" client hint == "14" SDK).
 func normVersion(v string) string {
 	v = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), "_", "."))
 	for strings.HasSuffix(v, ".0") {
@@ -197,7 +197,7 @@ func iosVersionMatch(click, sdk string) bool {
 	return true
 }
 
-// normModel: device model for comparison (case + whitespace).
+// normModel: device model normalized (case + whitespace).
 func normModel(m string) string {
 	return strings.ToLower(strings.Join(strings.Fields(m), " "))
 }

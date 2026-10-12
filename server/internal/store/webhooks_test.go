@@ -15,7 +15,6 @@ func TestWebhooksCRUD(t *testing.T) {
 		t.Fatalf("CreateApp: %v", err)
 	}
 
-	// 1. Create Webhook
 	wh, err := s.CreateWebhook(app.ID, "https://example.com/webhook", []string{"installs", "events"})
 	if err != nil {
 		t.Fatalf("CreateWebhook: %v", err)
@@ -42,7 +41,6 @@ func TestWebhooksCRUD(t *testing.T) {
 		t.Errorf("expected 0 initial cursors on empty DB, got (%d, %d, %d)", wh.CursorInstalls, wh.CursorClicks, wh.CursorEvents)
 	}
 
-	// 2. Get Webhook
 	got, err := s.GetWebhook(wh.ID)
 	if err != nil {
 		t.Fatalf("GetWebhook: %v", err)
@@ -51,7 +49,6 @@ func TestWebhooksCRUD(t *testing.T) {
 		t.Errorf("GetWebhook mismatch: %+v vs %+v", got, wh)
 	}
 
-	// 3. List Webhooks
 	list, err := s.ListWebhooks(app.ID)
 	if err != nil {
 		t.Fatalf("ListWebhooks: %v", err)
@@ -60,7 +57,6 @@ func TestWebhooksCRUD(t *testing.T) {
 		t.Errorf("ListWebhooks = %+v, want 1 webhook with ID %q", list, wh.ID)
 	}
 
-	// 4. Update Webhook
 	newURL := "https://example.com/webhook-updated"
 	newTypes := []string{"installs", "events", "clicks"}
 	disabled := false
@@ -72,7 +68,6 @@ func TestWebhooksCRUD(t *testing.T) {
 		t.Errorf("UpdateWebhook result unexpected: %+v", updated)
 	}
 
-	// 5. Rotate Secret
 	oldSecret := wh.Secret
 	newSecret, err := s.RotateWebhookSecret(wh.ID)
 	if err != nil {
@@ -86,7 +81,6 @@ func TestWebhooksCRUD(t *testing.T) {
 		t.Errorf("stored secret = %q, want %q", gotAfterRotate.Secret, newSecret)
 	}
 
-	// 6. Delete Webhook
 	if err := s.DeleteWebhook(wh.ID); err != nil {
 		t.Fatalf("DeleteWebhook: %v", err)
 	}
@@ -102,7 +96,7 @@ func TestWebhookInitialCursors(t *testing.T) {
 		t.Fatalf("CreateApp: %v", err)
 	}
 
-	// Record an install, click, event before creating webhook
+	// rows before webhook exists
 	link, err := s.CreateLink(Link{
 		AppID: app.ID,
 		Key:   "k1",
@@ -131,7 +125,7 @@ func TestWebhookInitialCursors(t *testing.T) {
 		t.Fatalf("RecordEvent: %v", err)
 	}
 
-	// Create webhook: cursors should be set to existing MAX(rowid) > 0
+	// new webhook: cursors = existing MAX(rowid) > 0
 	wh, err := s.CreateWebhook(app.ID, "https://example.com/hook", []string{"installs", "clicks", "events"})
 	if err != nil {
 		t.Fatalf("CreateWebhook: %v", err)
@@ -169,7 +163,7 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 	app, _ := s.CreateApp("PII App", "dk_pii")
 	link, _ := s.CreateLink(Link{AppID: app.ID, Key: "secret-key", URL: "https://example.com"})
 
-	// Record click with sensitive PII
+	// click with PII
 	recordedClick, err := s.RecordClick(Click{
 		AppID:  app.ID,
 		LinkID: link.ID,
@@ -185,7 +179,7 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 		t.Fatalf("RecordClick: %v", err)
 	}
 
-	// Record install with sensitive device hash
+	// install with device hash
 	_, err = s.RecordInstall(Install{
 		AppID:       app.ID,
 		DeviceHash:  "sensitive_device_hash_123",
@@ -199,13 +193,12 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 		t.Fatalf("RecordInstall: %v", err)
 	}
 
-	// Record event
 	err = s.RecordEvent(app.ID, "purchase", `{"amount":99.99,"currency":"USD"}`)
 	if err != nil {
 		t.Fatalf("RecordEvent: %v", err)
 	}
 
-	// 1. Fetch installs batch
+	// 1. installs batch
 	installs, err := s.FetchPendingWebhookBatch(app.ID, "installs", 0, 0, 100)
 	if err != nil {
 		t.Fatalf("FetchPendingWebhookBatch(installs): %v", err)
@@ -221,7 +214,7 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 		t.Errorf("unexpected install payload: %+v", instPayload)
 	}
 
-	// 2. Fetch clicks batch
+	// 2. clicks batch
 	clicks, err := s.FetchPendingWebhookBatch(app.ID, "clicks", 0, 0, 100)
 	if err != nil {
 		t.Fatalf("FetchPendingWebhookBatch(clicks): %v", err)
@@ -236,7 +229,7 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 	if clickPayload.Type != "click" || clickPayload.LinkID != link.ID {
 		t.Errorf("unexpected click payload: %+v", clickPayload)
 	}
-	// Serialized payloads must never carry the excluded fields
+	// payloads never carry excluded fields
 	for _, rec := range append(installs, clicks...) {
 		b, _ := json.Marshal(rec.Payload)
 		for _, secret := range []string{"198.51.100.42", "SecretAgent", "secret.pasted.com", "sensitive_device_hash_123"} {
@@ -245,7 +238,7 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 			}
 		}
 	}
-	// Platform comes from the UA (Android device labels carry only the model name); the UA itself stays out
+	// Platform from UA (Android device labels carry only model name); UA itself stays out
 	if clickPayload.Platform == nil || *clickPayload.Platform != "android" {
 		t.Errorf("click Platform = %v, want android", clickPayload.Platform)
 	}
@@ -256,7 +249,7 @@ func TestFetchPendingWebhookBatchPIIExclusion(t *testing.T) {
 		t.Errorf("expected LinkKey = secret-key, got %v", clickPayload.LinkKey)
 	}
 
-	// 3. Fetch events batch
+	// 3. events batch
 	events, err := s.FetchPendingWebhookBatch(app.ID, "events", 0, 0, 100)
 	if err != nil {
 		t.Fatalf("FetchPendingWebhookBatch(events): %v", err)
@@ -281,7 +274,7 @@ func TestWebhookStreamIsolationAndBackoff(t *testing.T) {
 		t.Fatalf("CreateWebhook: %v", err)
 	}
 
-	// Record failure on clicks only
+	// fail clicks only
 	backoffUntil := time.Now().Add(60 * time.Second)
 	err = s.RecordWebhookFailure(wh.ID, "clicks", 1, backoffUntil)
 	if err != nil {
@@ -298,19 +291,18 @@ func TestWebhookStreamIsolationAndBackoff(t *testing.T) {
 	if whUpdated.BackoffClicks == nil {
 		t.Error("expected BackoffClicks to be set")
 	}
-	// Installs stream must remain completely unaffected!
+	// installs stream untouched
 	if whUpdated.FailsInstalls != 0 || whUpdated.BackoffInstalls != nil {
 		t.Errorf("Installs stream should not be affected: fails=%d, backoff=%v",
 			whUpdated.FailsInstalls, whUpdated.BackoffInstalls)
 	}
 
-	// Advance cursor on installs
 	prev, _ := whUpdated.Stream("installs")
 	err = s.UpdateWebhookCursor(wh.ID, "installs", prev, 42, false)
 	if err != nil {
 		t.Fatalf("UpdateWebhookCursor: %v", err)
 	}
-	// A write based on stale state (e.g. a replay moved the cursor meanwhile) is refused, not applied
+	// stale-state write (e.g. replay moved cursor meanwhile) -> refused
 	if err := s.UpdateWebhookCursor(wh.ID, "installs", prev, 99, false); !errors.Is(err, ErrWebhookCursorMoved) {
 		t.Fatalf("stale UpdateWebhookCursor err = %v, want ErrWebhookCursorMoved", err)
 	}
@@ -318,7 +310,7 @@ func TestWebhookStreamIsolationAndBackoff(t *testing.T) {
 	if whUpdated.CursorInstalls != 42 {
 		t.Errorf("CursorInstalls = %d, want 42", whUpdated.CursorInstalls)
 	}
-	// Success clears failure and backoff on that stream
+	// success clears that stream's failure + backoff
 	if whUpdated.FailsInstalls != 0 || whUpdated.BackoffInstalls != nil {
 		t.Errorf("Installs stream fails should be 0, got %d", whUpdated.FailsInstalls)
 	}
@@ -328,7 +320,7 @@ func TestWebhookReplay(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := s.CreateApp("Replay App", "dk_replay")
 
-	// Insert 3 installs with timestamps 1 hour apart
+	// 3 installs, 1h apart
 	t0 := time.Now().Add(-3 * time.Hour)
 	for i := 1; i <= 3; i++ {
 		_, err := s.RecordInstall(Install{
@@ -341,7 +333,7 @@ func TestWebhookReplay(t *testing.T) {
 		}
 	}
 
-	// Create webhook initially at max cursor
+	// webhook starts at max cursor
 	wh, err := s.CreateWebhook(app.ID, "https://example.com/hook", []string{"installs"})
 	if err != nil {
 		t.Fatalf("CreateWebhook: %v", err)
@@ -351,7 +343,7 @@ func TestWebhookReplay(t *testing.T) {
 		t.Fatalf("expected initialCursor > 0")
 	}
 
-	// Replay from t0 (should rewind cursor to 0 so all 3 installs can replay)
+	// replay from t0 -> cursor 0, all 3 installs replay
 	err = s.ReplayWebhook(wh.ID, t0)
 	if err != nil {
 		t.Fatalf("ReplayWebhook: %v", err)
@@ -369,13 +361,13 @@ func TestWebhookReplay(t *testing.T) {
 	}
 }
 
-// Webhook delivery worker / fetch batches serialize click and install payloads containing "variant".
+// Fetched click + install payloads carry "variant".
 func TestWebhookVariantPayload(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := s.CreateApp("Variant Hook App", "dk_var_hook")
 	link, _ := s.CreateLink(Link{AppID: app.ID, Key: "vlink", URL: "https://example.com"})
 
-	// 1. Record click with variant
+	// 1. click with variant
 	c, err := s.RecordClick(Click{
 		AppID:       app.ID,
 		LinkID:      link.ID,
@@ -386,7 +378,7 @@ func TestWebhookVariantPayload(t *testing.T) {
 		t.Fatalf("RecordClick: %v", err)
 	}
 
-	// 2. Record install with variant
+	// 2. install with variant
 	_, err = s.RecordInstall(Install{
 		AppID:       app.ID,
 		DeviceHash:  "dev-var-hook",
@@ -399,7 +391,7 @@ func TestWebhookVariantPayload(t *testing.T) {
 		t.Fatalf("RecordInstall: %v", err)
 	}
 
-	// 3. Fetch clicks batch
+	// 3. clicks batch
 	clicks, err := s.FetchPendingWebhookBatch(app.ID, "clicks", 0, 0, 100)
 	if err != nil {
 		t.Fatalf("FetchPendingWebhookBatch(clicks): %v", err)
@@ -416,7 +408,7 @@ func TestWebhookVariantPayload(t *testing.T) {
 		t.Errorf("serialized click JSON missing variant: %s", string(clickJSON))
 	}
 
-	// 4. Fetch installs batch
+	// 4. installs batch
 	installs, err := s.FetchPendingWebhookBatch(app.ID, "installs", 0, 0, 100)
 	if err != nil {
 		t.Fatalf("FetchPendingWebhookBatch(installs): %v", err)

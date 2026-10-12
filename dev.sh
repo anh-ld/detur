@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")"
 
-# .env vars exported to every process; admin gating on by default (password "admin")
+# export .env to every process; admin gating on by default (password "admin")
 load_env() {
   set -a
   [ ! -f .env ] || . ./.env
@@ -12,14 +12,14 @@ load_env() {
   set +a
 }
 
-# air pinned: same version on every machine, no surprise upgrades from @latest
+# air pinned: same version everywhere, no @latest surprises
 server() {
   cd server
   go run github.com/air-verse/air@v1.67.4 -tmp_dir /tmp/detur-air \
     -build.cmd "go build -o /tmp/detur-air/detur ./cmd/detur" -build.bin /tmp/detur-air/detur
 }
 
-# waits for the API (:8081) so its first proxied requests don't race the server build
+# wait for API (:8081) so first proxied requests don't race the server build
 portal() {
   cd portal
   [ -d node_modules ] || npm ci

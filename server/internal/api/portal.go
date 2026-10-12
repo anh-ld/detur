@@ -1,8 +1,7 @@
 package api
 
-// Portal: apps/links CRUD, matching settings, analytics, static
-// hosting of kinu-built portal UI. No identity checks; every route wrapped in
-// origin/host guard (DNS-rebinding + CSRF; portal listener loopback by default).
+// Portal: apps/links CRUD, matching settings, analytics, static kinu-built UI. No identity checks;
+// every route behind origin/host guard (DNS-rebinding + CSRF; listener loopback by default).
 
 import (
 	"errors"
@@ -24,24 +23,23 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// portal matching defaults come from store's exported defaults; settings table overrides at runtime.
+// matching defaults from store's exported defaults; settings table overrides at runtime.
 type portalServer struct {
 	st     *store.Store
 	log    *log.Logger
 	dir    string // portal static dir (built UI)
 	logout string // LOGOUT_URL, served to the UI via /api/config
-	// admin gating: adminPassword "" = no gating, every route behaves as before admin existed.
+	// adminPassword "" = no gating.
 	adminPassword string
 	adminHours    int
 	adminMu       sync.Mutex           // guards adminLocks
 	adminLocks    map[string]*peerLock // per socket peer: serializes password compare + wrong-password delay
 }
 
-// RegisterPortal builds portal handler: apps/links CRUD, app matching, analytics routes, plus static UI
-// from staticDir (missing files/dir 404 plain text, never crash). Mux wrapped in origin/host guard;
-// allowedHosts = listener's own address + PORTAL_HOSTS, loopback always accepted, others 403. Viewer routes open to
-// anyone the gateway admits; app-management routes gated by requireAdmin. adminPassword "" = no gating
-// (today's single-operator behavior); adminSessionHours bounds the elevated session TTL (config-bounded 1-72).
+// RegisterPortal: apps/links CRUD, matching, analytics routes + static UI from staticDir (missing file/dir
+// = plain 404, never crash). Origin/host guard on mux; allowedHosts = listener address + PORTAL_HOSTS, loopback
+// always ok, others 403. Viewer routes open to anyone the gateway admits; app management behind requireAdmin.
+// adminPassword "" = no gating; adminSessionHours = elevated session TTL (1-72).
 func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, logoutURL string, adminPassword string, adminSessionHours int) http.Handler {
 	p := &portalServer{st: st, log: log.Default(), dir: staticDir, logout: logoutURL,
 		adminPassword: adminPassword, adminHours: adminSessionHours, adminLocks: map[string]*peerLock{}}
@@ -85,7 +83,7 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	return guard(mux, allowedHosts)
 }
 
-// guard: 403 on unallowed Host or cross-origin Origin. DNS-rebinding + CSRF guard, no identity check.
+// guard: 403 on unallowed Host or cross-origin Origin (DNS-rebinding + CSRF). No identity check.
 func guard(next http.Handler, allowedHosts []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !hostAllowed(r.Host, allowedHosts) {
@@ -100,7 +98,7 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 	})
 }
 
-// hostAllowed: Host is loopback, the listener, or PORTAL_HOSTS. Port ignored: a gateway or published port in front still passes.
+// hostAllowed: Host is loopback, listener, or PORTAL_HOSTS. Port ignored: gateway/published port in front still passes.
 func hostAllowed(host string, allowedHosts []string) bool {
 	if isLoopbackHost(hostnameOf(host)) {
 		return true
@@ -108,8 +106,8 @@ func hostAllowed(host string, allowedHosts []string) bool {
 	return inHosts(hostnameOf(host), allowedHosts)
 }
 
-// originAllowed: Origin = request's own host:port, or a non-loopback allowed host (gateway rewrote Host, e.g. nginx
-// default). Loopback needs the exact port: cookies ignore ports, so any localhost page would carry the admin cookie.
+// originAllowed: Origin = request's own host:port, or non-loopback allowed host (gateway rewrote Host, e.g. nginx
+// default). Loopback needs exact port: cookies ignore ports, so any localhost page would carry the admin cookie.
 // No Origin (curl, same-origin GET) passes.
 func originAllowed(origin, reqHost string, allowedHosts []string) bool {
 	u, err := url.Parse(origin)
@@ -140,7 +138,7 @@ func inHosts(h string, hosts []string) bool {
 	return false
 }
 
-// hostnameOf: lowercase hostname from "host[:port]" (bracket-tolerant for IPv6; bare IPv6 like "::1" has no port to strip).
+// hostnameOf: lowercase hostname from "host[:port]" (IPv6 brackets ok; bare IPv6 like "::1" has no port).
 func hostnameOf(host string) string {
 	h := strings.ToLower(strings.TrimSpace(host))
 	if host, _, err := net.SplitHostPort(h); err == nil {
@@ -149,7 +147,7 @@ func hostnameOf(host string) string {
 	return strings.Trim(h, "[]")
 }
 
-// appJSON: wire shape for apps. API keys never included, only hash; plaintext key appears in exactly one response: create call (show-once semantics).
+// appJSON: app wire shape. Only key hash, never key; plaintext only in create response (show-once).
 type appJSON struct {
 	ID                     string `json:"id"`
 	Name                   string `json:"name"`
@@ -168,7 +166,7 @@ func toAppJSON(a store.App) appJSON {
 		MatchThreshold: a.MatchThreshold, MatchWindowMinutes: a.MatchWindowMinutes, TagLinks: a.TagLinks}
 }
 
-// linkJSON: wire shape for links.
+// linkJSON: link wire shape.
 type linkJSON struct {
 	ID          string `json:"id"`
 	AppID       string `json:"appId"`
@@ -191,7 +189,7 @@ func toLinkJSON(l store.Link) linkJSON {
 	return j
 }
 
-// linkBody: portal link payload (create + update share it). Omitted update fields unchanged.
+// linkBody: link payload (create + update). Omitted update fields unchanged.
 type linkBody struct {
 	Key         string  `json:"key"`
 	URL         string  `json:"url"`
@@ -214,7 +212,7 @@ func parseExpiry(v *string) (*time.Time, error) {
 	return &t, nil
 }
 
-// config: UI settings from env. logoutUrl "" = no Log out link; adminSet tells the UI whether admin elevation exists (ADMIN_PASSWORD configured).
+// config: UI settings from env. logoutUrl "" = no Log out link; adminSet = ADMIN_PASSWORD configured.
 func (p *portalServer) config(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"logoutUrl": p.logout, "adminSet": p.adminPassword != ""})
 }
@@ -254,20 +252,20 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
-	// Server-minted key: "dk_" + 22 base62 (~131 bits), 25 chars total.
+	// "dk_" + 22 base62 (~131 bits) = 25 chars.
 	apiKey := "dk_" + store.Nanoid(22)
 	a, err := p.st.CreateApp(body.Name, apiKey)
 	if err != nil {
 		p.internal(w, err)
 		return
 	}
-	// show-once semantics: plaintext key rides this one response; later reads return only hash
+	// show-once: plaintext only in this response; later reads return hash
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{
 		"id": a.ID, "name": a.Name, "apiKey": apiKey, "apiKeyHash": a.APIKeyHash,
 	})
 }
 
-// rotateAppKey mints new key, swaps stored hash; old key dies immediately. Plaintext rides this one response, like create.
+// rotateAppKey: new key, swap stored hash; old key dies now. Plaintext in this one response, like create.
 func (p *portalServer) rotateAppKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	apiKey := "dk_" + store.Nanoid(22)
@@ -289,7 +287,7 @@ func (p *portalServer) rotateAppKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// revokeAppKey clears stored hash: SDK stops accepting key.
+// revokeAppKey: clear stored hash; SDK stops accepting key.
 func (p *portalServer) revokeAppKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := p.st.ClearAppKey(id); err != nil {
@@ -347,7 +345,7 @@ func (p *portalServer) listLinks(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// validTarget: absolute URL with scheme; http(s) needs host. Empty allowed (optional fields). Scripting schemes rejected.
+// validTarget: absolute URL with scheme; http(s) needs host. Empty ok (optional fields). Scripting schemes rejected.
 func validTarget(field, v string) error {
 	if v == "" {
 		return nil
@@ -392,7 +390,7 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key and url are required", http.StatusBadRequest)
 		return
 	}
-	// short keys live in URL path: restrict to path-safe characters, key never shadows registered route or breaks pipeline
+	// key lives in URL path: path-safe chars only, never shadows a route or breaks pipeline
 	if !linkKeyRe.MatchString(body.Key) || isReservedKey(body.Key) {
 		http.Error(w, "key must be 1-64 chars of [A-Za-z0-9_-], not starting with _", http.StatusBadRequest)
 		return
@@ -473,7 +471,7 @@ func (p *portalServer) deleteLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// updateMatching: app's match threshold + window (Detour: app-level). Both required.
+// updateMatching: app match threshold + window (Detour: app-level). Both required.
 func (p *portalServer) updateMatching(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
@@ -504,7 +502,7 @@ func (p *portalServer) updateMatching(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
 }
 
-// updateTagging: PATCH {tagLinks}: SDK destinations carry detur_link=<key> so the app can tag its device (per-link conversions + retention).
+// updateTagging: PATCH {tagLinks}: SDK destinations get detur_link=<key> so app can tag its device (per-link conversions + retention).
 func (p *portalServer) updateTagging(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
@@ -537,7 +535,7 @@ var analyticsRanges = map[string]int{
 	"365": 365,
 }
 
-// analytics serves daily click/install/event stats: ?days=... or ?from=YYYY-MM-DD&to=YYYY-MM-DD (default last 7 days), ?platform=ios|android|desktop (default all).
+// analytics: daily click/install/event stats. ?days= or ?from=YYYY-MM-DD&to=YYYY-MM-DD (default 7 days); ?platform=ios|android|desktop (default all).
 func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	if _, err := p.st.GetApp(appID); err != nil {
@@ -581,7 +579,7 @@ func (p *portalServer) matchQuality(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, q)
 }
 
-// fraudInstallJSON: flagged install row for the portal; link ids resolved to keys ("" = link deleted). No device hash.
+// fraudInstallJSON: flagged install row; link ids -> keys ("" = link deleted). No device hash.
 type fraudInstallJSON struct {
 	ID           string    `json:"id"`
 	CreatedAt    time.Time `json:"createdAt"`
@@ -627,7 +625,7 @@ func (p *portalServer) fraud(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"signals": f.Signals, "installs": out})
 }
 
-// fraudSettingsJSON: fraud settings wire shape. Pointers so PATCH can require every field.
+// fraudSettingsJSON: fraud settings wire shape. Pointers: PATCH requires every field.
 type fraudSettingsJSON struct {
 	VelocityMode          *string `json:"velocityMode"`
 	TimingMode            *string `json:"timingMode"`
@@ -647,8 +645,7 @@ func (p *portalServer) fraudSettings(w http.ResponseWriter, r *http.Request) {
 	p.writeFraudSettings(w, r.PathValue("id"))
 }
 
-// parseDateRange: parses ?from=YYYY-MM-DD&to=YYYY-MM-DD if either is present,
-// or falls back to ?days= via parseDays. Returns from, to, and ok.
+// parseDateRange: ?from=YYYY-MM-DD&to=YYYY-MM-DD if either present, else ?days= via parseDays. Returns from, to, ok.
 func parseDateRange(w http.ResponseWriter, r *http.Request, defDays int) (time.Time, time.Time, bool) {
 	q := r.URL.Query()
 	fromStr := q.Get("from")
@@ -688,7 +685,7 @@ func parseDateRange(w http.ResponseWriter, r *http.Request, defDays int) (time.T
 	return from, to, true
 }
 
-// parseDays: ?days= as allowed in analyticsRanges (def when absent); else 400 written, ok false.
+// parseDays: ?days= in analyticsRanges (def if absent); else writes 400, ok false.
 func parseDays(w http.ResponseWriter, r *http.Request, def int) (int, bool) {
 	v := r.URL.Query().Get("days")
 	if v == "" {
@@ -750,12 +747,12 @@ func (p *portalServer) updateFraudSettings(w http.ResponseWriter, r *http.Reques
 	p.writeFraudSettings(w, id)
 }
 
-// static serves built portal from configured directory. Missing dir/file 404s plain text (FileServer); server keeps running.
+// static: built portal from dir. Missing dir/file = plain 404 (FileServer); server keeps running.
 func (p *portalServer) static(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.Dir(p.dir)).ServeHTTP(w, r)
 }
 
-// storeErr maps store errors to HTTP responses.
+// storeErr: store error -> HTTP response.
 func (p *portalServer) storeErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -783,7 +780,7 @@ func (p *portalServer) internal(w http.ResponseWriter, err error) {
 // linkKeyRe: short-link key charset (URL-path-safe, single segment).
 var linkKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// isReservedKey: reject keys shadowing registered routes (case-insensitive match) or "_" prefix Dub reserves (_root).
+// isReservedKey: keys shadowing registered routes (case-insensitive) or "_" prefix Dub reserves (_root).
 func isReservedKey(key string) bool {
 	key = strings.ToLower(key)
 	switch key {

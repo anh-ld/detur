@@ -1,6 +1,6 @@
 package pipeline
 
-// Test scenarios 1-10 for browser pipeline; real store + real mux via httptest, no store-layer mocks.
+// Browser pipeline scenarios 1-10: real store + real mux via httptest, no store mocks.
 
 import (
 	"database/sql"
@@ -34,7 +34,7 @@ const (
 	desktopUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
-// newPipelineServer wires real store + browser pipeline + SDK routes on one mux (SDK routes more specific; GET /{key} serves rest); integration test (scenario 10) exercises both halves
+// newPipelineServer: real store + browser pipeline + SDK routes on one mux (SDK routes more specific; GET /{key} serves rest); scenario 10 uses both halves
 func newPipelineServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 	t.Helper()
 	path := t.TempDir() + "/detur-pipeline.db"
@@ -69,7 +69,7 @@ func setupPipeline(t *testing.T, s *store.Store) (store.App, store.Link) {
 	return app, link
 }
 
-// doGET issues GET without following redirects (asserts on 302 + Location)
+// doGET: GET, no redirect following (asserts 302 + Location)
 func doGET(t *testing.T, ts *httptest.Server, path string, hdr map[string]string) (*http.Response, []byte) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, ts.URL+path, nil)
@@ -92,7 +92,7 @@ func doGET(t *testing.T, ts *httptest.Server, path string, hdr map[string]string
 	return resp, b
 }
 
-// mobileClick: one-hop interstitial — first GET serves screen/timezone page (200, no click); reload with _dt=1 records click, returns 302
+// mobileClick: hop 1 = screen/timezone page (200, no click); reload with _dt=1 records click, 302
 func mobileClick(t *testing.T, ts *httptest.Server, path string, hdr map[string]string) (*http.Response, []byte) {
 	t.Helper()
 	first, _ := doGET(t, ts, path, hdr)
@@ -127,7 +127,7 @@ func doPost(t *testing.T, ts *httptest.Server, path, body string, hdr map[string
 	return resp, b
 }
 
-// dropTable deletes table through second connection (WAL allows it), injecting backend failure, rest of store intact
+// dropTable: drop via second connection (WAL allows) -> backend failure, rest of store intact
 func dropTable(t *testing.T, path, table string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
@@ -203,7 +203,7 @@ func TestAndroidClickRedirectsPlayWithClickIDReferrer(t *testing.T) {
 	if len(clicks) != 1 {
 		t.Fatalf("clicks = %d; want 1 recorded", len(clicks))
 	}
-	// Parse nested Play referrer as query string — checks server's output contract, not SDK's parser (not in this repository)
+	// nested Play referrer as query string: checks server output contract, not SDK parser (not in repo)
 	values, err := url.ParseQuery(ref)
 	if err != nil || values.Get("click_id") != clicks[0].ID {
 		t.Fatalf("referrer %q has click_id %q (%v); want %s", ref, values.Get("click_id"), err, clicks[0].ID)
@@ -223,7 +223,7 @@ func TestAndroidDeterministicChainEndToEnd(t *testing.T) {
 	if err != nil || values.Get("click_id") == "" {
 		t.Fatalf("referrer has no parseable click_id: %v", err)
 	}
-	// match-link with extracted clickId (SDK headers + payload shape)
+	// match-link with extracted clickId (SDK headers + payload)
 	body := fmt.Sprintf(`{"clickId":%q}`, values.Get("click_id"))
 	req, _ := http.NewRequest("POST", ts.URL+"/api/link/match-link", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+testAPIKey)
@@ -244,7 +244,7 @@ func TestAndroidDeterministicChainEndToEnd(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		t.Fatalf("match-link body: %v", err)
 	}
-	// match-link returns link.URL, not Play URL (Dub caches main url)
+	// match-link -> link.URL, not Play URL (Dub caches main url)
 	if out.Link != link.URL {
 		t.Fatalf("match-link link = %q; want %q (deep link)", out.Link, link.URL)
 	}
@@ -267,9 +267,9 @@ func TestDesktopClickRedirectsFallback(t *testing.T) {
 	}
 }
 
-// Scenario 4: click-time fingerprint persisted verbatim: IP, UA-derived device, locale, user-agent, readable via store.GetClick
+// Scenario 4: click-time fingerprint persisted verbatim (IP, UA-derived device, locale, UA), readable via store.GetClick
 func TestClickFingerprintPersisted(t *testing.T) {
-	httpx.TrustProxy = true // XFF header stands in for trusted-proxy deployment
+	httpx.TrustProxy = true // XFF = trusted-proxy deployment
 	t.Cleanup(func() { httpx.TrustProxy = false })
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -319,7 +319,7 @@ func TestBotUASkipsRecordingStillRedirects(t *testing.T) {
 	}
 }
 
-// Scenario 6: unknown key -> 404 plain text, no crash (server keeps serving).
+// Scenario 6: unknown key -> 404 plain text, server keeps serving.
 func TestUnknownKeyReturns404(t *testing.T) {
 	ts, _, _ := newPipelineServer(t)
 	resp, b := doGET(t, ts, "/definitely-not-a-key", nil)
@@ -331,7 +331,7 @@ func TestUnknownKeyReturns404(t *testing.T) {
 	}
 }
 
-// Scenario 7: reserved params ppid and dtb pass through to redirect
+// Scenario 7: reserved params ppid, dtb pass through to redirect
 func TestPpidAndDtbParamsPassThrough(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -380,12 +380,12 @@ func TestMobileWithoutOverridesFallsThroughToURL(t *testing.T) {
 	}
 }
 
-// Scenario 9: click-record failure must NOT block redirect; 302 still goes out ("record before redirect"). Injection: drop clicks table; link lookup keeps working, redirect target known
+// Scenario 9: click-record failure must NOT block redirect ("record before redirect"). Injection: drop clicks table; link lookup still works
 func TestRecordFailureDoesNotBlockRedirect(t *testing.T) {
 	ts, s, path := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
 	dropTable(t, path, "clicks")
-	// Interstitial hop works (reads links only); _dt reload hits dropped clicks table, 302 must still go out
+	// hop 1 reads links only; _dt reload hits dropped clicks table, 302 must still go out
 	resp, _ := mobileClick(t, ts, "/"+link.Key, map[string]string{"User-Agent": androidUA})
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d; want 302 even when click recording fails", resp.StatusCode)
@@ -402,7 +402,7 @@ func TestRecordFailureDoesNotBlockRedirect(t *testing.T) {
 	}
 }
 
-// Scenario 10: full chain: browser click via GET /{key}, then match-link call with matching fingerprint (same IP/UA/locale) returns destination, records non-organic install
+// Scenario 10: full chain: GET /{key} click, then match-link with same IP/UA/locale -> destination + non-organic install
 func TestIntegrationBrowserClickThenMatchLinkNonOrganic(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -435,7 +435,7 @@ func TestIntegrationBrowserClickThenMatchLinkNonOrganic(t *testing.T) {
 	if out.Link != link.URL {
 		t.Fatalf("match-link link = %q; want %q (deep link, not the store URL)", out.Link, link.URL)
 	}
-	// analytics: one store click, one install attributed to the link, both Android
+	// analytics: one store click + one attributed install, both Android
 	a, err := s.Analytics(app.ID, 7, "android", time.Now())
 	if err != nil {
 		t.Fatalf("Analytics: %v", err)
@@ -470,7 +470,7 @@ func TestNoTrackPresenceSkipsClick(t *testing.T) {
 	}
 }
 
-// iOS + App Store target: first hop is tap-to-copy page; reload carries pasted_link onto the click. Android keeps auto reload.
+// iOS + App Store target: hop 1 = tap-to-copy page; reload carries pasted_link onto click. Android: auto reload.
 func TestIOSCopyLinkPageRecordsPastedLink(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -558,7 +558,7 @@ func TestFutureExpiryStillRedirects(t *testing.T) {
 	}
 }
 
-// pasted_link counts only when it is the clicked short link; distinct UA per request avoids click dedup
+// pasted_link counts only if it is the clicked short link; distinct UA per request dodges click dedup
 func TestPastedLinkMustBeClickedLink(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -597,7 +597,7 @@ func TestTimezoneScreenValidated(t *testing.T) {
 	}
 }
 
-// Browser clicks reach the rollup with the redirect's labels: desktop -> web fallback, iOS -> store click.
+// Browser clicks hit rollup with redirect's labels: desktop -> web fallback, iOS -> store click.
 func TestClickRollupLabels(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -620,7 +620,7 @@ func TestClickRollupLabels(t *testing.T) {
 	}
 }
 
-// Fraud UA signal (R3): UA outside Dub's list but on bundled bot list -> recorded, flagged, kept out of click counts.
+// Fraud UA signal (R3): not in Dub's list, in bundled bot list -> recorded, flagged, out of click counts.
 func TestNewBotListUARecordedSuspect(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -676,7 +676,7 @@ func TestClickHostingIPFlagged(t *testing.T) {
 	}
 }
 
-// Velocity counter (KTD2): mobile interstitial round trip is one hit, not two.
+// Velocity counter (KTD2): interstitial round trip = one hit, not two.
 func TestInterstitialRoundTripCountsOneHit(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -689,8 +689,8 @@ func TestInterstitialRoundTripCountsOneHit(t *testing.T) {
 	}
 }
 
-// Fraud settings unreadable (table gone): the click is still recorded, velocity counted under Defaults (fail-open), and the Play
-// referrer carries its click_id.
+// Fraud settings unreadable (table gone): click still recorded, velocity counted under Defaults (fail-open), Play
+// referrer carries click_id.
 func TestClickRecordedWhenFraudSettingsUnreadable(t *testing.T) {
 	httpx.TrustProxy = true
 	t.Cleanup(func() { httpx.TrustProxy = false })
@@ -714,7 +714,7 @@ func TestClickRecordedWhenFraudSettingsUnreadable(t *testing.T) {
 	}
 }
 
-// Hit counter table gone: the click is not recorded but the redirect still goes out, with no referrer to an unrecorded click.
+// Hit counter table gone: click not recorded, redirect still goes out, no referrer to unrecorded click.
 func TestRecordHitsFailureDoesNotBlockRedirect(t *testing.T) {
 	ts, s, path := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -732,7 +732,7 @@ func TestRecordHitsFailureDoesNotBlockRedirect(t *testing.T) {
 	}
 }
 
-// iPadOS Safari sends a Mac UA. Hop 1 -> interstitial; touch reported -> hop 2 = iPad (App Store, iOS click).
+// iPadOS Safari sends Mac UA. Hop 1 -> interstitial; touch -> hop 2 = iPad (App Store, iOS click).
 // Real Mac (no touch) -> fallback.
 func TestIPadDesktopUA(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)

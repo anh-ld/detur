@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Signal names: stored in install labels and settings, shown in the portal.
+// Signal names: stored in install labels + settings, shown in portal.
 const (
 	SignalVelocity    = "velocity"
 	SignalTiming      = "timing"
@@ -67,7 +67,7 @@ var Defaults = Settings{
 	FingerprintMax: 5, FingerprintWindowDays: 7,
 }
 
-// Active: sig is in active mode, so the clicks it flags are excluded. Signals without a mode (install IP, fingerprint) never are.
+// Active: sig in active mode -> its flagged clicks excluded. Mode-less signals (install IP, fingerprint) never.
 func (s Settings) Active(sig string) bool {
 	switch sig {
 	case SignalVelocity:
@@ -82,7 +82,7 @@ func (s Settings) Active(sig string) bool {
 	return false
 }
 
-// AnyActive: some signal can exclude a click; false lets matching skip per-candidate checks.
+// AnyActive: some signal can exclude a click; false -> matching skips per-candidate checks.
 func (s Settings) AnyActive() bool {
 	for _, sig := range Signals {
 		if s.Active(sig) {
@@ -92,7 +92,7 @@ func (s Settings) AnyActive() bool {
 	return false
 }
 
-// Validate: modes known and thresholds within bounds; errors wrap the typed Err* values.
+// Validate: modes known, thresholds in bounds; errors wrap typed Err* values.
 func (s Settings) Validate() error {
 	for _, m := range []string{s.VelocityMode, s.TimingMode, s.UserAgentMode, s.IPMode} {
 		if m != ModeTagged && m != ModeActive {
@@ -148,7 +148,7 @@ func (s Settings) Excluded(f map[string]bool) bool {
 	return false
 }
 
-// Label: fired union + install IP, Signals order. Install IP is its own label so click IP counts stay click-level.
+// Label: fired union + install IP, Signals order. Install IP separate so click IP counts stay click-level.
 func Label(installIP string, sets ...map[string]bool) string {
 	var out []string
 	for _, sig := range Signals {

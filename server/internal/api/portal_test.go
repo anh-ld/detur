@@ -1,8 +1,7 @@
 package api
 
-// Portal tests: portal API CRUD, app matching settings driving matching engine, analytics,
-// no-auth contract, origin/host guard, static serving, show-once API-key semantics.
-// Real store + real mux via httptest; SDK endpoints on second listener sharing store (separate listeners, one store).
+// Portal tests: CRUD, matching settings driving matching engine, analytics, no-auth contract, origin/host guard,
+// static serving, show-once keys. Real store + mux via httptest; SDK on second listener, same store.
 
 import (
 	"database/sql"
@@ -26,13 +25,13 @@ import (
 // portalAddr mirrors cfg.PortalAddr default (config.Load).
 const portalAddr = "127.0.0.1:8081"
 
-// newPortalEnv: portal listener (RegisterPortal with temp static dir containing index.html) + second SDK listener sharing same store.
+// newPortalEnv: portal listener (temp static dir with index.html) + SDK listener, same store.
 func newPortalEnv(t *testing.T) (portal, sdk *httptest.Server, st *store.Store) {
 	t.Helper()
 	return newPortalEnvAt(t, filepath.Join(t.TempDir(), "detur-portal.db"))
 }
 
-// newPortalEnvAt: newPortalEnv on a caller-chosen DB path (tests that edit rows directly).
+// newPortalEnvAt: newPortalEnv on caller-chosen DB path (tests editing rows directly).
 func newPortalEnvAt(t *testing.T, path string) (portal, sdk *httptest.Server, st *store.Store) {
 	t.Helper()
 	return newPortalEnvWith(t, path, "", 12)
@@ -41,7 +40,7 @@ func newPortalEnvAt(t *testing.T, path string) (portal, sdk *httptest.Server, st
 // newPortalEnvWith: newPortalEnv with admin gating configured (adminPassword "" = AE1, no gating).
 func newPortalEnvWith(t *testing.T, path, adminPassword string, adminHours int) (portal, sdk *httptest.Server, st *store.Store) {
 	t.Helper()
-	httpx.TrustProxy = true // api tests simulate the trusted-proxy deployment via X-Forwarded-For
+	httpx.TrustProxy = true // api tests simulate trusted-proxy deploy via XFF
 	t.Cleanup(func() { httpx.TrustProxy = false })
 	st, err := store.Open(path)
 	if err != nil {
@@ -64,13 +63,13 @@ func newPortalEnvWith(t *testing.T, path, adminPassword string, adminHours int) 
 	return portal, sdk, st
 }
 
-// newPortalEnvAdmin: portal env with admin gating ON for the given password and session TTL.
+// newPortalEnvAdmin: admin gating ON with given password + session TTL.
 func newPortalEnvAdmin(t *testing.T, password string, hours int) (portal, sdk *httptest.Server, st *store.Store) {
 	t.Helper()
 	return newPortalEnvWith(t, filepath.Join(t.TempDir(), "detur-portal.db"), password, hours)
 }
 
-// portalReq issues request to test server with optional headers; Host defaults to server's own (loopback) address.
+// portalReq: request with optional headers; Host defaults to server's own (loopback) address.
 func portalReq(t *testing.T, ts *httptest.Server, method, path, body string, hdr map[string]string) (*http.Response, []byte) {
 	t.Helper()
 	var rd io.Reader
@@ -103,7 +102,7 @@ func mustJSON(t *testing.T, b []byte, v any) {
 	}
 }
 
-// Scenario 1: full app + link CRUD round trip through portal API.
+// Scenario 1: app + link CRUD round trip.
 func TestPortalAppLinkCRUD(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 
@@ -187,7 +186,7 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 	}
 }
 
-// Scenario 2: app matching settings persisted via PATCH /api/apps/{id}/matching drive matching engine: same fingerprint matches or 404s purely per configured threshold (950-score candidate: matches at 850, not 1200).
+// Scenario 2: PATCH /api/apps/{id}/matching drives matching: same fingerprint matches or 404s per threshold (950-score candidate: matches at 850, not 1200).
 func TestPortalAppMatchingDrivesMatching(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
 	app, link := setup(t, st)
@@ -198,12 +197,12 @@ func TestPortalAppMatchingDrivesMatching(t *testing.T) {
 		t.Fatalf("set settings: %d %s", resp.StatusCode, b)
 	}
 
-	// score 950 (IP differs: 127.0.0.1 vs click IP): below raised threshold.
+	// score 950 (IP differs: 127.0.0.1 vs click IP) < raised threshold.
 	resp, b = portalReq(t, sdk, "POST", "/api/link/match-link", androidFingerprintJSON(), authHeaders(app.ID))
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("at threshold 1200 the 950-score match must 404, got %d %s", resp.StatusCode, b)
 	}
-	// Same fingerprint, IP matching via X-Forwarded-For: score 1450 >= 1200.
+	// same fingerprint + IP match via XFF: 1450 >= 1200.
 	hdr := authHeaders(app.ID)
 	hdr["X-Forwarded-For"] = testIP
 	resp, b = portalReq(t, sdk, "POST", "/api/link/match-link", androidFingerprintJSON(), hdr)
@@ -211,7 +210,7 @@ func TestPortalAppMatchingDrivesMatching(t *testing.T) {
 		t.Fatalf("at threshold 1200 the 1450-score match must match, got %d %s", resp.StatusCode, b)
 	}
 
-	// lower threshold back to default: 950-score candidate now matches.
+	// threshold back to default: 950 candidate matches.
 	resp, b = portalReq(t, portal, "PATCH", "/api/apps/"+app.ID+"/matching", `{"threshold":850,"windowMinutes":15}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("reset settings: %d %s", resp.StatusCode, b)
@@ -245,8 +244,8 @@ func TestPortalAppMatchingDrivesMatching(t *testing.T) {
 	}
 }
 
-// Scenario 3: analytics numbers. Recorded click + matched launch -> non-organic
-// on the link; fresh no-match launch -> organic. Bad range -> 400.
+// Scenario 3: analytics. Click + matched launch -> non-organic on link; fresh no-match launch -> organic.
+// Bad range -> 400.
 func TestPortalAnalytics(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
 	app, link := setup(t, st)
@@ -292,7 +291,7 @@ func TestPortalAnalytics(t *testing.T) {
 		}
 	}
 
-	// platform filter over HTTP: the matched install is Android, nothing is iOS
+	// platform filter: matched install is Android, none iOS
 	for _, tc := range []struct {
 		platform           string
 		clicks, nonOrganic int64
@@ -348,7 +347,7 @@ func TestPortalAnalytics(t *testing.T) {
 	}
 }
 
-// Scenario 5: cross-origin requests rejected by the guard (CSRF).
+// Scenario 5: cross-origin rejected (CSRF).
 func TestPortalRejectsCrossOrigin(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x"}`,
@@ -404,7 +403,7 @@ func TestPortalGatewayHost(t *testing.T) {
 	}
 }
 
-// Scenario 6: unknown Host header rejected by the guard (DNS rebinding).
+// Scenario 6: unknown Host rejected (DNS rebinding).
 func TestPortalRejectsForeignHost(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	req, err := http.NewRequest("GET", portal.URL+"/api/apps", nil)
@@ -422,7 +421,7 @@ func TestPortalRejectsForeignHost(t *testing.T) {
 	}
 }
 
-// Scenario 7: static serving. GET / returns built index.html; missing file 404s plain text; missing static dir never crashes API.
+// Scenario 7: static. GET / = index.html; missing file = plain 404; missing dir never crashes API.
 func TestPortalStaticServing(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "GET", "/", "", nil)
@@ -455,7 +454,7 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 	}
 }
 
-// Scenario 8: show-once key semantics. Create response carries plaintext key; every later GET carries only hash.
+// Scenario 8: show-once key. Create returns plaintext; later GETs return only hash.
 func TestPortalKeyShownOnce(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"once"}`, nil)
@@ -482,7 +481,7 @@ func TestPortalKeyShownOnce(t *testing.T) {
 	}
 }
 
-// Scenario 9: key management — rotation mints new key, old one dies; revoke empties hash, SDK auth fails.
+// Scenario 9: rotate mints new key, old dies; revoke empties hash, SDK auth fails.
 func TestPortalRotateAndRevokeKey(t *testing.T) {
 	portal, _, st := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"keys"}`, nil)
@@ -582,7 +581,7 @@ func TestPortalLinkURLValidation(t *testing.T) {
 	}
 }
 
-// Scenario: GET /api/apps/{id} serves one app; unknown ids 404.
+// GET /api/apps/{id}: one app; unknown id 404.
 func TestPortalGetApp(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 
@@ -699,7 +698,7 @@ func TestPortalFraudSettings(t *testing.T) {
 	}
 }
 
-// U5 end to end: velocity active via PATCH, only candidate velocity-flagged -> organic; GET /fraud lists it as excluded with link key; range filter.
+// U5 e2e: velocity on via PATCH, only candidate velocity-flagged -> organic; GET /fraud lists it excluded with link key; range filter.
 func TestPortalFraudDrivesMatching(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "detur-portal.db")
 	portal, sdk, st := newPortalEnvAt(t, dbPath)
@@ -769,8 +768,8 @@ func TestPortalFraudDrivesMatching(t *testing.T) {
 	}
 }
 
-// Backend failures on the fraud endpoints answer 500: report when the installs or links read fails, settings GET when fraud_settings is
-// gone, PATCH when the upsert is aborted (a trigger; reads still work).
+// Fraud endpoint backend failures -> 500: report when installs/links read fails, settings GET when fraud_settings
+// gone, PATCH when upsert aborted (trigger; reads still work).
 func TestPortalFraudBackendErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name, fault, method, path, body string
@@ -792,8 +791,8 @@ func TestPortalFraudBackendErrors(t *testing.T) {
 	}
 }
 
-// Default ranges without ?days=: fraud report and analytics cover 7 days, match quality 30; a flagged organic install 10 days old shows
-// only in match quality.
+// Default ranges (no ?days=): fraud report + analytics = 7 days, match quality = 30; flagged organic install 10 days
+// old shows only in match quality.
 func TestPortalDefaultRanges(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "detur-portal.db")
 	portal, _, st := newPortalEnvAt(t, dbPath)
@@ -826,7 +825,7 @@ func TestPortalDefaultRanges(t *testing.T) {
 	}
 }
 
-// U2: elevate. Wrong password → 401 after >= 1s; right password → cookie with HttpOnly/SameSite=Lax/Path=/ and Max-Age = TTL, response carries expiresAt.
+// U2: elevate. Wrong password -> 401 after >= 1s; right -> cookie HttpOnly/SameSite=Lax/Path=/, Max-Age = TTL; response has expiresAt.
 func TestPortalAdminSessionElevate(t *testing.T) {
 	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
 
@@ -867,7 +866,7 @@ func TestPortalAdminSessionElevate(t *testing.T) {
 	}
 }
 
-// U2: session status. GET reflects active with a valid cookie, inactive without or with a tampered cookie.
+// U2: session status. Valid cookie -> active; none or tampered -> inactive.
 func TestPortalAdminSessionStatus(t *testing.T) {
 	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
 
@@ -902,7 +901,7 @@ func TestPortalAdminSessionStatus(t *testing.T) {
 	}
 }
 
-// U2: exit. DELETE clears the cookie (Max-Age=0); a cookie-less GET afterwards reports inactive.
+// U2: exit. DELETE clears cookie (Max-Age=0); cookie-less GET after -> inactive.
 func TestPortalAdminSessionExit(t *testing.T) {
 	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
 	resp, _ := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"s3cret-pw"}`, nil)
@@ -923,7 +922,7 @@ func TestPortalAdminSessionExit(t *testing.T) {
 	}
 }
 
-// U2/AE1: ADMIN_PASSWORD unset → POST 403 (nothing to elevate from), GET inactive, config.adminSet false; configured → adminSet true.
+// U2/AE1: ADMIN_PASSWORD unset -> POST 403, GET inactive, config.adminSet false; set -> adminSet true.
 func TestPortalAdminSessionUnset(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"anything"}`, nil)
@@ -954,7 +953,7 @@ func TestPortalAdminSessionUnset(t *testing.T) {
 	}
 }
 
-// U3: admin route gate (KTD3). Gating ON: every admin route 403 without a cookie, succeeds with a valid session; viewer routes stay open. DELETE last: it removes the shared app.
+// U3: admin route gate (KTD3). Gating ON: admin routes 403 without cookie, ok with session; viewer routes open. DELETE last: removes shared app.
 func TestPortalAdminRouteGate(t *testing.T) {
 	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
 	resp, b := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"s3cret-pw"}`, nil)
@@ -986,14 +985,14 @@ func TestPortalAdminRouteGate(t *testing.T) {
 		{"PATCH", "/api/apps/" + app.ID + "/fraud/settings", validFraudBody, http.StatusOK},
 		{"DELETE", "/api/apps/" + app.ID, "", http.StatusNoContent},
 	}
-	// gate first: every admin route 403 without a cookie
+	// no cookie: every admin route 403
 	for _, tc := range cases {
 		resp, b := portalReq(t, portal, tc.method, tc.path, tc.body, nil)
 		if resp.StatusCode != http.StatusForbidden {
 			t.Errorf("%s %s without cookie: %d %s; want 403", tc.method, tc.path, resp.StatusCode, b)
 		}
 	}
-	// then the same routes with a valid session behave as today
+	// valid session: same routes work
 	for _, tc := range cases {
 		resp, b := portalReq(t, portal, tc.method, tc.path, tc.body, admin)
 		if resp.StatusCode != tc.want {
@@ -1002,7 +1001,7 @@ func TestPortalAdminRouteGate(t *testing.T) {
 	}
 }
 
-// U3: viewer routes keep working without a cookie while gating is ON (link + monitoring workflow, zero 403s).
+// U3: viewer routes work without cookie while gating ON (link + monitoring flow, zero 403s).
 func TestPortalAdminGateViewerRoutesOpen(t *testing.T) {
 	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
 	resp, b := portalReq(t, portal, "POST", "/api/admin/session", `{"password":"s3cret-pw"}`, nil)
@@ -1051,10 +1050,10 @@ func TestPortalAdminGateViewerRoutesOpen(t *testing.T) {
 	}
 }
 
-// U3: expired cookie on an admin route → 403.
+// U3: expired cookie on admin route -> 403.
 func TestPortalAdminGateExpiredCookie(t *testing.T) {
 	portal, _, _ := newPortalEnvAdmin(t, "s3cret-pw", 12)
-	expired, _ := mintToken("s3cret-pw", 1, time.Now().Add(-2*time.Hour)) // expired an hour ago
+	expired, _ := mintToken("s3cret-pw", 1, time.Now().Add(-2*time.Hour)) // expired 1h ago
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x"}`,
 		map[string]string{"Cookie": adminCookie + "=" + expired})
 	if resp.StatusCode != http.StatusForbidden {
@@ -1062,7 +1061,7 @@ func TestPortalAdminGateExpiredCookie(t *testing.T) {
 	}
 }
 
-// U3/AE1: ADMIN_PASSWORD unset → admin routes succeed without a cookie (today's behavior).
+// U3/AE1: ADMIN_PASSWORD unset -> admin routes ok without cookie.
 func TestPortalAdminGateUnsetPassword(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"open"}`, nil)
@@ -1083,7 +1082,7 @@ func TestPortalAdminGateUnsetPassword(t *testing.T) {
 	}
 }
 
-// Tag deferred links: off = destinations as stored; on = match-link and resolve-short add detur_link=<key>, never over an existing one.
+// Tag deferred links: off = destinations as stored; on = match-link + resolve-short add detur_link=<key>, never over existing.
 func TestPortalTaggingDrivesDestinations(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
 	app, link := setup(t, st)
@@ -1130,7 +1129,7 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 
 	base := fmt.Sprintf("/api/apps/%s/links/%s", app.ID, link.ID)
 
-	// 1. GET rules initially empty
+	// 1. GET rules: empty
 	resp, b := portalReq(t, portal, "GET", base+"/rules", "", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET rules status = %d: %s", resp.StatusCode, b)
@@ -1179,20 +1178,20 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		}
 	]`
 
-	// 2. PUT rules without admin elevation -> 403 Forbidden
+	// 2. PUT without elevation -> 403
 	resp, _ = portalReq(t, portal, "PUT", base+"/rules", validRulesBody, nil)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("PUT rules without admin elevation: want 403, got %d", resp.StatusCode)
 	}
 
-	// Elevate session
+	// elevate
 	resp, b = portalReq(t, portal, "POST", "/api/admin/session", `{"password":"admin-pass"}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("admin elevate failed: %d %s", resp.StatusCode, b)
 	}
 	adminHdr := map[string]string{"Cookie": adminCookie + "=" + resp.Cookies()[0].Value}
 
-	// 3. PUT rules with invalid split weights (sum != 100) -> 400 Bad Request
+	// 3. PUT split weights sum != 100 -> 400
 	badWeightsBody := `[
 		{
 			"name": "Bad Split",
@@ -1209,7 +1208,7 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		t.Fatalf("PUT rules with bad weights: want 400, got %d: %s", resp.StatusCode, b)
 	}
 
-	// 4. PUT rules with invalid target URL -> 400 Bad Request
+	// 4. PUT invalid target URL -> 400
 	badURLBody := `[
 		{
 			"name": "Bad URL",
@@ -1223,7 +1222,7 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		t.Fatalf("PUT rules with javascript: target: want 400, got %d: %s", resp.StatusCode, b)
 	}
 
-	// 5. PUT rules with valid body -> 200 OK
+	// 5. PUT valid -> 200
 	resp, b = portalReq(t, portal, "PUT", base+"/rules", validRulesBody, adminHdr)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT rules with admin: want 200, got %d: %s", resp.StatusCode, b)
@@ -1233,7 +1232,7 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		t.Fatalf("unexpected rules returned: %+v", rules)
 	}
 
-	// 6. GET rules returns saved rules
+	// 6. GET returns saved rules
 	resp, b = portalReq(t, portal, "GET", base+"/rules", "", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET rules status = %d: %s", resp.StatusCode, b)
@@ -1244,8 +1243,8 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		t.Fatalf("expected 2 rules, got %d", len(rules))
 	}
 
-	// 7. GET variants returns stats for the link
-	// Seed a click and install for variant-b
+	// 7. GET variants: link stats
+	// seed click + install for variant-b
 	c, _ := st.RecordClick(store.Click{
 		AppID: app.ID, LinkID: link.ID, Variant: "variant-b",
 		Fingerprint: store.Fingerprint{IP: "1.2.3.4", UserAgent: "Test"},
@@ -1267,7 +1266,7 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		t.Fatalf("unexpected variant stats: %+v", stats)
 	}
 
-	// 8. Tenancy check: accessing link with wrong app ID -> 404
+	// 8. Tenancy: wrong app ID -> 404
 	resp, _ = portalReq(t, portal, "GET", "/api/apps/other-app/links/"+link.ID+"/rules", "", nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("wrong app rules: want 404, got %d", resp.StatusCode)

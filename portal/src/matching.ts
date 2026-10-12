@@ -1,4 +1,4 @@
-// Ranges mirrored from server/internal/match/match.go (ValidateSettings).
+// mirrors server/internal/match/match.go (ValidateSettings)
 export const THRESHOLD = { min: 700, max: 1200 };
 export const WINDOW = { min: 5, max: 180 };
 
@@ -6,7 +6,7 @@ export function inRange(v: number, range: { min: number; max: number }): boolean
   return v >= range.min && v <= range.max;
 }
 
-// Fraud threshold ranges mirrored from server/internal/fraud/fraud.go (Settings.Validate).
+// fraud ranges: mirrors server/internal/fraud/fraud.go (Settings.Validate)
 export const FRAUD_RANGES = {
   velocityIpMax: { min: 2, max: 10000 },
   velocityLinkMax: { min: 2, max: 100000 },
@@ -20,7 +20,7 @@ export const FRAUD_RANGES = {
 export type FraudNumKey = keyof typeof FRAUD_RANGES;
 export type FraudModeKey = 'velocityMode' | 'timingMode' | 'userAgentMode' | 'ipMode';
 
-// Fraud signals in server label order: install label key, plain label, one-line meaning, mode field (none = tag only), thresholds.
+// server label order: label key, label, meaning, mode field (none = tag only), thresholds
 export const SIGNALS: {
   key: string;
   label: string;
