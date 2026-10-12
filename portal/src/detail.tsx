@@ -98,10 +98,12 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
         .catch((e) => ok() && setError(String(e))),
     ]);
   };
-  // Analytics (also feeds link counts): one request per id/filter/refresh; a superseded response is dropped (stale flag).
+  // Analytics (also feeds link counts): one request per id/filter/refresh, only on the tabs that show it; a superseded response is dropped (stale flag).
+  const filtered = tab === 'links' || tab === 'analytics';
   const [tick, setTick] = useState(0);
   const [statsLoading, setStatsLoading] = useState(false);
   useEffect(() => {
+    if (!filtered) return;
     let stale = false;
     setStatsLoading(true);
     api
@@ -112,7 +114,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
     return () => {
       stale = true;
     };
-  }, [id, range.days, range.from, range.to, platform, tick]);
+  }, [id, range.days, range.from, range.to, platform, tick, filtered]);
   // Refresh icon spins until app, links and analytics load; min 600ms so a fast reload stays visible.
   const [refreshing, setRefreshing] = useState(false);
   const refresh = () => {
@@ -151,7 +153,6 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   };
 
   const linkStats = new Map(stats?.links.map((l) => [l.linkId, l]));
-  const filtered = tab === 'links' || tab === 'analytics';
 
   return (
     <div>
