@@ -1,9 +1,8 @@
 import { fetch as nodeFetch } from 'undici';
 
-// happy-dom fetch enforces CORS; server same-origin by design. Use Node's real fetch.
-// Minimal cookie jar on top (undici 8.11.2 ships no CookieJar class): stores every
-// Set-Cookie per host and sends it back as a Cookie header, so the detur_admin
-// elevation session round-trips across fetches in the integration suites.
+// happy-dom fetch enforces CORS; server is same-origin. Use Node's real fetch.
+// + minimal cookie jar (undici 8.11.2 has no CookieJar): Set-Cookie per host -> Cookie header,
+// so the detur_admin session round-trips in integration suites.
 const jar = new Map<string, Map<string, string>>();
 
 const hostOf = (input: unknown): string => {
@@ -11,8 +10,8 @@ const hostOf = (input: unknown): string => {
   return url.host;
 };
 
-// Test helpers: inject a cookie (e.g. a tampered/expired session) or clear the jar.
-// Injecting locks the jar: no late Set-Cookie may clobber the injected value.
+// inject a cookie (tampered/expired session) or clear the jar.
+// injecting locks the jar: late Set-Cookie can't clobber it.
 let jarLocked = false;
 export function setJarCookie(host: string, name: string, value: string) {
   jarLocked = true;
@@ -37,7 +36,7 @@ globalThis.fetch = (async (input: any, init?: any) => {
     if (!m) continue;
     const [name, value] = [m[1], m[2]];
     if (value === '' && /Max-Age=0/i.test(sc)) {
-      cookies?.delete(name); // deletion cookie (exit): drop from the jar
+      cookies?.delete(name); // deletion cookie (exit): drop
       if (cookies?.size === 0) jar.delete(host);
       continue;
     }
@@ -47,6 +46,6 @@ globalThis.fetch = (async (input: any, init?: any) => {
   return res;
 }) as unknown as typeof fetch;
 
-// Platform shims happy-dom lacks: clipboard for copy flows, scrollTo for shell.
+// shims happy-dom lacks: clipboard (copy flows), scrollTo (shell)
 Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => {} }, configurable: true });
 window.scrollTo = (() => {}) as typeof window.scrollTo;

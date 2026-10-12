@@ -1,7 +1,7 @@
 import { defineConfig, mergeConfig } from 'vitest/config';
 import viteConfig from './vite.config';
 
-// flows/admin/pages.test.tsx: integration vs real Go binary + fresh SQLite (pages runs the short-link page scripts). stale.test.tsx: mocked-fetch unit. All in happy-dom.
+// flows/admin/pages: integration vs real Go binary + fresh SQLite (pages runs short-link scripts). stale: mocked-fetch unit. All happy-dom.
 export default mergeConfig(viteConfig, defineConfig({
   test: {
     include: ['tests/**/*.test.tsx'],

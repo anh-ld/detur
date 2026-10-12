@@ -1,6 +1,5 @@
-// Package api serves Detour SDK endpoints: match-link, resolve-short,
-// universal-link-click, two analytics calls, with godetour.dev compatible
-// shapes, SDK header auth, fail-open behavior.
+// Package api: Detour SDK endpoints (match-link, resolve-short, universal-link-click, 2 analytics),
+// godetour.dev-compatible shapes, SDK header auth, fail-open.
 package api
 
 import (
@@ -21,9 +20,8 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// RegisterSDK attaches five SDK endpoints to mux (stdlib method patterns). Auth wrapper validates
-// Bearer key + X-App-ID + X-SDK presence; universal-link-click fails open when auth uncheckable,
-// backend failure never blocks link. retentionHours: click retention floor threaded from config.
+// RegisterSDK: 5 SDK endpoints on mux. Auth checks Bearer key + X-App-ID + X-SDK; universal-link-click fails open
+// when auth uncheckable (backend failure never blocks link). retentionHours: click retention floor from config.
 func RegisterSDK(mux *http.ServeMux, st *store.Store, retentionHours int) {
 	s := &sdkServer{st: st, log: log.Default(), retentionHours: retentionHours}
 	mux.HandleFunc("POST /api/link/match-link", s.requireAuth(s.matchLink, false))
@@ -39,7 +37,7 @@ type sdkServer struct {
 	retentionHours int
 }
 
-// requireAuth enforces SDK header contract: Authorization Bearer + X-App-ID + X-SDK present, apiKey valid for app. failOpen endpoints (universal-link-click) proceed when store unqueryable.
+// requireAuth: Bearer + X-App-ID + X-SDK present, apiKey valid for app. failOpen endpoints (universal-link-click) proceed when store unqueryable.
 func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key, ok := bearerKey(r.Header.Get("Authorization"))
@@ -55,7 +53,7 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 				return
 			}
 			if r.URL.Path == "/api/link/match-link" {
-				// match-link backend error = no-match, never deny. Body unread here, no device hash for unknown row.
+				// backend error = no-match, never deny. Body unread: no device hash for unknown row.
 				s.log.Printf("match-link auth backend error, returning no-match: %v", err)
 				w.WriteHeader(http.StatusNotFound)
 				return
@@ -75,7 +73,7 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 	}
 }
 
-// matchLinkBody: union of deterministic (clickId) + probabilistic (fingerprint) match-link payloads (getDeferredLink.ts). locale = SDK's [{languageTag}...] array; timestamp (Unix ms) sets the match window reference, excluded from device hash (not a device characteristic, would break its stability).
+// matchLinkBody: deterministic (clickId) + probabilistic (fingerprint) match-link payloads (getDeferredLink.ts). locale = [{languageTag}...]; timestamp (Unix ms) = match window reference, excluded from device hash (not a device trait, breaks stability).
 type matchLinkBody struct {
 	ClickID       string      `json:"clickId"`
 	Model         string      `json:"model"`
@@ -95,7 +93,7 @@ type localeTag struct {
 	LanguageTag string `json:"languageTag"`
 }
 
-// matchLink serves POST /api/link/match-link: deterministic clickId lookup or probabilistic fingerprint scoring; 200 {"link": destination} on match, 404 on no-match (SDK reads organic -> null), fail-open 404 + unknown-attribution row on backend error.
+// matchLink: POST /api/link/match-link. clickId lookup or fingerprint scoring; match -> 200 {"link": dest}, no-match -> 404 (SDK: organic -> null), backend error -> fail-open 404 + unknown-attribution row.
 func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body matchLinkBody
@@ -134,7 +132,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	// failed install write: analytics row lost, link still returned (backend errors never deny link)
+	// install write failed: row lost, link still returned (M11)
 	inst := store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic, LinkID: res.Click.LinkID, Platform: installPlatform(body),
 		Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp, Fraud: res.Fraud, FraudAction: res.FraudAction, FraudLinkID: res.FraudLinkID, Variant: res.Click.Variant}
 	if inst.Platform == "" { // clickId-only payload: matched click's browser tells the platform
@@ -152,7 +150,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	})})
 }
 
-// withLinkTag: dest + detur_link=<key> (add-only) when the app tags links, so the app learns its link key (SDK hands it only the destination). key is read only then; lookup failure or "" key: dest unchanged.
+// withLinkTag: dest + detur_link=<key> (add-only) when app tags links, so app learns its link key (SDK only hands destination). Key read only then; lookup failure or "" key -> dest unchanged.
 func (s *sdkServer) withLinkTag(appID, dest string, key func() string) string {
 	app, err := s.st.GetApp(appID)
 	if err != nil || !app.TagLinks {
@@ -165,7 +163,7 @@ func (s *sdkServer) withLinkTag(appID, dest string, key func() string) string {
 	return httpx.AddParams(dest, url.Values{store.LinkTag: {k}}, func(string, string) bool { return true })
 }
 
-// resolveShort serves POST /api/link/resolve-short: map short URL to destination. SDK casts raw body to {link, route, parameters}, reads only link; 404 -> null (client falls back to original URL).
+// resolveShort: POST /api/link/resolve-short. Short URL -> destination. SDK casts body to {link, route, parameters}, reads only link; 404 -> null (client falls back to original URL).
 func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body struct {
@@ -210,7 +208,7 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// universalLinkClick: POST /api/link/universal-link-click. v1 answers "no limit": deny shape never sent, allow shape returned even when click recording fails. URLs with no derivable link key not recorded; response always carries clickId.
+// universalLinkClick: POST /api/link/universal-link-click. v1 = no limit: deny shape never sent, allow shape even if recording fails. No derivable link key -> not recorded; response always has clickId.
 func (s *sdkServer) universalLinkClick(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body struct {
@@ -230,7 +228,7 @@ func writeAllow(w http.ResponseWriter, clickID string) {
 	})
 }
 
-// recordClickID: universal-link click (fail-open), returns clickId. No bot filter — caller is app (Dub skips bot checks for deeplink opens). Repeat opens within hour reuse click (store dedup). Nothing recorded -> fresh id minted, SDK always sees one.
+// recordClickID: record universal-link click (fail-open), return clickId. No bot filter: caller is the app (Dub skips bot checks on deeplink opens). Repeat opens within an hour reuse click (store dedup). Nothing recorded -> fresh id, SDK always gets one.
 func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string {
 	key := linkKey(rawURL)
 	if key == "" {
@@ -265,7 +263,7 @@ func (s *sdkServer) analyticsRetention(w http.ResponseWriter, r *http.Request) {
 	s.recordAnalytics(w, r, true)
 }
 
-// recordAnalytics persists analytics body: event name from event_name (SDK verbatim), task-spec "event" key or "retention" (retention endpoint) as fallback; full body JSON stored as metadata. Then feeds per-link rollups from device_id + data.link (best-effort: raw event already stored).
+// recordAnalytics: event name = event_name (verbatim), else task-spec "event" key, else "retention" (retention endpoint); full body stored as metadata. Then per-link rollups from device_id + data.link (best-effort: raw event already stored).
 func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, retention bool) {
 	appID := r.Header.Get("X-App-ID")
 	var body map[string]json.RawMessage
@@ -299,7 +297,7 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, rete
 	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// backendError logs match-link backend failure, best-effort records unknown-attribution row: logged, never surfaced in analytics.
+// backendError: log match-link backend failure, best-effort unknown-attribution row (never surfaced in analytics).
 func (s *sdkServer) backendError(appID, deviceHash string, err error) {
 	s.log.Printf("match-link backend error: %v", err)
 	if _, rerr := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: deviceHash, Attribution: store.AttributionUnknown, Method: store.MethodUnknown, Score: -1, RunnerUp: -1}); rerr != nil {
@@ -307,7 +305,7 @@ func (s *sdkServer) backendError(appID, deviceHash string, err error) {
 	}
 }
 
-// installPlatform: install's platform from the SDK fingerprint: Apple manufacturer -> ios, any other manufacturer -> android, else app UA markers.
+// installPlatform: from SDK fingerprint: Apple manufacturer -> ios, other manufacturer -> android, else app UA markers.
 func installPlatform(b matchLinkBody) string {
 	switch {
 	case strings.EqualFold(b.Manufacturer, "apple"):
@@ -318,7 +316,7 @@ func installPlatform(b matchLinkBody) string {
 	return ua.AppPlatform(b.UserAgent)
 }
 
-// deviceHash: stable per-device identifier, SHA-256 hex of canonical fingerprint fields in fixed order. Timestamp excluded (not device characteristic); stability keeps duplicate match-link calls idempotent on (device_hash, click_id). clickId-only payload hashes clickId instead.
+// deviceHash: SHA-256 hex of canonical fingerprint fields, fixed order. Timestamp excluded (not a device trait); stable hash keeps duplicate match-link calls idempotent on (device_hash, click_id). clickId-only payload: hashes clickId.
 func deviceHash(b matchLinkBody) string {
 	if b.ClickID != "" {
 		return store.HashKey("clickId=" + b.ClickID)
@@ -329,7 +327,7 @@ func deviceHash(b matchLinkBody) string {
 	return store.HashKey(canonical)
 }
 
-// bearerKey extracts the token from "Bearer <token>".
+// bearerKey: token from "Bearer <token>".
 func bearerKey(h string) (string, bool) {
 	if len(h) > 7 && strings.EqualFold(h[:7], "Bearer ") {
 		return strings.TrimSpace(h[7:]), true
@@ -337,7 +335,7 @@ func bearerKey(h string) (string, bool) {
 	return "", false
 }
 
-// linkKey: short-link key from URL path (single path segment in v1; multi-segment paths won't match any stored key).
+// linkKey: short-link key from URL path (v1: single segment; multi-segment never matches a stored key).
 func linkKey(u string) string {
 	p, err := url.Parse(u)
 	if err != nil {
@@ -375,7 +373,7 @@ func errorBody(msg string) map[string]any {
 	return map[string]any{"error": map[string]any{"message": msg}}
 }
 
-// decodeJSON reads bounded request body into v (1MB cap keeps hostile client from pinning single-writer connection with giant upload).
+// decodeJSON: bounded body into v (1MB cap: hostile client can't pin single-writer conn with giant upload).
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {

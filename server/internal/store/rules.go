@@ -17,14 +17,14 @@ type LinkRule struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-// RuleCond: criteria required for this rule to match (AND logic).
+// RuleCond: match criteria, all ANDed.
 type RuleCond struct {
 	Platform string     `json:"platform,omitempty"` // "ios", "android", "desktop"
 	Lang     string     `json:"lang,omitempty"`     // 2-letter ISO prefix (e.g. "de")
-	ParamKey string     `json:"param_key,omitempty"` // query parameter key
-	ParamVal string     `json:"param_val,omitempty"` // optional query parameter exact value
-	From     *time.Time `json:"from,omitempty"`      // active window start UTC
-	Until    *time.Time `json:"until,omitempty"`     // active window end UTC
+	ParamKey string     `json:"param_key,omitempty"`
+	ParamVal string     `json:"param_val,omitempty"` // optional; exact match
+	From     *time.Time `json:"from,omitempty"`      // window start, UTC
+	Until    *time.Time `json:"until,omitempty"`     // window end, UTC
 }
 
 // RuleAction: direct targets or weighted A/B split.
@@ -36,11 +36,11 @@ type RuleAction struct {
 // SplitVariant: one weighted variant in an A/B split.
 type SplitVariant struct {
 	Name    string      `json:"name"`
-	Weight  int         `json:"weight"` // 1-100; sum must equal 100
+	Weight  int         `json:"weight"` // 1-100; sum = 100
 	Targets RuleTargets `json:"targets"`
 }
 
-// RuleTargets: destination overrides; empty strings inherit base link values.
+// RuleTargets: destination overrides; "" = inherit from link.
 type RuleTargets struct {
 	Destination string `json:"destination,omitempty"`
 	IOS         string `json:"ios,omitempty"`
@@ -48,7 +48,7 @@ type RuleTargets struct {
 	FallbackURL string `json:"fallback_url,omitempty"`
 }
 
-// VariantStat: aggregated clicks, matched installs, and conversion rate per variant.
+// VariantStat: per-variant clicks, matched installs, conversion rate.
 type VariantStat struct {
 	Variant        string  `json:"variant"`
 	Clicks         int64   `json:"clicks"`
@@ -56,7 +56,7 @@ type VariantStat struct {
 	ConversionRate float64 `json:"conversion_rate"`
 }
 
-// GetLinkRules: ordered rules for a link (lowest position first).
+// GetLinkRules: link's rules, lowest position first.
 func (s *Store) GetLinkRules(linkID string) ([]LinkRule, error) {
 	rows, err := s.db.Query(
 		`SELECT id, link_id, position, name, cond, action, created_at
@@ -95,7 +95,7 @@ func (s *Store) GetLinkRules(linkID string) ([]LinkRule, error) {
 	return rules, rows.Err()
 }
 
-// SetLinkRules: atomic replacement of all rules for a link.
+// SetLinkRules: atomically replace all of a link's rules.
 func (s *Store) SetLinkRules(linkID string, rules []LinkRule) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *Store) SetLinkRules(linkID string, rules []LinkRule) error {
 	}
 	defer tx.Rollback()
 
-	// ids and created_at survive only for rules this link already owns; position is array order (one source of truth)
+	// id + created_at kept only for rules this link already owns; position = array order (single source of truth)
 	created := map[string]string{}
 	rows, err := tx.Query(`SELECT id, created_at FROM link_rules WHERE link_id = ?`, linkID)
 	if err != nil {
@@ -131,7 +131,7 @@ func (s *Store) SetLinkRules(linkID string, rules []LinkRule) error {
 		id, createdAt := r.ID, now
 		if at, ok := created[id]; ok {
 			createdAt = at
-			delete(created, id) // a repeated id gets a fresh one
+			delete(created, id) // repeated id -> fresh one
 		} else {
 			id = Nanoid(16)
 		}
@@ -154,7 +154,7 @@ func (s *Store) SetLinkRules(linkID string, rules []LinkRule) error {
 	return tx.Commit()
 }
 
-// GetLinkVariantStats: clicks and installs aggregated per variant for [from, to] UTC range.
+// GetLinkVariantStats: per-variant clicks + installs over [from, to] UTC.
 func (s *Store) GetLinkVariantStats(appID, linkID string, from, to time.Time) ([]VariantStat, error) {
 	from = from.UTC()
 	to = to.UTC()

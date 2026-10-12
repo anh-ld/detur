@@ -42,7 +42,7 @@ func cohort(t *testing.T, s *Store, linkID, day string) [4]int64 {
 	return c
 }
 
-// Tag maps a device to its first link; the tag marker is not a conversion; later events count for that link.
+// Tag maps device -> its first link; tag marker isn't a conversion; later events count for that link.
 func TestRecordLinkEventConversions(t *testing.T) {
 	s := newTestStore(t)
 	app, abc := setupApp(t, s)
@@ -70,7 +70,7 @@ func TestRecordLinkEventConversions(t *testing.T) {
 	}
 }
 
-// Retention: one device counts once per mark, on exactly day 1, 7, 30; untagged devices count nothing.
+// Retention: device counts once per mark, on exactly day 1, 7, 30; untagged devices count nothing.
 func TestRecordLinkEventRetention(t *testing.T) {
 	s := newTestStore(t)
 	app, abc := setupApp(t, s)
@@ -134,7 +134,7 @@ func TestLinkAnalyticsLifecycle(t *testing.T) {
 	}
 }
 
-// Devices = cohorts started in range; each DN uses cohorts whose mark day falls in range.
+// Devices = cohorts started in range; each DN = cohorts whose mark day is in range.
 func TestAnalyticsLinkRetentionAndConversions(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)

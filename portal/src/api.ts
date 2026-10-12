@@ -1,4 +1,4 @@
-// Portal API client. Relative URLs: Go binary serves portal + API on one origin.
+// relative URLs: Go binary serves portal + API on one origin
 
 export interface App {
   id: string;
@@ -9,7 +9,7 @@ export interface App {
   androidCertFingerprint: string;
   matchThreshold: number;
   matchWindowMinutes: number;
-  // SDK destinations carry detur_link=<key>, so the app can tag its device.
+  // SDK destinations get detur_link=<key> so the app can tag its device
   tagLinks: boolean;
 }
 
@@ -23,7 +23,7 @@ export interface Link {
   fallbackUrl: string;
 }
 
-// One UTC day. clicks = browser clicks; webFallbacks ⊂ clicks; opens = SDK opens of an installed app.
+// one UTC day. clicks = browser clicks; webFallbacks ⊂ clicks; opens = SDK opens of installed app
 export interface DayStat {
   day: string;
   clicks: number;
@@ -37,14 +37,14 @@ export interface Analytics {
   days: DayStat[];
   links: { linkId: string; key: string; clicks: number; matches: number }[];
   events: { event: string; count: number }[];
-  // Browser clicks per in-app source (messenger, zalo, …, unknown-inapp); all platforms.
+  // browser clicks per in-app source (messenger, zalo, …, unknown-inapp), all platforms
   sources: { source: string; count: number }[];
-  // Per-link, from devices the app tagged with a link; all platforms. Older servers omit both.
+  // per link, from app-tagged devices, all platforms. Older servers omit both.
   conversions?: { linkId: string; key: string; event: string; count: number }[];
   retention?: LinkRetention[];
 }
 
-// Retention mark: returned of devices (cohorts whose mark day is in range) opened the app exactly N days after the tag.
+// retention mark: of devices (cohorts w/ mark day in range), returned = opened app exactly N days after tag
 export interface Mark {
   returned: number;
   devices: number;
@@ -74,7 +74,7 @@ export interface HealthCheck {
 
 export type FraudMode = 'tagged' | 'active';
 
-// Per-app fraud config (server fraud.Settings). Fingerprint has no mode: tag only.
+// per-app fraud config (server fraud.Settings). Fingerprint: no mode, tag only.
 export interface FraudSettings {
   velocityMode: FraudMode;
   timingMode: FraudMode;
@@ -111,14 +111,13 @@ export interface Fraud {
 
 export type Platform = '' | 'ios' | 'android' | 'desktop';
 
-// Base URL override: '' = same origin; integration tests point client at live server.
+// base URL: '' = same origin; integration tests point at live server
 export let apiBase = '';
 export function setApiBase(url: string) {
   apiBase = url;
 }
 
-// HTTP error carrying the status: the UI distinguishes 401 (wrong password) from
-// 403 (missing/expired admin session) without parsing the message.
+// carries status: UI tells 401 (wrong password) from 403 (no/expired admin session) without parsing
 export class HttpError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -147,7 +146,7 @@ export interface CreatedApp {
   apiKeyHash: string;
 }
 
-// Admin elevation session (GET /api/admin/session); expiresAt present only when admin.
+// GET /api/admin/session; expiresAt only when admin
 export interface AdminSession {
   admin: boolean;
   expiresAt?: string;

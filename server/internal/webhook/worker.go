@@ -13,7 +13,7 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// Worker periodically scans for new app activity and delivers signed webhook batches.
+// Worker: periodically scans new app activity, delivers signed webhook batches.
 type Worker struct {
 	st       *store.Store
 	client   *http.Client
@@ -25,7 +25,7 @@ type Worker struct {
 	doneCh chan struct{}
 }
 
-// NewWorker creates a webhook delivery worker with a safe HTTP client.
+// NewWorker: delivery worker with SSRF-safe HTTP client.
 func NewWorker(st *store.Store, interval time.Duration) *Worker {
 	if interval <= 0 {
 		interval = 15 * time.Second
@@ -38,12 +38,12 @@ func NewWorker(st *store.Store, interval time.Duration) *Worker {
 	}
 }
 
-// SetClient overrides the HTTP client (useful in testing).
+// SetClient: override HTTP client (tests).
 func (w *Worker) SetClient(c *http.Client) {
 	w.client = c
 }
 
-// Start begins periodic worker processing in a background goroutine.
+// Start: periodic processing in background goroutine.
 func (w *Worker) Start() {
 	w.mu.Lock()
 	if w.stopCh != nil {
@@ -59,7 +59,6 @@ func (w *Worker) Start() {
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
 
-		// Run an initial tick
 		w.ProcessOnce(context.Background())
 
 		for {
@@ -73,7 +72,7 @@ func (w *Worker) Start() {
 	}()
 }
 
-// Stop gracefully signals the worker to terminate and waits for it to exit.
+// Stop: signal worker, wait for exit.
 func (w *Worker) Stop() {
 	w.mu.Lock()
 	if w.stopCh == nil {
@@ -85,7 +84,7 @@ func (w *Worker) Stop() {
 	<-w.doneCh
 }
 
-// ProcessOnce runs a single processing cycle over all active webhooks.
+// ProcessOnce: one cycle over all active webhooks.
 func (w *Worker) ProcessOnce(ctx context.Context) {
 	webhooks, err := w.st.ListActiveWebhooks()
 	if err != nil {
@@ -115,7 +114,7 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 		return
 	}
 
-	// Rowids only grow (row_seq). Cursor above the high-water mark = database swapped (restored backup);
+	// Rowids only grow (row_seq). Cursor > high-water mark = DB swapped (restored backup);
 	// `rowid > cursor` would skip new rows forever. Rewind to 0: duplicates beat silent loss.
 	tableMax, err := w.st.WebhookStreamMaxRowID(stream)
 	if err != nil {
@@ -130,7 +129,7 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 	}
 
 	for range batchesPerCycle {
-		// While replaying, stop batches at replay_until so every replayed row carries Detur-Replay and no live row does.
+		// replaying: stop batches at replay_until -> every replayed row carries Detur-Replay, no live row does.
 		records, err := w.st.FetchPendingWebhookBatch(wh.AppID, stream, st.Cursor, st.ReplayUntil, batchSize)
 		if err != nil {
 			w.logger.Printf("webhook %s fetch %s failed: %v", wh.ID, stream, err)
@@ -138,7 +137,7 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 		}
 		isReplay := st.ReplayUntil > 0
 		if len(records) == 0 {
-			// Replay window has no rows left (purged or empty): close it and continue with live rows.
+			// replay window empty (purged or none): close it, continue live.
 			if isReplay && w.advance(wh.ID, stream, &st, st.ReplayUntil, true) {
 				continue
 			}
@@ -193,8 +192,8 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 	}
 }
 
-// advance persists a new cursor (clearing failures/backoff, and the replay window when replayDone) and mirrors it into st.
-// False when the write failed or a concurrent replay moved the cursor; the stream then waits for the next cycle.
+// advance: persist new cursor (clears failures/backoff; replay window too when replayDone), mirror into st.
+// false = write failed or concurrent replay moved cursor; stream waits for next cycle.
 func (w *Worker) advance(webhookID, stream string, st *store.WebhookStream, cursor int64, replayDone bool) bool {
 	if err := w.st.UpdateWebhookCursor(webhookID, stream, *st, cursor, replayDone); err != nil {
 		if !errors.Is(err, store.ErrWebhookCursorMoved) {
@@ -209,7 +208,7 @@ func (w *Worker) advance(webhookID, stream string, st *store.WebhookStream, curs
 	return true
 }
 
-// ComputeBackoff calculates exponential backoff duration: min(30s * 2^fails, 1h).
+// ComputeBackoff: min(30s * 2^fails, 1h).
 func ComputeBackoff(fails int) time.Duration {
 	if fails < 1 {
 		fails = 1

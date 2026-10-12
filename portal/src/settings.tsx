@@ -270,7 +270,7 @@ export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) =>
   );
 }
 
-// Saves on press (Fraud tab pattern): toast on save; a rejected save reverts and toasts why.
+// saves on press (Fraud tab pattern): toast; rejected -> revert + toast why
 function TagLinksRow({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
   const [on, setOn] = useState(app.tagLinks);
   const save = async (next: boolean) => {
@@ -396,7 +396,7 @@ export function MatchQualityView({ app }: { app: App }) {
   );
 }
 
-// RotateKeyDialog mints a key (old dies immediately); plaintext shown once, like create.
+// mints new key, old dies now; plaintext shown once, like create
 function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }) {
   const [rotated, setRotated] = useState<CreatedApp | null>(null);
   const [err, setErr] = useState('');

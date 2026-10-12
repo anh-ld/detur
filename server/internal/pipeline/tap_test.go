@@ -1,6 +1,6 @@
 package pipeline
 
-// In-app browser tap page: recognized in-app visitors get a tapped "Get the app" link instead of the blocked 302.
+// Tap page: recognized in-app visitors get a "Get the app" link to tap instead of the blocked 302.
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ const (
 	messengerAndroidUA = "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 [FB_IAB/MESSENGER;FBAV/450.0.0.42.109;]"
 )
 
-// Messenger iOS, App Store target: auto first hop (no copy page), tap page with App Store link + Messenger steps, one click tagged messenger.
+// Messenger iOS, App Store target: auto hop 1 (no copy page), tap page with App Store link + Messenger steps, one click tagged messenger.
 func TestInAppIOSGetsTapPage(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -48,7 +48,7 @@ func TestInAppIOSGetsTapPage(t *testing.T) {
 	}
 }
 
-// Messenger Android with the package set: intent:// button back to the short link, Play fallback carrying click_id, plain Play link as backup.
+// Messenger Android, package set: intent:// button back to short link, Play fallback with click_id, plain Play link as backup.
 func TestInAppAndroidIntentButton(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -90,7 +90,7 @@ func TestInAppAndroidWithoutPackageUsesPlay(t *testing.T) {
 	}
 }
 
-// No store target for the platform -> today's redirect, even in-app or with _tap; _tap never forwarded.
+// No store target for platform -> plain redirect, even in-app or with _tap; _tap never forwarded.
 func TestInAppWithoutStoreTargetRedirects(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)
@@ -106,7 +106,7 @@ func TestInAppWithoutStoreTargetRedirects(t *testing.T) {
 	}
 }
 
-// Safety-net reload (_tap) from a plain browser: tap page, same click refreshed (no second count).
+// Safety-net reload (_tap) from plain browser: tap page, same click refreshed (no second count).
 func TestTapParamServesTapPageWithoutSecondClick(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -128,7 +128,7 @@ func TestTapParamServesTapPageWithoutSecondClick(t *testing.T) {
 	}
 }
 
-// A generic webview is recorded unknown-inapp but keeps the redirect (safety net only).
+// Generic webview: recorded unknown-inapp, keeps redirect (safety net only).
 func TestGenericWebviewTaggedKeepsRedirect(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -152,7 +152,7 @@ func TestBotNeverGetsTapPage(t *testing.T) {
 	}
 }
 
-// Safety net delay: short for generic webviews, longer for real browsers, off for recognized in-app (hop 2 already serves the tap page).
+// Safety-net delay: short for generic webviews, longer for real browsers, off for recognized in-app (hop 2 serves tap page).
 func TestSafetyNetDelay(t *testing.T) {
 	for _, c := range []struct {
 		source string
@@ -162,7 +162,7 @@ func TestSafetyNetDelay(t *testing.T) {
 			t.Errorf("safetyNetDelay(%q) = %d; want %d", c.source, got, c.want)
 		}
 	}
-	// the hop-1 page carries the delay chosen for its UA
+	// hop-1 page carries delay chosen for its UA
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
 	webview := "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36"
@@ -177,7 +177,7 @@ func TestSafetyNetDelay(t *testing.T) {
 	}
 }
 
-// "Open in browser" wording: the app's own menu item, generic for unknown webviews, else the platform browser; platform menu icon.
+// "Open in browser" wording: app's own menu item, generic for unknown webviews, else platform browser; platform menu icon.
 func TestTapSteps(t *testing.T) {
 	for _, c := range []struct {
 		source string
@@ -199,7 +199,7 @@ func TestTapSteps(t *testing.T) {
 	}
 }
 
-// Copy page: copy and navigate in the same tap handler (no promise before navigation), noscript still reaches hop 2.
+// Copy page: copy + navigate in same tap handler (no promise before navigation); noscript still reaches hop 2.
 func TestCopyPageNavigatesInSameTap(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -234,7 +234,7 @@ func TestInAppIOSTapReportsPastedLink(t *testing.T) {
 	}
 }
 
-// The tap page drops _tap from its own URL, so "Open in browser" reopens without it (real browser -> 302).
+// Tap page drops _tap from own URL -> "Open in browser" reopens without it (real browser -> 302).
 func TestTapPageStripsTapParam(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -244,7 +244,7 @@ func TestTapPageStripsTapParam(t *testing.T) {
 	}
 }
 
-// market:// Android target: the Play backup link keeps its scheme (no #ZgotmplZ).
+// market:// Android target: Play backup link keeps its scheme (no #ZgotmplZ).
 func TestTapPageMarketBackupLink(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)
@@ -260,7 +260,7 @@ func TestTapPageMarketBackupLink(t *testing.T) {
 	}
 }
 
-// Android in-app visitor on a link whose Android target is not a Play URL: plain redirect.
+// Android in-app, Android target not a Play URL: plain redirect.
 func TestInAppAndroidWebTargetRedirects(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)

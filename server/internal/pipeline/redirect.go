@@ -9,14 +9,14 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// internalParams: detur's own query params — consumed here, never forwarded to destination (Dub skips dub-no-track and redir_url)
+// internalParams: detur's own query params; consumed here, never forwarded (Dub skips dub-no-track, redir_url)
 var internalParams = map[string]bool{
 	paramDone: true, paramScreen: true, paramTimezone: true, paramPasted: true, paramNoTrack: true, paramTap: true, paramTouch: true,
 }
 
 // redirectTarget: 302 destination by platform, fallback link.URL: iOS -> link.IOS,
-// Android -> link.Android, desktop -> link.FallbackURL. Incoming query params
-// forwarded per target type (see withParams); Play Store targets: clickId merged into install referrer.
+// Android -> link.Android, desktop -> link.FallbackURL. Query params forwarded
+// per target type (withParams); Play Store: clickId merged into install referrer.
 func redirectTarget(link store.Link, agent string, clickID string, q url.Values) string {
 	target := link.URL
 	switch {
@@ -36,18 +36,18 @@ func redirectTarget(link store.Link, agent string, clickID string, q url.Values)
 	return withParams(target, clickID, q)
 }
 
-// deepLinkURL: link.URL + forwarded params (add-only), returned by match-link. Dub redirects to store, caches main url (link.ts cacheDeepLinkClickData).
+// deepLinkURL: link.URL + forwarded params (add-only), returned by match-link. Dub: redirect to store, cache main url (link.ts cacheDeepLinkClickData).
 func deepLinkURL(link store.Link, q url.Values) string {
 	return withParams(link.URL, "", q)
 }
 
-// uuidRe: App Store Connect custom product page id; malformed ppid dropped (Detour click-handling)
+// uuidRe: App Store Connect custom product page id; malformed ppid dropped (Detour click-handling).
 var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// playUTM: UTM keys Detour forwards inside the Play Store referrer
+// playUTM: UTM keys Detour forwards inside Play Store referrer.
 var playUTM = []string{"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}
 
-// withParams: each store URL carries only its own keys, never empty values (Detour); forwarded keys only add, never overwrite operator's.
+// withParams: each store URL gets only its own keys, no empty values (Detour); forwarded keys add, never overwrite operator's.
 func withParams(target string, clickID string, q url.Values) string {
 	u, err := url.Parse(target)
 	if err != nil {
@@ -65,7 +65,7 @@ func withParams(target string, clickID string, q url.Values) string {
 }
 
 // playReferrer: operator referrer pairs + add-only q utm_* + click_id (SDK reads click_id= from decoded referrer via /(?:^|&)click_id=([^&]+)/); merged like Dub.
-// Re-encodes the whole query (referrer value must be rebuilt) — Play URLs only.
+// Re-encodes whole query (referrer value rebuilt); Play URLs only.
 func playReferrer(target string, q url.Values, clickID string) string {
 	u, err := url.Parse(target)
 	if err != nil {
@@ -92,7 +92,7 @@ func playReferrer(target string, q url.Values, clickID string) string {
 	return u.String()
 }
 
-// clickPlatform / clickKind: analytics labels for a browser click, same platform split as redirectTarget.
+// clickPlatform / clickKind: analytics labels for browser click; same platform split as redirectTarget.
 func clickPlatform(agent string) string {
 	switch {
 	case ua.IsIOS(agent):
@@ -116,7 +116,7 @@ func isAppStore(u *url.URL) bool {
 	return h == "apps.apple.com" || h == "itunes.apple.com" || u.Scheme == "itms-apps" || u.Scheme == "itms-appss"
 }
 
-// isPlayStore: Play Store URL — only target passing install referrer to app (Dub is-google-play-store-url.ts, plus market://)
+// isPlayStore: Play Store URL; only target passing install referrer to app (Dub is-google-play-store-url.ts, + market://)
 func isPlayStore(u *url.URL) bool {
 	return u.Hostname() == "play.google.com" || u.Scheme == "market"
 }

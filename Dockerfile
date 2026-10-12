@@ -1,6 +1,5 @@
 # detur: self-hosted Detour-compatible deferred deep-link server.
-# Multi-stage: static Go binary (pure-Go SQLite, CGO_ENABLED=0) + kinu portal
-# dist -> slim alpine runtime as non-root user (uid 1000).
+# static Go binary (pure-Go SQLite, CGO_ENABLED=0) + kinu portal dist -> alpine, non-root uid 1000.
 
 # --- Stage 1: Go server ---
 FROM golang:1.27-alpine AS build
@@ -11,7 +10,7 @@ COPY server/cmd ./cmd
 COPY server/internal ./internal
 ENV CGO_ENABLED=0
 RUN go build -trimpath -ldflags="-s -w" -o /out/detur ./cmd/detur
-# Pre-create data dir owned by runtime uid: fresh named volume inherits writable ownership (Docker copies image dir metadata into new volumes).
+# pre-create data dir as runtime uid: new named volumes copy image dir ownership -> writable
 RUN mkdir -p /out/data && chown -R 1000:1000 /out/data
 
 # --- Stage 2: portal (kinu, vite) ---

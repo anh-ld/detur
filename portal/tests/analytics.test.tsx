@@ -5,7 +5,7 @@ import { DateRangeFilter } from '../src/api';
 
 afterEach(cleanup);
 
-// Retention cells: share of the mark's devices; – when no cohort reached the mark in range.
+// retention cell: share of mark's devices; – = no cohort reached mark in range
 it('retention by link renders rates from counts', () => {
   render(
     <AnalyticsView

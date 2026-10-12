@@ -1,6 +1,6 @@
 package ua
 
-// Real-world UA strings: modern Android (Chrome), reduced UA (Chrome's "Android 10; K"), legacy Android, Android WebView, iPhone Safari, Instagram's Pixel webview ("Google/google" false positive).
+// Real-world UAs: modern Android (Chrome), reduced UA (Chrome "Android 10; K"), legacy Android, Android WebView, iPhone Safari, Instagram Pixel webview ("Google/google" false positive).
 import (
 	"net/http/httptest"
 	"testing"
@@ -45,11 +45,11 @@ func TestIsBotUADubList(t *testing.T) {
 			t.Errorf("IsBotUA(%q) = false; want true", ua)
 		}
 	}
-	// Dub's UA_FALSE_POSITIVES: Instagram's Pixel webview appends "Google/google", must not trip "google" entry.
+	// Dub UA_FALSE_POSITIVES: Instagram Pixel webview appends "Google/google", must not trip "google".
 	if IsBotUA(instagramPixel) {
 		t.Errorf("IsBotUA(instagram Pixel webview) = true; want false (Google/google exception)")
 	}
-	// Real browsers are never bots, and "preview" is not a marker anymore.
+	// real browsers never bots; "preview" no longer a marker
 	for _, ua := range []string{modernAndroid, reducedAndroid, iphoneSafari, "SomePreviewApp/1.0 Preview/2"} {
 		if IsBotUA(ua) {
 			t.Errorf("IsBotUA(%q) = true; want false", ua)
@@ -106,7 +106,7 @@ func TestAppPlatform(t *testing.T) {
 	}
 }
 
-// In-app browser UAs: published app tokens on real browser bases, not device captures.
+// In-app UAs: published app tokens on real browser bases, not device captures.
 const (
 	messengerIOS     = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBBV/556001370;FBDV/iPhone15,2;FBMD/iPhone;FBSN/iOS;FBSV/17.2;FBSS/3;FBID/phone;FBLC/en_US;FBOP/5]"
 	messengerAndroid = "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 [FB_IAB/MESSENGER;FBAV/450.0.0.42.109;]"
@@ -168,7 +168,7 @@ func TestInApp(t *testing.T) {
 	}
 }
 
-// In-app UAs carrying "google" (TikTok's Channel/googleplay) are real visitors, not bots.
+// In-app UAs with "google" (TikTok Channel/googleplay) = real visitors, not bots.
 func TestIsBotUAInAppFalsePositives(t *testing.T) {
 	for _, ua := range []string{tiktokAndroid, messengerAndroid, zaloAndroid, wechatIOS, lineAndroid} {
 		if IsBotUA(ua) {

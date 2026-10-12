@@ -12,8 +12,7 @@ import (
 	"detur.dev/server/internal/webhook"
 )
 
-// requireWebhookAdmin gates webhook management routes. Fails closed (403 Forbidden) if ADMIN_PASSWORD
-// is not set, or if the request lacks a valid unexpired admin session cookie.
+// requireWebhookAdmin: gates webhook routes. Fails closed (403) if ADMIN_PASSWORD unset or no valid unexpired admin cookie.
 func (p *portalServer) requireWebhookAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if p.adminPassword == "" {

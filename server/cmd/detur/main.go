@@ -14,9 +14,9 @@ import (
 	"detur.dev/server/internal/webhook"
 )
 
-// main wires config -> store -> HTTP listeners. SDK endpoints, browser pipeline, well-known hosting on public listener; portal (API + static UI) on loopback listener, origin/host-guarded. Clicks/events purged at startup, then hourly.
+// main: config -> store -> HTTP listeners. Public: SDK, browser pipeline, well-known. Loopback: portal (API + static UI), origin/host-guarded. Clicks/events purged at startup, then hourly.
 func main() {
-	// Not an env var: Docker image passes 0.0.0.0:8081 so host can publish it; bare runs keep unauthenticated portal on loopback.
+	// Not env: Docker passes 0.0.0.0:8081 to publish it; bare runs keep unauthenticated portal on loopback.
 	portalAddr := flag.String("portal-addr", "127.0.0.1:8081", "portal listen address")
 	flag.Parse()
 	cfg, err := config.Load()
@@ -38,7 +38,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		// healthcheck probes store: wedged DB reads unhealthy, no silent fail-open
+		// probes store: wedged DB = unhealthy, no silent fail-open
 		if err := st.Ping(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("db unavailable"))
@@ -49,10 +49,10 @@ func main() {
 	})
 	api.RegisterSDK(mux, st, cfg.RetentionHours)
 	pipeline.Register(mux, st, cfg.RetentionHours) // GET /{key}: short links, click recording, store redirects
-	// Well-known hosting: AASA + assetlinks under configured domains; unknown hosts get 404.
+	// Well-known: AASA + assetlinks for configured domains; unknown host = 404.
 	pipeline.RegisterWellKnown(mux, st, config.DomainSet(cfg))
 
-	// Portal: own listener; static UI from ./portal/dist (missing dir = API only).
+	// Portal: own listener; static UI from ./portal/dist (missing = API only).
 	go func() {
 		portal := api.RegisterPortal(st, "portal/dist", append([]string{*portalAddr}, cfg.PortalHosts...), cfg.LogoutURL, cfg.AdminPassword, cfg.AdminSessionHours)
 		if cfg.AdminPassword != "" {
@@ -68,7 +68,7 @@ func main() {
 	log.Fatal(serve(":8080", mux))
 }
 
-// serve: HTTP server with explicit timeouts, slow client cannot pin single-writer SQLite connection or listener goroutines.
+// serve: explicit timeouts so slow clients can't pin the single-writer SQLite conn or listener goroutines.
 func serve(addr string, h http.Handler) error {
 	srv := &http.Server{
 		Addr:              addr,
@@ -81,7 +81,7 @@ func serve(addr string, h http.Handler) error {
 	return srv.ListenAndServe()
 }
 
-// purgeLoop: purge at startup, then hourly.
+// purgeLoop: startup, then hourly.
 func purgeLoop(st *store.Store, retentionHours int) {
 	if n, err := st.PurgeExpired(time.Now(), retentionHours); err != nil {
 		log.Printf("initial purge failed: %v", err)

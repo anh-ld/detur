@@ -21,7 +21,7 @@ func TestLinkRulesCRUD(t *testing.T) {
 		t.Fatalf("CreateLink: %v", err)
 	}
 
-	// Initial empty rules
+	// starts empty
 	rules, err := s.GetLinkRules(link.ID)
 	if err != nil {
 		t.Fatalf("GetLinkRules: %v", err)
@@ -34,7 +34,6 @@ func TestLinkRulesCRUD(t *testing.T) {
 	from := now.Add(-1 * time.Hour)
 	until := now.Add(24 * time.Hour)
 
-	// Set initial rules
 	rulesToSet := []LinkRule{
 		{
 			Position: 1,
@@ -108,7 +107,7 @@ func TestLinkRulesCRUD(t *testing.T) {
 		t.Fatalf("expected 2 split variants, got %d", len(storedRules[1].Action.Split))
 	}
 
-	// Atomic update: replace with 1 rule
+	// atomic replace with 1 rule
 	newRules := []LinkRule{
 		{
 			Position: 1,
@@ -164,7 +163,7 @@ func TestVariantDaysRollups(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	// 1. Record clicks with variants
+	// 1. clicks with variants
 	c1, err := s.RecordClick(Click{
 		AppID:   app.ID,
 		LinkID:  link.ID,
@@ -182,7 +181,7 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Errorf("expected variant-a, got %q", c1.Variant)
 	}
 
-	// Record second click for variant-a
+	// 2nd click, variant-a
 	_, err = s.RecordClick(Click{
 		AppID:   app.ID,
 		LinkID:  link.ID,
@@ -197,7 +196,7 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordClick c2: %v", err)
 	}
 
-	// Record click for variant-b
+	// click, variant-b
 	c3, err := s.RecordClick(Click{
 		AppID:   app.ID,
 		LinkID:  link.ID,
@@ -212,7 +211,7 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordClick c3: %v", err)
 	}
 
-	// Record click with UASuspect should NOT increment variant_days
+	// UASuspect click: no variant_days bump
 	_, err = s.RecordClick(Click{
 		AppID:     app.ID,
 		LinkID:    link.ID,
@@ -228,7 +227,7 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordClick suspect: %v", err)
 	}
 
-	// Check variant stats: variant-a has 2 clicks, variant-b has 1 click
+	// variant-a 2 clicks, variant-b 1
 	stats, err := s.GetLinkVariantStats(app.ID, link.ID, now.AddDate(0, 0, -1), now.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("GetLinkVariantStats: %v", err)
@@ -243,7 +242,7 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Errorf("unexpected stats[1]: %+v", stats[1])
 	}
 
-	// 2. Record install for variant-b
+	// 2. install for variant-b
 	inst1, err := s.RecordInstall(Install{
 		AppID:       app.ID,
 		DeviceHash:  "dev-b1",
@@ -259,7 +258,7 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Errorf("expected variant-b on install, got %q", inst1.Variant)
 	}
 
-	// Organic install with variant should NOT increment variant_days
+	// organic install with variant: no variant_days bump
 	_, err = s.RecordInstall(Install{
 		AppID:       app.ID,
 		DeviceHash:  "dev-org",
@@ -270,7 +269,7 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordInstall organic: %v", err)
 	}
 
-	// Idempotent duplicate install should NOT double increment
+	// duplicate install: no double count
 	_, err = s.RecordInstall(Install{
 		AppID:       app.ID,
 		DeviceHash:  "dev-b1",
@@ -283,7 +282,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordInstall duplicate: %v", err)
 	}
 
-	// Re-check variant stats
 	stats, err = s.GetLinkVariantStats(app.ID, link.ID, now.AddDate(0, 0, -1), now.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("GetLinkVariantStats: %v", err)
@@ -305,7 +303,7 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Errorf("unexpected statB: %+v", statB)
 	}
 
-	// Check DeleteApp removes variant_days
+	// DeleteApp drops variant_days
 	if err := s.DeleteApp(app.ID); err != nil {
 		t.Fatalf("DeleteApp: %v", err)
 	}
@@ -319,7 +317,7 @@ func TestVariantDaysRollups(t *testing.T) {
 }
 
 func TestAddMissingColumnsVariant(t *testing.T) {
-	// Create database without variant columns initially to test migration
+	// db without variant columns -> tests migration
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "legacy.db")
 
@@ -400,7 +398,7 @@ func TestSetLinkRulesIDsAndPositions(t *testing.T) {
 	if got[0].ID != orig[1].ID || !got[0].CreatedAt.Equal(orig[1].CreatedAt) {
 		t.Errorf("kept rule: id %s created %v, want %s %v", got[0].ID, got[0].CreatedAt, orig[1].ID, orig[1].CreatedAt)
 	}
-	// repeat of the same id gets a fresh one
+	// repeated id -> fresh one
 	if got[1].ID == orig[1].ID {
 		t.Errorf("repeated id reused: %s", got[1].ID)
 	}
@@ -448,7 +446,7 @@ func TestRefreshClickVariantFollowsDestination(t *testing.T) {
 		return c
 	}
 
-	// 1. same visitor, rule edited mid-window: label follows the new destination, B counts the new exposure
+	// 1. same visitor, rule edited mid-window: label follows new destination, B counts new exposure
 	a := click("192.0.2.10", safari, "", "A", "myapp://a")
 	b := click("192.0.2.10", safari, "", "B", "myapp://b")
 	if b.ID != a.ID {

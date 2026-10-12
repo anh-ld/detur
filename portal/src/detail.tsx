@@ -51,7 +51,7 @@ const draftFrom = (l: Link): LinkDraft => ({
   fallbackUrl: l.fallbackUrl,
 });
 
-// 1.5px outline icon, decorative (the button label carries the name).
+// decorative 1.5px outline icon; button label carries the name
 const Icon = ({ d, spin }: { d: string; spin?: boolean }) => (
   <svg class={spin ? 'spin' : undefined} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -71,7 +71,7 @@ const TABS: { tab: AppTab; label: string }[] = [
 
 const tabHref = (id: string, tab: AppTab) => `#/apps/${encodeURIComponent(id)}${tab === 'links' ? '' : '/' + tab}`;
 
-// App page: one header, one tab per job. Links land first: they are what an operator touches most.
+// App page: one header, tab per job. Links first: most touched.
 export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [app, setApp] = useState<App | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
@@ -80,7 +80,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [platform, setPlatform] = useState<Platform>('');
   const [error, setError] = useState('');
 
-  // Drop responses for an app the user already left.
+  // drop responses for an app already left
   const current = useRef(id);
   current.current = id;
   const loadAll = () => {
@@ -98,10 +98,12 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
         .catch((e) => ok() && setError(String(e))),
     ]);
   };
-  // Analytics (also feeds link counts): one request per id/filter/refresh; a superseded response is dropped (stale flag).
+  // analytics + link counts: Links/Analytics tabs only; stale dropped
+  const filtered = tab === 'links' || tab === 'analytics';
   const [tick, setTick] = useState(0);
   const [statsLoading, setStatsLoading] = useState(false);
   useEffect(() => {
+    if (!filtered) return;
     let stale = false;
     setStatsLoading(true);
     api
@@ -112,8 +114,8 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
     return () => {
       stale = true;
     };
-  }, [id, range.days, range.from, range.to, platform, tick]);
-  // Refresh icon spins until app, links and analytics load; min 600ms so a fast reload stays visible.
+  }, [id, range.days, range.from, range.to, platform, tick, filtered]);
+  // spin until loaded, min 600ms so fast reloads show
   const [refreshing, setRefreshing] = useState(false);
   const refresh = () => {
     setRefreshing(true);
@@ -151,7 +153,6 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   };
 
   const linkStats = new Map(stats?.links.map((l) => [l.linkId, l]));
-  const filtered = tab === 'links' || tab === 'analytics';
 
   return (
     <div>

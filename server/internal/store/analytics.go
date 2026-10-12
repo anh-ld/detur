@@ -10,7 +10,7 @@ import (
 	"detur.dev/server/internal/fraud"
 )
 
-// DayStat: one UTC day of analytics. Clicks = browser clicks (app + web kinds); Web = web fallbacks (subset of Clicks); Opens = SDK opens of an installed app.
+// DayStat: one UTC day. Clicks = browser clicks (app + web kinds); Web = web fallbacks (subset of Clicks); Opens = SDK opens of installed app.
 type DayStat struct {
 	Day        string `json:"day"`
 	Clicks     int64  `json:"clicks"`
@@ -48,7 +48,7 @@ type LinkConversion struct {
 	Count  int64  `json:"count"`
 }
 
-// LinkRetention: Devices = devices first tagged in range. Each mark covers the cohorts whose mark day falls in range.
+// LinkRetention: Devices = devices first tagged in range. Each mark = cohorts whose mark day is in range.
 type LinkRetention struct {
 	LinkID  string `json:"linkId"`
 	Key     string `json:"key"`
@@ -73,14 +73,14 @@ type Analytics struct {
 	Retention   []LinkRetention  `json:"retention"`
 }
 
-// Analytics: app stats for the last `days` UTC days ending today, every day present (zeros filled). platform "" = all; events ignore platform (SDK events carry none).
+// Analytics: app stats for last `days` UTC days ending today, zero-filled. platform "" = all; events ignore platform (SDK events carry none).
 func (s *Store) Analytics(appID string, days int, platform string, now time.Time) (Analytics, error) {
 	to := now.UTC()
 	from := to.AddDate(0, 0, -(days - 1))
 	return s.AnalyticsRange(appID, from, to, platform)
 }
 
-// AnalyticsRange: app stats for an arbitrary [from, to] UTC range, every day present (zeros filled).
+// AnalyticsRange: app stats for [from, to] UTC, zero-filled.
 func (s *Store) AnalyticsRange(appID string, from, to time.Time, platform string) (Analytics, error) {
 	from = from.UTC()
 	to = to.UTC()
@@ -222,10 +222,10 @@ func (s *Store) analyticsConversions(appID, lo, hi string) ([]LinkConversion, er
 
 // analyticsRetention: per link, cohorts started in range plus, per mark, cohorts whose cohort day + N is in range; app-wide (no platform). Busiest links first.
 func (s *Store) analyticsRetention(appID, lo, hi string) ([]LinkRetention, error) {
-	in := func(n int) string { // cohort day + n falls in [lo, hi]
+	in := func(n int) string { // cohort day + n in [lo, hi]
 		return fmt.Sprintf(`date(c.day, '+%d day') BETWEEN ?1 AND ?2`, n)
 	}
-	// cohort_devices, not devices: in HAVING a bare name resolves to the table column before the alias
+	// cohort_devices, not devices: in HAVING a bare name hits the table column before the alias
 	q := `SELECT c.link_id, l.key,
 	  COALESCE(SUM(CASE WHEN c.day BETWEEN ?1 AND ?2 THEN c.devices END), 0) cohort_devices`
 	for _, m := range []struct {
@@ -278,7 +278,7 @@ func (s *Store) analyticsEvents(appID, lo, hi string) ([]EventStat, error) {
 	return events, rows.Err()
 }
 
-// analyticsSources: in-app source counts in the day range; app-wide (the rollup carries no platform).
+// analyticsSources: in-app source counts in the day range; app-wide (rollup has no platform).
 func (s *Store) analyticsSources(appID, lo, hi string) ([]SourceStat, error) {
 	rows, err := s.db.Query(
 		`SELECT source, SUM(n) FROM click_sources WHERE app_id = ? AND day BETWEEN ? AND ?
@@ -298,13 +298,13 @@ func (s *Store) analyticsSources(appID, lo, hi string) ([]SourceStat, error) {
 	return sources, rows.Err()
 }
 
-// LinkTag: tag marker event name (not a conversion) and the destination param that hands the app its link key.
+// LinkTag: tag marker event name (not a conversion) + destination param handing the app its link key.
 const LinkTag = "detur_link"
 
 // deviceLinkDays: device_links lifetime; D30 is long done by then.
 const deviceLinkDays = 90
 
-// LinkEvent: one SDK analytics call as the per-link rollups see it. Device = raw SDK device_id (hashed before storage); LinkKey = data.link key, "" when absent; Retention = /api/analytics/retention call.
+// LinkEvent: one SDK analytics call, as per-link rollups see it. Device = raw SDK device_id (hashed before storage); LinkKey = data.link key, "" if absent; Retention = /api/analytics/retention call.
 type LinkEvent struct {
 	AppID     string
 	Device    string
@@ -313,7 +313,7 @@ type LinkEvent struct {
 	Retention bool
 }
 
-// RecordLinkEvent: tag the device with LinkKey's link (first tag wins), then count the call for the device's link: an event as a conversion, a retention call toward its cohort's D1/D7/D30 (once per device per mark). No device, unknown key or untagged device: nothing.
+// RecordLinkEvent: tag device with LinkKey's link (first tag wins), then count the call for device's link: event -> conversion, retention call -> its cohort's D1/D7/D30 (once per device per mark). No device, unknown key or untagged device -> no-op.
 func (s *Store) RecordLinkEvent(e LinkEvent, now time.Time) error {
 	if e.Device == "" {
 		return nil
@@ -379,7 +379,7 @@ func (s *Store) RecordLinkEvent(e LinkEvent, now time.Time) error {
 	return tx.Commit()
 }
 
-// retentionMark: column for a retention call `today` from a cohort started `cohortDay` (both YYYY-MM-DD), "" unless exactly 1, 7 or 30 UTC days later.
+// retentionMark: column for retention call on `today` from cohort started `cohortDay` (YYYY-MM-DD); "" unless exactly 1, 7 or 30 UTC days later.
 func retentionMark(cohortDay, today string) string {
 	from, err1 := time.Parse(time.DateOnly, cohortDay)
 	to, err2 := time.Parse(time.DateOnly, today)
@@ -484,7 +484,7 @@ func (s *Store) Fraud(appID string, days int, now time.Time) (FraudStats, error)
 	return s.FraudRange(appID, from, to)
 }
 
-// FraudRange: per-signal counts and latest flagged installs for an arbitrary [from, to] UTC range.
+// FraudRange: per-signal counts + latest flagged installs over [from, to] UTC.
 func (s *Store) FraudRange(appID string, from, to time.Time) (FraudStats, error) {
 	f := FraudStats{Installs: []FlaggedInstall{}}
 	var err error
@@ -515,14 +515,14 @@ func (s *Store) FraudRange(appID string, from, to time.Time) (FraudStats, error)
 	return f, rows.Err()
 }
 
-// FraudSignals: per-signal flagged-install counts over the last `days` UTC days; every signal key present.
+// FraudSignals: per-signal flagged-install counts over last `days` UTC days; every signal key present.
 func (s *Store) FraudSignals(appID string, days int, now time.Time) (map[string]int64, error) {
 	to := now.UTC()
 	from := to.AddDate(0, 0, -(days - 1))
 	return s.FraudSignalsRange(appID, from, to)
 }
 
-// FraudSignalsRange: per-signal flagged-install counts for an arbitrary [from, to] UTC range; every signal key present.
+// FraudSignalsRange: per-signal flagged-install counts over [from, to] UTC; every signal key present.
 func (s *Store) FraudSignalsRange(appID string, from, to time.Time) (map[string]int64, error) {
 	lo, hi := day(from.UTC()), day(to.UTC())
 	sums := make([]string, len(fraud.Signals))

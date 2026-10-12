@@ -1,8 +1,6 @@
 package api
 
-// Admin elevation token tests: stateless signed session cookie primitives
-// (mintToken/verifyToken). Wire behavior of the session endpoints and route
-// gating lives in portal_test.go.
+// Token primitive tests (mintToken/verifyToken). Endpoint wire behavior + route gating: portal_test.go.
 
 import (
 	"fmt"
@@ -86,8 +84,8 @@ func TestTokenMalformed(t *testing.T) {
 	}
 }
 
-// Login lock is per socket peer: a wrong-password burst from one peer does not queue another peer's
-// login, two wrong guesses from the same peer still serialize, and idle lock entries are dropped.
+// Login lock per socket peer: one peer's wrong-password burst doesn't queue another's login; same-peer guesses
+// serialize; idle entries dropped.
 func TestElevateLockPerPeer(t *testing.T) {
 	p := &portalServer{adminPassword: "s3cret", adminHours: 12, adminLocks: map[string]*peerLock{}}
 	post := func(peer, pw string) int {
@@ -104,7 +102,7 @@ func TestElevateLockPerPeer(t *testing.T) {
 		wg.Add(1)
 		go func() { defer wg.Done(); post("10.0.0.1:1000", "wrong") }()
 	}
-	time.Sleep(50 * time.Millisecond) // attacker's guesses hold peer 10.0.0.1's lock
+	time.Sleep(50 * time.Millisecond) // attacker's guesses hold 10.0.0.1's lock
 	if code := post("10.0.0.2:2000", "s3cret"); code != http.StatusOK {
 		t.Fatalf("other peer login = %d; want 200", code)
 	}

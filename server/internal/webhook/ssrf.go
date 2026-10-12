@@ -18,7 +18,7 @@ var (
 	ErrMissingHost           = errors.New("host is required")
 )
 
-// isLoopbackHost checks whether a hostname refers to local loopback.
+// isLoopbackHost: hostname is local loopback.
 func isLoopbackHost(host string) bool {
 	h := strings.ToLower(strings.Trim(host, "[]"))
 	return h == "localhost" || h == "127.0.0.1" || h == "::1"
@@ -61,7 +61,7 @@ func isProhibitedIP(ip net.IP, allowLoopback bool) bool {
 	return false
 }
 
-// ValidateWebhookURL verifies that the URL has an acceptable scheme and is not a prohibited private/metadata IP.
+// ValidateWebhookURL: allowed scheme, not a prohibited private/metadata IP.
 func ValidateWebhookURL(rawURL string) error {
 	u, err := url.ParseRequestURI(rawURL)
 	if err != nil {
@@ -82,7 +82,7 @@ func ValidateWebhookURL(rawURL string) error {
 		return ErrInvalidScheme
 	}
 
-	// If hostname is an IP literal, validate immediately
+	// IP literal: validate now
 	if ip := net.ParseIP(hostname); ip != nil {
 		if isProhibitedIP(ip, isLoopbackHost(hostname)) {
 			return ErrProhibitedDestination
@@ -92,10 +92,10 @@ func ValidateWebhookURL(rawURL string) error {
 	return nil
 }
 
-// NewSafeHTTPClient returns an http.Client configured with:
-// 1. Dial-time IP validation (SSRF defense against RFC 1918, RFC 4193, link-local, cloud metadata).
-// 2. Disabled automatic redirect following (prevents SSRF via 3xx to internal resources).
-// 3. 10-second request timeout.
+// NewSafeHTTPClient: http.Client with
+// 1. dial-time IP check (SSRF: RFC 1918, RFC 4193, link-local, cloud metadata)
+// 2. no redirect following (SSRF via 3xx to internal)
+// 3. 10s timeout
 func NewSafeHTTPClient() *http.Client {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -114,14 +114,14 @@ func NewSafeHTTPClient() *http.Client {
 				return nil, fmt.Errorf("no IP address found for %s", host)
 			}
 
-			// Validate every resolved IP
+			// every resolved IP must pass
 			for _, ip := range ips {
 				if isProhibitedIP(ip, allowLoopback) {
 					return nil, fmt.Errorf("%w: %s resolves to prohibited IP %s", ErrProhibitedDestination, host, ip)
 				}
 			}
 
-			// Pin connection to the first validated IP to prevent DNS rebinding
+			// pin to first validated IP: blocks DNS rebinding
 			dialer := &net.Dialer{
 				Timeout:   5 * time.Second,
 				KeepAlive: 30 * time.Second,
@@ -137,7 +137,7 @@ func NewSafeHTTPClient() *http.Client {
 		Timeout:   10 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Disables redirect-following
+			// no redirects
 			return http.ErrUseLastResponse
 		},
 	}

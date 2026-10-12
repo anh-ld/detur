@@ -128,7 +128,7 @@ func TestClickExpiryIsRetention(t *testing.T) {
 	}
 }
 
-// RecordClick: reuses previous hour's click for same link + device (IP + user agent), like Dub's click cache; different device records new row.
+// RecordClick: same link + device (IP + UA) within the hour reuses the click (Dub click cache); other device -> new row.
 func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -147,7 +147,7 @@ func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	if n, _ := s.CountClicks(app.ID); n != 1 {
 		t.Errorf("clicks = %d; want 1 (deduped)", n)
 	}
-	// Different device (different UA), same link: new click.
+	// other UA, same link: new click
 	other := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7)"}
 	third, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: other, Destination: link.URL}, 24)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestPurgeExpired(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
 	c, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 24)
-	// force expiry into the past
+	// force expiry
 	if _, err := s.rawExec(`UPDATE clicks SET expires_at = ? WHERE id = ?`, rfc3339(time.Now().Add(-time.Hour)), c.ID); err != nil {
 		t.Fatalf("force expiry: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestOpenSeedsAppMatchFromLegacySettings(t *testing.T) {
 	}
 }
 
-// TestGetLinkByKeyGlobal rejects cross-app duplicates rather than resolving public traffic to arbitrary app.
+// TestGetLinkByKeyGlobal: cross-app duplicates rejected, never resolved to an arbitrary app.
 func TestGetLinkByKeyGlobal(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -584,7 +584,7 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 	if gc, err := s.GetClick(c.ID); err != nil || gc.Fingerprint.OSVersion != "14.0.0" {
 		t.Errorf("GetClick OSVersion = %q, %v; want 14.0.0", gc.Fingerprint.OSVersion, err)
 	}
-	// fraud facts and labels write and read back on the upgraded tables
+	// fraud facts + labels round trip on upgraded tables
 	fc, err := s.RecordClick(Click{AppID: "legacy-app", LinkID: "legacy-link", Destination: "x", Kind: KindApp, IPHosting: true,
 		Fingerprint: Fingerprint{IP: "3.5.140.1", UserAgent: "ua"}}, 24)
 	if err != nil {
@@ -593,7 +593,7 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 	if gc, err := s.GetClick(fc.ID); err != nil || gc.Kind != KindApp || !gc.IPHosting || gc.HitsIP != 1 || gc.HitsLink != 2 {
 		t.Errorf("GetClick = kind %q hosting %v hits %d/%d, %v; want app, true, 1/2", gc.Kind, gc.IPHosting, gc.HitsIP, gc.HitsLink, err)
 	}
-	// in-app source writes, reads back and rolls up on the upgraded database
+	// in-app source round trips + rolls up on upgraded db
 	sc, err := s.RecordClick(Click{AppID: "legacy-app", LinkID: "legacy-link", Destination: "x", Kind: KindApp, Source: "zalo",
 		Fingerprint: Fingerprint{IP: "198.51.100.77", UserAgent: "ua-zalo"}}, 24)
 	if err != nil {
@@ -1311,8 +1311,8 @@ func TestFraudRangeEdge(t *testing.T) {
 	}
 }
 
-// Hit counter write fails for one key type (a trigger aborts the IP or the link bucket insert): RecordClick returns the error and leaves
-// no click and no rollup behind.
+// Hit counter write fails for one key type (trigger aborts IP or link bucket insert): RecordClick errors, leaves
+// no click or rollup behind.
 func TestRecordClickHitsBackendError(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1364,8 +1364,8 @@ func TestFraudCleanupBackendError(t *testing.T) {
 	}
 }
 
-// Refresh keeps the hit maxima: 50 taps counted, then the buckets age out (deleted), so the next tap's fresh sums are 1, but the stored
-// counts stay at their peak.
+// Refresh keeps hit maxima: 50 taps counted, buckets age out (deleted), next tap's fresh sums = 1, but stored
+// counts stay at peak.
 func TestRecordClickRefreshKeepsHitMax(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1390,7 +1390,7 @@ func TestRecordClickRefreshKeepsHitMax(t *testing.T) {
 	}
 }
 
-// In-app reopen merge: a real-browser reload of an in-app click on the same link + IP within the window is the same click and keeps its destination; second in-app browsers, other platforms, IPs, links and SDK opens stay separate.
+// In-app reopen merge: real-browser reload of an in-app click, same link + IP, within window = same click, keeps destination; second in-app browsers, other platforms, IPs, links and SDK opens stay separate.
 func TestRecordClickInAppReopenMerge(t *testing.T) {
 	const webview, chrome, okhttp = "Mozilla/5.0 (Linux; Android 14; wv) [FB_IAB/MESSENGER;]", "Mozilla/5.0 (Linux; Android 14) Chrome/125.0", "okhttp/4.12.0"
 	ip := "203.0.113.7"

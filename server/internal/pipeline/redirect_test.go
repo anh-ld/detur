@@ -56,7 +56,7 @@ func exact(want string) func(*testing.T, string) {
 	}
 }
 
-// clickPlatform/clickKind: analytics labels follow redirectTarget's platform split; store targets are "app", anything else is a web fallback.
+// clickPlatform/clickKind: follow redirectTarget platform split; store target = "app", else web fallback.
 func TestClickLabels(t *testing.T) {
 	for _, tc := range []struct{ agent, platform string }{
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)", "ios"},

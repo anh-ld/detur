@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Hosting: bundled datacenter ranges hit (v4, v6, IPv4-mapped); residential, non-routable and Private Relay egress miss.
+// Hosting: bundled datacenter ranges hit (v4, v6, IPv4-mapped); residential, non-routable, Private Relay egress miss.
 func TestHosting(t *testing.T) {
 	cases := []struct {
 		ip   string
@@ -33,7 +33,7 @@ func TestHosting(t *testing.T) {
 	}
 }
 
-// TestHostingBoundaries: first and last address of the first and last shipped intervals hit; one below the first and one above the last miss.
+// TestHostingBoundaries: first/last address of first/last shipped intervals hit; one below first, one above last miss.
 func TestHostingBoundaries(t *testing.T) {
 	for _, tab := range []struct {
 		data []byte
@@ -84,7 +84,7 @@ func TestSuspectUA(t *testing.T) {
 	}
 }
 
-// Validate: defaults and inclusive range edges pass; each bad mode and each one-past-edge threshold returns its typed error.
+// Validate: defaults + inclusive edges pass; each bad mode / one-past-edge threshold -> its typed error.
 func TestValidate(t *testing.T) {
 	if err := Defaults.Validate(); err != nil {
 		t.Fatalf("defaults: %v", err)
@@ -120,7 +120,7 @@ func TestValidate(t *testing.T) {
 			t.Errorf("%s: Validate() = %v; want %v", c.name, err, c.want)
 		}
 	}
-	// Range edges accepted.
+	// edges accepted
 	s := Defaults
 	s.VelocityMode, s.IPMode = ModeActive, ModeActive
 	s.VelocityIPMax, s.VelocityLinkMax, s.VelocityWindowMinutes = 10000, 2, 1440
@@ -131,7 +131,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// Routable: public addresses pass (IPv4-mapped unmapped to v4); empty, unparsable, private, loopback, unspecified do not (KTD8).
+// Routable: public passes (IPv4-mapped -> v4); empty, unparsable, private, loopback, unspecified fail (KTD8).
 func TestRoutable(t *testing.T) {
 	cases := []struct {
 		ip   string
@@ -160,7 +160,7 @@ func TestRoutable(t *testing.T) {
 	}
 }
 
-// Active: each mode field drives only its own signal; install_ip and fingerprint have no mode and are never active. AnyActive: any one mode.
+// Active: each mode field drives only its own signal; install_ip, fingerprint have no mode, never active. AnyActive: any one mode.
 func TestSettingsActive(t *testing.T) {
 	all := Defaults
 	all.VelocityMode, all.TimingMode, all.UserAgentMode, all.IPMode = ModeActive, ModeActive, ModeActive, ModeActive

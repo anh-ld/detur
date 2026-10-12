@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { api, setApiBase } from '../src/api';
 import { startServer, stopServer, uniq, waitForServer } from './integration';
 
-// Short-link page scripts (safety-net timer, copy page, tap page), fetched from the real Go binary and run against a
-// stubbed browser with fake timers. Go tests only see the HTML; these run the code.
+// short-link page scripts (safety-net timer, copy page, tap page) from the real Go binary, run in a
+// stubbed browser w/ fake timers. Go tests only see the HTML; these run the code.
 const PORT = 8094;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SDK = 'http://127.0.0.1:8080';
@@ -54,7 +54,7 @@ async function scripts(query: string, ua: string): Promise<string[]> {
   return [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 }
 
-// A fake browser: records navigations, replaceState, fetches; lets a test fire page events and choose whether the copy works.
+// fake browser: records navigations, replaceState, fetches; tests fire page events + pick copy success
 function browser(search = '', copyWorks = true) {
   const handlers: Record<string, (() => void)[]> = {};
   const on = (t: string, f: () => void) => (handlers[t] ??= []).push(f);

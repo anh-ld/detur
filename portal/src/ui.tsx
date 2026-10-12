@@ -12,7 +12,7 @@ export const copyText = async (v: string) => {
   await navigator.clipboard.writeText(v);
 };
 
-// Ghost copy button: flashes "Copied" 1.5s after copy.
+// ghost copy button: "Copied" for 1.5s
 export function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -34,9 +34,8 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-// Backdrop press closes any open dialog, like Escape (kinu wires this only for Dialog.Trigger;
-// the portal opens dialogs by id). The press must start and end outside the panel, so a text
-// selection dragged out of a field never closes it.
+// backdrop press closes any open dialog like Escape (kinu does it only for Dialog.Trigger;
+// portal opens dialogs by id). Press must start + end outside the panel: drag-select out of a field won't close.
 const onBackdrop = (e: MouseEvent) => {
   const d = e.target as HTMLElement;
   if (d.localName !== 'dialog') return false;
@@ -58,9 +57,8 @@ export function closeDialog(id: string) {
   (document.getElementById(id) as HTMLDialogElement | null)?.close();
 }
 
-// --- Admin elevation: sudo-style password session. The server enforces the gate;
-// this store mirrors GET /api/admin/session so surfaces follow it, and adminSet
-// mirrors config.adminSet (unset password = no gating). ---
+// --- Admin elevation: sudo-style password session. Server enforces; this store mirrors
+// GET /api/admin/session; adminSet mirrors config.adminSet (unset password = no gating). ---
 let adminSet = false;
 let elevated = false;
 let until = ''; // expiresAt ISO; '' = not lifted
@@ -88,7 +86,7 @@ export function subscribeAdmin(cb: () => void): () => void {
   };
 }
 
-// Re-read the session from the server; the 403 handler also does this first.
+// re-read session from server; 403 handler calls this first
 export async function refreshAdminSession() {
   try {
     const s = await api.getAdminSession();
@@ -101,12 +99,11 @@ export async function refreshAdminSession() {
 let pendingAdmin: Promise<boolean> | null = null;
 let settleAdmin: ((ok: boolean) => void) | null = null;
 
-// The password prompt's dialog id, shared by the gate (open) and the dialog (close).
+// prompt dialog id: gate opens, dialog closes
 const ADMIN_PW_DIALOG = 'dlg-admin-password';
 
-// On-demand gate: no elevation exists (no password set) or already lifted → pass; otherwise the
-// password prompt opens and resolves when it closes. false = canceled. Concurrent
-// gates coalesce onto one pending prompt so no waiter is orphaned.
+// on-demand gate: no password set or lifted → pass; else prompt, resolves on close (false = canceled).
+// concurrent gates share one pending prompt: no orphaned waiter.
 export function ensureAdmin(): Promise<boolean> {
   if (!adminSet || elevated) return Promise.resolve(true);
   if (pendingAdmin) return pendingAdmin;
@@ -122,7 +119,7 @@ export function settleAdminGate(ok: boolean) {
   pendingAdmin = null;
 }
 
-// Pin the gate at a dialog trigger: open synchronously when the gate passes (no password set or lifted), else prompt first.
+// gate at a dialog trigger: open sync if gate passes (no password or lifted), else prompt first
 export function gateOpen(dialogId: string) {
   if (adminSet && !elevated) {
     ensureAdmin().then((ok) => ok && openDialog(dialogId));
@@ -131,8 +128,8 @@ export function gateOpen(dialogId: string) {
   }
 }
 
-// Locked-section notice: the one look every admin-gated panel shows before elevation.
-// Elevating notifies subscribeAdmin, so panels reload themselves.
+// locked-section notice: shared look for admin-gated panels before elevation.
+// elevating notifies subscribeAdmin -> panels reload.
 export function AdminRequired({ children }: { children: ComponentChildren }) {
   return (
     <div
@@ -157,12 +154,11 @@ export function AdminRequired({ children }: { children: ComponentChildren }) {
   );
 }
 
-// The prompt was canceled: the gated action must not run (callers return quietly).
+// prompt canceled: skip gated action (callers return quietly)
 export class AdminGateAborted extends Error {}
 
-// Run one gated API call: prompt first if needed; a 403 mid-use means the session
-// died — a gated 403 also proves the server gates (self-heals a failed config fetch),
-// so refresh state (the chip clears) and re-prompt once before retrying.
+// one gated API call: prompt if needed. Mid-use 403 = session died (also proves server gates,
+// self-heals failed config fetch) -> refresh state (chip clears), re-prompt once, retry.
 export async function adminCall<T>(fn: () => Promise<T>): Promise<T> {
   if (!(await ensureAdmin())) throw new AdminGateAborted();
   try {
@@ -176,8 +172,7 @@ export async function adminCall<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-// Password prompt for on-demand elevation. One instance, mounted in the App shell;
-// ensureAdmin() opens it. The server's only 401 is a wrong password (1s delay).
+// one instance in App shell, opened by ensureAdmin(). Server's only 401 = wrong password (1s delay).
 export function AdminPasswordDialog() {
   const [pw, setPw] = useState('');
   const [err, setErr] = useState('');
@@ -186,8 +181,8 @@ export function AdminPasswordDialog() {
   useEffect(() => {
     const el = document.getElementById(ADMIN_PW_DIALOG) as HTMLDialogElement | null;
     if (!el) return;
-    // Escape or any close aborts a still-pending gate (success already settled it) and
-    // clears the form, so the next prompt never opens prefilled or with a stale error.
+    // any close aborts a pending gate (success already settled it) + clears the form:
+    // next prompt never opens prefilled or with a stale error.
     const abort = () => {
       setPw('');
       setErr('');
@@ -207,7 +202,7 @@ export function AdminPasswordDialog() {
     try {
       const { expiresAt } = await api.enterAdminMode(pw);
       setElevated(true, expiresAt);
-      settleAdminGate(true); // resolve before closing: the close event must not abort
+      settleAdminGate(true); // resolve before close, else close event aborts
       closeDialog(ADMIN_PW_DIALOG);
     } catch (e) {
       setErr(e instanceof HttpError && e.status === 401 ? 'Wrong password' : String(e));
@@ -253,7 +248,7 @@ export function AdminPasswordDialog() {
   );
 }
 
-// Page/section loading state: kinu's Spinner is inline-block, so center it.
+// kinu Spinner is inline-block -> center it
 export const Loading = () => (
   <div style={{ display: 'grid', placeItems: 'center', padding: '48px 0' }}>
     <Spinner />
@@ -280,10 +275,9 @@ export function PageHeader({
   );
 }
 
-// Delete button: in-page confirm step (replaces window.confirm). requireAdmin pins
-// the gate at the trigger: the password prompt opens first, and only a successful
-// elevation opens this same confirmation dialog. Opened and closed imperatively by
-// id (kinu's Dialog.Close relies on the Dialog.Trigger polyfill, absent here).
+// in-page confirm (replaces window.confirm). requireAdmin gates the trigger: prompt first,
+// confirm opens only on successful elevation. Open/close by id: kinu Dialog.Close needs the
+// Dialog.Trigger polyfill, absent here.
 export function ConfirmDelete({
   title,
   body,

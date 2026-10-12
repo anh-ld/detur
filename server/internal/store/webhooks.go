@@ -15,7 +15,7 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// Webhook: external destination streaming app activity via signed HTTP POST requests.
+// Webhook: external endpoint receiving app activity via signed HTTP POST.
 type Webhook struct {
 	ID                  string
 	AppID               string
@@ -38,7 +38,7 @@ type Webhook struct {
 	CreatedAt           time.Time
 }
 
-// WebhookStream: delivery state of one stream (installs, clicks or events) of a webhook.
+// WebhookStream: delivery state of one webhook stream (installs, clicks, events).
 type WebhookStream struct {
 	Cursor      int64
 	Fails       int
@@ -46,7 +46,7 @@ type WebhookStream struct {
 	ReplayUntil int64
 }
 
-// Stream returns the delivery state for stream t; ok is false for an unknown stream.
+// Stream: delivery state for stream t; ok = false if unknown.
 func (w Webhook) Stream(t string) (ws WebhookStream, ok bool) {
 	switch t {
 	case "installs":
@@ -68,13 +68,13 @@ func webhookStreamCol(t string) (string, error) {
 	return "", fmt.Errorf("unknown event type %q", t)
 }
 
-// WebhookRecord: single record fetched for delivery with internal rowid.
+// WebhookRecord: one record fetched for delivery + its rowid.
 type WebhookRecord struct {
 	RowID   int64
 	Payload any
 }
 
-// WebhookInstallPayload: PII-safe install event. device_hash is strictly excluded.
+// WebhookInstallPayload: PII-safe install event; no device_hash.
 type WebhookInstallPayload struct {
 	Type        string  `json:"type"` // "install"
 	ID          string  `json:"id"`
@@ -93,7 +93,7 @@ type WebhookInstallPayload struct {
 	CreatedAt   string  `json:"createdAt"`
 }
 
-// WebhookClickPayload: PII-safe click event. ip, user_agent, pasted_link are strictly excluded.
+// WebhookClickPayload: PII-safe click event; no ip, user_agent, pasted_link.
 type WebhookClickPayload struct {
 	Type        string  `json:"type"` // "click"
 	ID          string  `json:"id"`
@@ -125,7 +125,7 @@ type WebhookEventPayload struct {
 	CreatedAt string `json:"createdAt"`
 }
 
-// GenerateWebhookSecret: generates a 32-byte cryptographically secure random secret.
+// GenerateWebhookSecret: 32-byte crypto-random secret.
 func GenerateWebhookSecret() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -134,7 +134,7 @@ func GenerateWebhookSecret() string {
 	return "whsec_" + hex.EncodeToString(b)
 }
 
-// CreateWebhook: inserts new webhook endpoint for app. Initial cursors are set to current max rowids.
+// CreateWebhook: insert webhook for app; cursors start at current max rowids.
 func (s *Store) CreateWebhook(appID, webhookURL string, eventTypes []string) (Webhook, error) {
 	if _, err := s.GetApp(appID); err != nil {
 		return Webhook{}, err
@@ -144,7 +144,7 @@ func (s *Store) CreateWebhook(appID, webhookURL string, eventTypes []string) (We
 	secret := GenerateWebhookSecret()
 	typesStr := strings.Join(eventTypes, ",")
 
-	// Start at the current tail: a failed read must not leave a cursor at 0 (would replay all history).
+	// start at tail: failed read must not leave cursor at 0 (= replay all history)
 	var cursorInstalls, cursorClicks, cursorEvents int64
 	for table, dst := range map[string]*int64{"installs": &cursorInstalls, "clicks": &cursorClicks, "events": &cursorEvents} {
 		if err := s.db.QueryRow(`SELECT COALESCE(MAX(rowid), 0) FROM `+table+` WHERE app_id = ?`, appID).Scan(dst); err != nil {
@@ -217,13 +217,13 @@ const webhookSelectCols = `id, app_id, url, secret, types,
 	replay_until_installs, replay_until_clicks, replay_until_events,
 	enabled, created_at`
 
-// GetWebhook returns a webhook by id.
+// GetWebhook: webhook by id.
 func (s *Store) GetWebhook(id string) (Webhook, error) {
 	row := s.db.QueryRow(`SELECT `+webhookSelectCols+` FROM webhooks WHERE id = ?`, id)
 	return s.scanWebhook(row)
 }
 
-// ListWebhooks returns all webhooks configured for an app.
+// ListWebhooks: app's webhooks.
 func (s *Store) ListWebhooks(appID string) ([]Webhook, error) {
 	list, err := s.queryWebhooks(`WHERE app_id = ?`, appID)
 	if err != nil {
@@ -232,7 +232,7 @@ func (s *Store) ListWebhooks(appID string) ([]Webhook, error) {
 	return list, nil
 }
 
-// ListActiveWebhooks returns all enabled webhooks across all apps.
+// ListActiveWebhooks: enabled webhooks, all apps.
 func (s *Store) ListActiveWebhooks() ([]Webhook, error) {
 	list, err := s.queryWebhooks(`WHERE enabled = 1`)
 	if err != nil {
@@ -259,7 +259,7 @@ func (s *Store) queryWebhooks(where string, args ...any) ([]Webhook, error) {
 	return list, rows.Err()
 }
 
-// UpdateWebhook updates url, types, or enabled status.
+// UpdateWebhook: update url, types, enabled.
 func (s *Store) UpdateWebhook(id string, url *string, types []string, enabled *bool) (Webhook, error) {
 	current, err := s.GetWebhook(id)
 	if err != nil {
@@ -288,7 +288,7 @@ func (s *Store) UpdateWebhook(id string, url *string, types []string, enabled *b
 		newURL, newTypesStr, boolInt(newEnabled), id); err != nil {
 		return Webhook{}, fmt.Errorf("update webhook: %w", err)
 	}
-	// Added stream starts at its tail, like CreateWebhook. History only via Replay.
+	// added stream starts at tail, like CreateWebhook; history only via Replay
 	for _, t := range types {
 		col, err := webhookStreamCol(t)
 		if err != nil || slices.Contains(current.Types, t) {
@@ -306,7 +306,7 @@ func (s *Store) UpdateWebhook(id string, url *string, types []string, enabled *b
 	return s.GetWebhook(id)
 }
 
-// DeleteWebhook deletes a webhook by id.
+// DeleteWebhook: delete by id.
 func (s *Store) DeleteWebhook(id string) error {
 	res, err := s.db.Exec(`DELETE FROM webhooks WHERE id = ?`, id)
 	if err != nil {
@@ -319,7 +319,7 @@ func (s *Store) DeleteWebhook(id string) error {
 	return nil
 }
 
-// RotateWebhookSecret generates and stores a new secret for a webhook.
+// RotateWebhookSecret: generate + store new secret.
 func (s *Store) RotateWebhookSecret(id string) (string, error) {
 	newSecret := GenerateWebhookSecret()
 	res, err := s.db.Exec(`UPDATE webhooks SET secret = ? WHERE id = ?`, newSecret, id)
@@ -333,11 +333,11 @@ func (s *Store) RotateWebhookSecret(id string) (string, error) {
 	return newSecret, nil
 }
 
-// ErrWebhookCursorMoved: the stream's cursor or replay window changed since the worker read it (e.g. a replay); the write was skipped.
+// ErrWebhookCursorMoved: stream's cursor or replay window changed since worker read it (e.g. replay); write skipped.
 var ErrWebhookCursorMoved = errors.New("webhook cursor moved")
 
-// UpdateWebhookCursor advances cursor and clears backoff/failure state for a successful batch.
-// Compare-and-set against prev (the state the batch was read with), so a concurrent replay is never overwritten.
+// UpdateWebhookCursor: advance cursor, clear backoff/failure after a successful batch.
+// Compare-and-set against prev (state the batch was read with) -> concurrent replay never overwritten.
 func (s *Store) UpdateWebhookCursor(id, eventType string, prev WebhookStream, newCursor int64, isReplayComplete bool) error {
 	col, err := webhookStreamCol(eventType)
 	if err != nil {
@@ -358,8 +358,8 @@ func (s *Store) UpdateWebhookCursor(id, eventType string, prev WebhookStream, ne
 	return nil
 }
 
-// WebhookStreamMaxRowID: highest rowid ever handed out in the stream's table (row_seq; deletes never lower it).
-// Cursor above it = database swapped (restored backup); new rows may land at or below the cursor.
+// WebhookStreamMaxRowID: highest rowid ever handed out in stream's table (row_seq; deletes never lower it).
+// Cursor above it = db swapped (restored backup); new rows may land at or below cursor.
 func (s *Store) WebhookStreamMaxRowID(eventType string) (int64, error) {
 	col, err := webhookStreamCol(eventType)
 	if err != nil {
@@ -370,7 +370,7 @@ func (s *Store) WebhookStreamMaxRowID(eventType string) (int64, error) {
 	return n, err
 }
 
-// RecordWebhookFailure increments failure count and sets backoff delay for the given stream.
+// RecordWebhookFailure: bump failure count, set backoff for stream.
 func (s *Store) RecordWebhookFailure(id, eventType string, fails int, backoffUntil time.Time) error {
 	col, err := webhookStreamCol(eventType)
 	if err != nil {
@@ -381,8 +381,8 @@ func (s *Store) RecordWebhookFailure(id, eventType string, fails int, backoffUnt
 	return err
 }
 
-// ReplayWebhook resets cursors to replay records created at or after from.
-// Purged clicks/events are simply gone, so retention needs no separate clamp.
+// ReplayWebhook: reset cursors to replay records created >= from.
+// Purged clicks/events are gone -> no retention clamp needed.
 func (s *Store) ReplayWebhook(id string, from time.Time) error {
 	wh, err := s.GetWebhook(id)
 	if err != nil {
@@ -420,8 +420,8 @@ func (s *Store) ReplayWebhook(id string, from time.Time) error {
 	return tx.Commit()
 }
 
-// replayCursor returns table's current max rowid for the app and the cursor that re-delivers rows created at or after from.
-// table is one of the fixed stream table names, never user input.
+// replayCursor: table's current max rowid for app + cursor that re-delivers rows created >= from.
+// table = fixed stream table name, never user input.
 func replayCursor(tx *sql.Tx, table, appID, from string) (tail, target int64, err error) {
 	if err = tx.QueryRow(`SELECT COALESCE(MAX(rowid), 0) FROM `+table+` WHERE app_id = ?`, appID).Scan(&tail); err != nil {
 		return 0, 0, err
@@ -431,8 +431,8 @@ func replayCursor(tx *sql.Tx, table, appID, from string) (tail, target int64, er
 	return tail, max(target, 0), err
 }
 
-// FetchPendingWebhookBatch returns up to limit records for an app and stream where cursor < rowid <= until.
-// until 0 means no upper bound; a replay passes its replay_until so replayed and live rows never share a batch.
+// FetchPendingWebhookBatch: up to limit records for app + stream where cursor < rowid <= until.
+// until 0 = no upper bound; replay passes replay_until so replayed and live rows never share a batch.
 func (s *Store) FetchPendingWebhookBatch(appID, eventType string, cursor, until int64, limit int) ([]WebhookRecord, error) {
 	if limit <= 0 {
 		limit = 100
@@ -562,7 +562,7 @@ func (s *Store) fetchClicksBatch(appID string, cursor, until int64, limit int) (
 		payload.LinkKey = nonEmpty(linkKey)
 		payload.ClickID = nonEmpty(clickID)
 		payload.Device = nonEmpty(device)
-		// Platform derives from the UA; the UA itself is PII-excluded and never serialized.
+		// Platform from UA; UA itself is PII, never serialized.
 		if p := ua.Platform(userAgent.String); p != "" {
 			payload.Platform = &p
 		}

@@ -1,6 +1,6 @@
 /* Seline-style tokens: warm stone neutrals, one cyan accent. */
 :root {
-  /* fills under white text: 205 90% 40% (#0a75c2) is 4.8:1 vs white; the brighter #3ba6f1 was 2.6:1 */
+  /* fill under white text: #0a75c2 = 4.8:1; brighter #3ba6f1 was 2.6:1 */
   --k-primary: 205 90% 40%;
   --k-primary-hover: 205 90% 34%;
   --k-primary-foreground: 0 0% 100%;
@@ -25,7 +25,7 @@
   --shadow-md: rgba(0, 0, 0, 0.05) 0px 4px 16px 0px;
 }
 
-/* No rubber-band at the edges: keeps the sticky header pinned on overscroll */
+/* no rubber-band: sticky header stays pinned on overscroll */
 html,
 body {
   overscroll-behavior-y: none;
@@ -39,7 +39,7 @@ body {
   min-height: 100dvh;
 }
 
-/* Headings: display face at weight 400, tight tracking */
+/* Headings */
 h1, h2, h3 {
   font-weight: 400;
   letter-spacing: -0.017em;
@@ -60,7 +60,7 @@ main h3 {
   font-size: 18px;
 }
 
-/* Header: white sticky bar, hairline bottom */
+/* Header */
 header {
   position: sticky;
   top: 0;
@@ -97,7 +97,7 @@ button.nav-link {
   cursor: pointer;
 }
 
-/* Checkbox option rows: plain list, whole row clickable */
+/* Checkbox rows: whole row clickable */
 .check-option {
   display: flex;
   align-items: flex-start;
@@ -105,7 +105,7 @@ button.nav-link {
   cursor: pointer;
 }
 
-/* kinu derives the box radius from --k-radius (10px), which turns a 16px box into a circle */
+/* kinu radius = --k-radius (10px) -> 16px box turns into a circle */
 .check-option [k="checkbox"] {
   border-radius: 4px;
   margin: 3px 0 0;
@@ -124,7 +124,7 @@ button.nav-link {
   color: hsl(var(--k-muted-foreground));
 }
 
-/* webhook URL: one line + ellipsis on desktop (full URL in title), wraps on phones */
+/* webhook URL: ellipsis on desktop (full URL in title), wraps on phones */
 .wh-url {
   max-width: 260px;
   overflow: hidden;
@@ -133,7 +133,7 @@ button.nav-link {
   font-weight: 500;
 }
 
-/* Elevated-session chip: one pill, Exit sits inside after a hairline */
+/* Admin chip: one pill, Exit inside after a hairline */
 .admin-chip {
   display: inline-flex;
   align-items: center;
@@ -177,7 +177,7 @@ button.nav-link {
   background: hsl(var(--k-border));
 }
 
-/* Badges: pill, cyan text on sky wash */
+/* Badges */
 [k="badge"] {
   border-radius: 9999px;
   font-weight: 500;
@@ -188,7 +188,7 @@ button.nav-link {
   color: hsl(var(--k-accent-foreground));
 }
 
-/* Buttons: pills, cyan filled primary, hairline ghosts */
+/* Buttons */
 [k="button"],
 [k="button"][size] {
   border-radius: 9999px;
@@ -219,7 +219,7 @@ button.nav-link {
   box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
 }
 
-/* Soft cyan: sky wash fill, cyan text, for actions beside a primary */
+/* Soft cyan: secondary actions beside a primary */
 [k="button"][variant="secondary"] {
   background: hsl(var(--k-accent) / 0.55);
   color: hsl(var(--k-accent-foreground));
@@ -240,7 +240,7 @@ button.nav-link {
   background-color: hsl(0 66% 46%);
 }
 
-/* Row-level delete stays quiet; the confirm dialog keeps the solid red */
+/* row delete quiet; confirm dialog keeps solid red */
 [k="table"] [k="button"][variant="destructive"] {
   background: transparent;
   color: hsl(var(--k-destructive));
@@ -258,15 +258,15 @@ button.nav-link {
   outline-offset: 2px;
 }
 
-/* Inputs: white fill, 6px radius */
+/* Inputs */
 [k="input"],
 [k="textarea"] {
   background-color: hsl(var(--k-card));
   border-radius: 6px;
 }
 
-/* Filter selects: same height and grey fill as the tab group beside them; muted chevron
-   (kinu's uses currentColor, which a data-URI image can't inherit, so it renders black) */
+/* Filter selects: match tab group height + fill. Own muted chevron: kinu's uses currentColor,
+   which a data-URI can't inherit -> renders black */
 [k="select"] {
   height: 36px;
   padding: 0 30px 0 12px;
@@ -289,13 +289,13 @@ button.nav-link {
   color: hsl(var(--k-muted-foreground));
 }
 
-/* Cards: white on canvas, the hairline is the structure */
+/* Cards */
 [k="card"] {
   box-shadow: var(--shadow-md);
   border-radius: 10px;
 }
 
-/* Stat tiles: uniform cards, muted label + large tabular number */
+/* Stat tiles */
 [k="card"][padding="sm"] > div {
   font-size: 32px !important;
   font-weight: 400 !important;
@@ -339,7 +339,7 @@ button.nav-link {
   padding: 4rem 1.5rem;
 }
 
-/* Table: row lines only, rounded frame */
+/* Table */
 [k="table"] {
   border-collapse: separate;
   border-spacing: 0;
@@ -365,7 +365,7 @@ button.nav-link {
   vertical-align: middle;
 }
 
-/* 1px same-colour shadow covers the antialias seam Chrome leaves at fractional column edges */
+/* 1px same-colour shadow hides Chrome's antialias seam at fractional column edges */
 [k="table"] thead th {
   background: hsl(var(--k-muted));
   box-shadow: 1px 0 0 hsl(var(--k-muted));
@@ -529,7 +529,7 @@ button.nav-link {
   }
 }
 
-/* App page tabs: segmented pills on the left, filters on the right */
+/* App page tabs: pills left, filters right */
 .tab-bar {
   display: flex;
   flex-wrap: wrap;
@@ -539,7 +539,7 @@ button.nav-link {
   margin-bottom: 24px;
 }
 
-/* narrow phones: tabs scroll sideways instead of widening the page */
+/* narrow phones: tabs scroll sideways, page doesn't widen */
 .tab-bar > [role="tablist"] {
   max-width: 100%;
   overflow-x: auto;
@@ -550,7 +550,7 @@ button.nav-link {
   flex: none;
 }
 
-/* Fraud signals: one bordered list, a row per signal; text left, mode switch right */
+/* Fraud signals: row per signal, text left, mode switch right */
 .signal-list {
   list-style: none;
   margin: 0;
@@ -589,7 +589,7 @@ button.nav-link {
   line-height: 2.4;
 }
 
-/* number fields sitting inside a sentence */
+/* inline number fields in a sentence */
 .inline-num {
   display: inline-block;
   width: 84px;
@@ -612,8 +612,8 @@ button.nav-link {
   flex: none;
 }
 
-/* tagged is the calm default: pressed but neutral; only active takes the accent.
-   Unpressed reads muted so the pressed side is obvious either way. */
+/* tagged = calm default: pressed but neutral; only active gets the accent.
+   Unpressed muted so the pressed side is always obvious. */
 .mode-toggle [aria-pressed="false"] {
   color: hsl(var(--k-muted-foreground));
 }
@@ -626,7 +626,7 @@ button.nav-link {
   box-shadow: none;
 }
 
-/* flagged installs per signal: plain numbers above the table, no card */
+/* per-signal flagged counts: plain numbers above table, no card */
 .signal-counts {
   display: flex;
   flex-wrap: wrap;
@@ -654,7 +654,7 @@ button.nav-link {
   }
 }
 
-/* Apps list: the whole row opens the app */
+/* Apps list: whole row opens app */
 .row-link {
   cursor: pointer;
 }
@@ -669,7 +669,7 @@ button.nav-link {
   padding: 2rem;
 }
 
-/* Phones: tables stack into one card per row, tighter page gutters */
+/* Phones: table rows stack as cards, tighter gutters */
 @media (max-width: 640px) {
   header > div,
   main {
@@ -715,7 +715,7 @@ button.nav-link {
   [k="table"] td {
     display: block;
     width: 100%;
-    box-sizing: border-box; /* row padding inside the 100%, not on top of it */
+    box-sizing: border-box; /* padding inside the 100%, not added */
   }
 
   [k="table"] thead {
@@ -762,7 +762,7 @@ button.nav-link {
     padding-top: 0.5rem;
   }
 
-  /* Dialogs become bottom sheets: full width, docked, slide up */
+  /* Dialogs -> bottom sheets */
   [k="dialog-content"] {
     width: 100%;
     max-width: 100%;
@@ -797,7 +797,7 @@ button.nav-link {
     background: hsl(var(--k-input));
   }
 
-  /* signal rows: switch drops under the text so sentences keep their width */
+  /* signal rows: switch drops below text so sentences keep width */
   .signal-row {
     flex-direction: column;
     gap: 12px;
@@ -808,7 +808,7 @@ button.nav-link {
     width: 72px;
   }
 
-  /* 16px inputs stop iOS from zooming on focus */
+  /* 16px inputs: no iOS zoom on focus */
   [k="input"],
   [k="select"],
   [k="textarea"] {

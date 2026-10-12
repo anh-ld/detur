@@ -11,7 +11,7 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// hasStoreTarget: the platform's own target is a store URL. No store target -> nothing to escape to; redirect as today.
+// hasStoreTarget: platform's own target is a store URL. None -> nothing to escape to; plain redirect.
 func hasStoreTarget(link store.Link, agent string) bool {
 	switch {
 	case ua.IsIOS(agent):
@@ -22,14 +22,14 @@ func hasStoreTarget(link store.Link, agent string) bool {
 	return false
 }
 
-// intentURL: Android intent back to the short link (App Links open the app at the link), Play fallback when the app is missing. Chrome intent syntax: developer.chrome.com/docs/android/intents.
+// intentURL: Android intent back to short link (App Links open app at link), Play fallback if app missing. Syntax: developer.chrome.com/docs/android/intents.
 func intentURL(host, key string, q url.Values, pkg, fallback string) string {
 	short := httpx.AddParams("https://"+host+"/"+key, q, func(k, v string) bool { return v != "" && !internalParams[k] })
 	return "intent://" + strings.TrimPrefix(short, "https://") +
 		"#Intent;scheme=https;package=" + pkg + ";S.browser_fallback_url=" + url.QueryEscape(fallback) + ";end"
 }
 
-// inAppMenu: per-app "Open in browser" menu label; unlisted apps use the platform default.
+// inAppMenu: per-app "Open in browser" menu label; unlisted -> platform default.
 var inAppMenu = map[string]string{
 	"instagram": "Open in external browser",
 	"threads":   "Open in external browser",
@@ -43,7 +43,7 @@ var inAppMenu = map[string]string{
 	"wechat":    "Open in browser",
 }
 
-// tapSteps: numbered "Open in browser" steps for the source app and platform.
+// tapSteps: numbered "Open in browser" steps for source app + platform.
 func tapSteps(source string, ios bool) []string {
 	icon := "⋮"
 	if ios {
@@ -52,7 +52,7 @@ func tapSteps(source string, ios bool) []string {
 	return []string{"Tap " + icon + " in the top corner.", "Choose “" + menuLabel(source, ios) + "”."}
 }
 
-// menuLabel: the app's own menu item, else a generic one for unknown webviews, else the platform browser.
+// menuLabel: app's own menu item, else generic for unknown webviews, else platform browser.
 func menuLabel(source string, ios bool) string {
 	if l, ok := inAppMenu[source]; ok {
 		return l
@@ -66,7 +66,7 @@ func menuLabel(source string, ios bool) string {
 	return "Open in Chrome"
 }
 
-// serveTap: tap page — a plain link the user taps (in-app browsers block automatic store hand-offs). iOS copies the short link first (pasteboard signal) and reports it like the copy page.
+// serveTap: tap page, plain link to tap (in-app browsers block auto store hand-off). iOS copies short link first (pasteboard signal), reports it like copy page.
 func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link store.Link, dest, source string, q url.Values) {
 	ios := ua.IsIOS(r.UserAgent())
 	data := struct {
@@ -76,7 +76,7 @@ func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link s
 		Steps []string
 	}{Href: template.URL(dest), IOS: ios, Steps: tapSteps(source, ios)}
 	if !ios {
-		// the app's package turns the button into an intent that opens the installed app at the link
+		// app package -> button = intent opening installed app at link
 		if app, err := p.st.GetApp(link.AppID); err != nil {
 			p.log.Printf("tap page app lookup failed (Play button instead of intent): %v", err)
 		} else if app.AndroidPackage != "" {
@@ -90,7 +90,7 @@ func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link s
 	_ = tapTmpl.Execute(w, data)
 }
 
-// tapTmpl: headline, one primary button (plain href: works without JS), Android-only Play text link, numbered steps. 48px full-width button, light + dark.
+// tapTmpl: headline, one primary button (plain href, no JS needed), Android-only Play text link, numbered steps. 48px full-width button, light + dark.
 var tapTmpl = template.Must(template.New("tap").Parse(`<!doctype html>
 <meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Get the app</title>
@@ -133,7 +133,7 @@ document.getElementById("go").addEventListener("click", function () {
 });
 </script>{{end}}`))
 
-// copyJS: shared by the copy page and the tap page. true only when execCommand confirms the copy synchronously, so pasted_link is never reported for a copy that didn't happen. The clipboard API is a best-effort extra: its promise can't confirm before the tap navigates.
+// copyJS: shared by copy + tap pages. true only when execCommand confirms copy synchronously -> pasted_link never reported for a failed copy. Clipboard API = best-effort extra: its promise can't confirm before tap navigates.
 const copyJS = `function copy(text) {
   var t = document.createElement("textarea"), ok = false;
   t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";

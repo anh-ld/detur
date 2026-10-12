@@ -1,12 +1,14 @@
-// Package fraud: signal names, per-app thresholds and validation, plus embedded hosting-IP and bot-UA datasets shared by store, match and portal API. No outbound calls.
+// Package fraud: signals, settings, evaluation, hosting-IP and bot-UA data. No network.
 package fraud
 
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 )
 
-// Signal names: stored in install labels and settings, shown in the portal.
+// Signal names: stored in install labels + settings, shown in portal.
 const (
 	SignalVelocity    = "velocity"
 	SignalTiming      = "timing"
@@ -65,7 +67,7 @@ var Defaults = Settings{
 	FingerprintMax: 5, FingerprintWindowDays: 7,
 }
 
-// Active: sig is in active mode, so the clicks it flags are excluded. Signals without a mode (install IP, fingerprint) never are.
+// Active: sig in active mode -> its flagged clicks excluded. Mode-less signals (install IP, fingerprint) never.
 func (s Settings) Active(sig string) bool {
 	switch sig {
 	case SignalVelocity:
@@ -80,7 +82,7 @@ func (s Settings) Active(sig string) bool {
 	return false
 }
 
-// AnyActive: some signal can exclude a click; false lets matching skip per-candidate checks.
+// AnyActive: some signal can exclude a click; false -> matching skips per-candidate checks.
 func (s Settings) AnyActive() bool {
 	for _, sig := range Signals {
 		if s.Active(sig) {
@@ -90,7 +92,7 @@ func (s Settings) AnyActive() bool {
 	return false
 }
 
-// Validate: modes known and thresholds within bounds; errors wrap the typed Err* values.
+// Validate: modes known, thresholds in bounds; errors wrap typed Err* values.
 func (s Settings) Validate() error {
 	for _, m := range []string{s.VelocityMode, s.TimingMode, s.UserAgentMode, s.IPMode} {
 		if m != ModeTagged && m != ModeActive {
@@ -114,4 +116,49 @@ func (s Settings) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Click: what signals read. Not store.Click: import cycle.
+type Click struct {
+	HitsIP, HitsLink     int
+	FirstSeenAt          time.Time
+	Open                 bool // no short timing
+	UASuspect, IPHosting bool
+}
+
+// Fired: signals c trips at ref (KTD1, KTD3). Long timing: clickId only (R2).
+func (s Settings) Fired(c Click, ref time.Time, clickID bool) map[string]bool {
+	d := ref.Sub(c.FirstSeenAt)
+	return map[string]bool{
+		SignalVelocity: c.HitsIP >= s.VelocityIPMax || c.HitsLink >= s.VelocityLinkMax,
+		SignalTiming: (!c.Open && d < time.Duration(s.TimingShortSeconds)*time.Second) ||
+			(clickID && d > time.Duration(s.TimingLongHours)*time.Hour),
+		SignalUserAgent: c.UASuspect,
+		SignalIP:        c.IPHosting,
+	}
+}
+
+// Excluded: a fired signal is active.
+func (s Settings) Excluded(f map[string]bool) bool {
+	for sig, on := range f {
+		if on && s.Active(sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// Label: fired union + install IP, Signals order. Install IP separate so click IP counts stay click-level.
+func Label(installIP string, sets ...map[string]bool) string {
+	var out []string
+	for _, sig := range Signals {
+		on := sig == SignalInstallIP && Hosting(installIP)
+		for _, f := range sets {
+			on = on || f[sig]
+		}
+		if on {
+			out = append(out, sig)
+		}
+	}
+	return strings.Join(out, ",")
 }

@@ -50,7 +50,7 @@ export function RulesDialog({
   const [success, setSuccess] = useState('');
   const [perfDays, setPerfDays] = useState(30);
   const [dirty, setDirty] = useState(false);
-  const reqSeq = useRef(0); // latest load wins; stale responses are dropped
+  const reqSeq = useRef(0); // latest load wins, stale dropped
 
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftRule, setDraftRule] = useState<LinkRule | null>(null);
@@ -94,7 +94,7 @@ export function RulesDialog({
       .catch((e) => seq === reqSeq.current && setErr(String(e)));
   };
 
-  // Close (Escape, backdrop, button) keeps unsaved edits; reopen shows them until Save or Discard.
+  // close (Escape/backdrop/button) keeps unsaved edits; reopen shows them until Save/Discard
   const discardChanges = () => {
     setEditingIndex(null);
     setDraftRule(null);
@@ -229,7 +229,7 @@ export function RulesDialog({
       nextRules[editingIndex] = cleanedRule;
     }
 
-    // variant stats key on the label: direct rule names and split variant names must be unique per link
+    // variant stats key on label: rule + split variant names unique per link
     const labels = nextRules.flatMap((r) => (r.action.split?.length ? r.action.split.map((v) => v.name) : [r.name]));
     const dup = labels.find((l, i) => labels.indexOf(l) !== i);
     if (dup) {
