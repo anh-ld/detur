@@ -1,4 +1,4 @@
-// Package fraud: signal names, per-app thresholds and validation, signal evaluation, plus embedded hosting-IP and bot-UA datasets shared by store, match and portal API. No outbound calls.
+// Package fraud: signals, settings, evaluation, hosting-IP and bot-UA data. No network.
 package fraud
 
 import (
@@ -118,15 +118,15 @@ func (s Settings) Validate() error {
 	return nil
 }
 
-// Click: click-level facts the signals read (store.Click carries them; fraud cannot import store).
+// Click: what signals read. Not store.Click: import cycle.
 type Click struct {
 	HitsIP, HitsLink     int
 	FirstSeenAt          time.Time
-	Open                 bool // app-open click: skips short timing
+	Open                 bool // no short timing
 	UASuspect, IPHosting bool
 }
 
-// Fired: click-level signals c trips at ref (KTD1, KTD3). Long timing only on the clickId path (R2); open clicks skip short timing.
+// Fired: signals c trips at ref (KTD1, KTD3). Long timing: clickId only (R2).
 func (s Settings) Fired(c Click, ref time.Time, clickID bool) map[string]bool {
 	d := ref.Sub(c.FirstSeenAt)
 	return map[string]bool{
@@ -138,7 +138,7 @@ func (s Settings) Fired(c Click, ref time.Time, clickID bool) map[string]bool {
 	}
 }
 
-// Excluded: any fired signal in active mode.
+// Excluded: a fired signal is active.
 func (s Settings) Excluded(f map[string]bool) bool {
 	for sig, on := range f {
 		if on && s.Active(sig) {
@@ -148,7 +148,7 @@ func (s Settings) Excluded(f map[string]bool) bool {
 	return false
 }
 
-// Label: install label = union of fired sets plus install IP hosting (own tag-only label, so the IP promotion count stays click-level), comma list in Signals order.
+// Label: fired union + install IP, Signals order. Install IP is its own label so click IP counts stay click-level.
 func Label(installIP string, sets ...map[string]bool) string {
 	var out []string
 	for _, sig := range Signals {

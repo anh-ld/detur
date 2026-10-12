@@ -175,13 +175,13 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	return label(r, req, f...), nil
 }
 
-// fired: c's click-level signals at ref (fraud.Settings.Fired).
+// fired: store.Click -> fraud.Click.
 func fired(c store.Click, set fraud.Settings, ref time.Time, clickID bool) map[string]bool {
 	return set.Fired(fraud.Click{HitsIP: c.HitsIP, HitsLink: c.HitsLink, FirstSeenAt: c.FirstSeenAt, Open: c.Kind == store.KindOpen,
 		UASuspect: c.UASuspect, IPHosting: c.IPHosting}, ref, clickID)
 }
 
-// label: r.Fraud from the fired sets plus install IP (fraud.Label).
+// label: sets r.Fraud.
 func label(r Result, req Request, sets ...map[string]bool) Result {
 	r.Fraud = fraud.Label(req.IP, sets...)
 	return r

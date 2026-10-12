@@ -98,7 +98,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
         .catch((e) => ok() && setError(String(e))),
     ]);
   };
-  // Analytics (also feeds link counts): one request per id/filter/refresh, only on the tabs that show it; a superseded response is dropped (stale flag).
+  // Analytics + link counts: Links/Analytics tabs only. Stale response dropped.
   const filtered = tab === 'links' || tab === 'analytics';
   const [tick, setTick] = useState(0);
   const [statsLoading, setStatsLoading] = useState(false);
