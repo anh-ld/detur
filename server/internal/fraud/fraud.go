@@ -1,9 +1,11 @@
-// Package fraud: signal names, per-app thresholds and validation, plus embedded hosting-IP and bot-UA datasets shared by store, match and portal API. No outbound calls.
+// Package fraud: signal names, per-app thresholds and validation, signal evaluation, plus embedded hosting-IP and bot-UA datasets shared by store, match and portal API. No outbound calls.
 package fraud
 
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 )
 
 // Signal names: stored in install labels and settings, shown in the portal.
@@ -114,4 +116,49 @@ func (s Settings) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Click: click-level facts the signals read (store.Click carries them; fraud cannot import store).
+type Click struct {
+	HitsIP, HitsLink     int
+	FirstSeenAt          time.Time
+	Open                 bool // app-open click: skips short timing
+	UASuspect, IPHosting bool
+}
+
+// Fired: click-level signals c trips at ref (KTD1, KTD3). Long timing only on the clickId path (R2); open clicks skip short timing.
+func (s Settings) Fired(c Click, ref time.Time, clickID bool) map[string]bool {
+	d := ref.Sub(c.FirstSeenAt)
+	return map[string]bool{
+		SignalVelocity: c.HitsIP >= s.VelocityIPMax || c.HitsLink >= s.VelocityLinkMax,
+		SignalTiming: (!c.Open && d < time.Duration(s.TimingShortSeconds)*time.Second) ||
+			(clickID && d > time.Duration(s.TimingLongHours)*time.Hour),
+		SignalUserAgent: c.UASuspect,
+		SignalIP:        c.IPHosting,
+	}
+}
+
+// Excluded: any fired signal in active mode.
+func (s Settings) Excluded(f map[string]bool) bool {
+	for sig, on := range f {
+		if on && s.Active(sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// Label: install label = union of fired sets plus install IP hosting (own tag-only label, so the IP promotion count stays click-level), comma list in Signals order.
+func Label(installIP string, sets ...map[string]bool) string {
+	var out []string
+	for _, sig := range Signals {
+		on := sig == SignalInstallIP && Hosting(installIP)
+		for _, f := range sets {
+			on = on || f[sig]
+		}
+		if on {
+			out = append(out, sig)
+		}
+	}
+	return strings.Join(out, ",")
 }

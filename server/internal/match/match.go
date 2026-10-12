@@ -4,7 +4,6 @@ package match
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"detur.dev/server/internal/fraud"
@@ -88,7 +87,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 			return Result{}, err
 		}
 		f := fired(c, set, now, true)
-		if excluded(f, set) { // flagged clickId: organic, click left unconsumed, no fingerprint to fall back on (R7)
+		if set.Excluded(f) { // flagged clickId: organic, click left unconsumed, no fingerprint to fall back on (R7)
 			r := noMatch(-1, -1)
 			r.FraudAction, r.FraudLinkID = store.FraudActionExcluded, c.LinkID
 			return label(r, req, f), nil
@@ -135,7 +134,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 		if s > top {
 			top, topClick = s, c
 		}
-		if anyActive && excluded(fired(c, set, tref, false), set) {
+		if anyActive && set.Excluded(fired(c, set, tref, false)) {
 			continue
 		}
 		if s > best {
@@ -147,7 +146,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	r := noMatch(best, second)
 	var f []map[string]bool
 	// excluded overall best that would have won: credit moved or lost (R7)
-	if tf := fired(topClick, set, tref, false); top >= app.MatchThreshold && excluded(tf, set) {
+	if tf := fired(topClick, set, tref, false); top >= app.MatchThreshold && set.Excluded(tf) {
 		r.FraudAction, r.FraudLinkID, f = store.FraudActionExcluded, topClick.LinkID, append(f, tf)
 	}
 	if best < app.MatchThreshold {
@@ -176,41 +175,15 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	return label(r, req, f...), nil
 }
 
-// fired: click-level signals c trips at ref (KTD1, KTD3). Long timing only on the clickId path (R2); open clicks skip short timing.
+// fired: c's click-level signals at ref (fraud.Settings.Fired).
 func fired(c store.Click, set fraud.Settings, ref time.Time, clickID bool) map[string]bool {
-	d := ref.Sub(c.FirstSeenAt)
-	return map[string]bool{
-		fraud.SignalVelocity: c.HitsIP >= set.VelocityIPMax || c.HitsLink >= set.VelocityLinkMax,
-		fraud.SignalTiming: (c.Kind != store.KindOpen && d < time.Duration(set.TimingShortSeconds)*time.Second) ||
-			(clickID && d > time.Duration(set.TimingLongHours)*time.Hour),
-		fraud.SignalUserAgent: c.UASuspect,
-		fraud.SignalIP:        c.IPHosting,
-	}
+	return set.Fired(fraud.Click{HitsIP: c.HitsIP, HitsLink: c.HitsLink, FirstSeenAt: c.FirstSeenAt, Open: c.Kind == store.KindOpen,
+		UASuspect: c.UASuspect, IPHosting: c.IPHosting}, ref, clickID)
 }
 
-// excluded: any fired signal in active mode.
-func excluded(f map[string]bool, set fraud.Settings) bool {
-	for sig, on := range f {
-		if on && set.Active(sig) {
-			return true
-		}
-	}
-	return false
-}
-
-// label: r.Fraud = union of fired sets plus install IP hosting (own tag-only label, so the IP promotion count stays click-level), in fraud.Signals order.
+// label: r.Fraud from the fired sets plus install IP (fraud.Label).
 func label(r Result, req Request, sets ...map[string]bool) Result {
-	var out []string
-	for _, sig := range fraud.Signals {
-		on := sig == fraud.SignalInstallIP && fraud.Hosting(req.IP)
-		for _, f := range sets {
-			on = on || f[sig]
-		}
-		if on {
-			out = append(out, sig)
-		}
-	}
-	r.Fraud = strings.Join(out, ",")
+	r.Fraud = fraud.Label(req.IP, sets...)
 	return r
 }
 
