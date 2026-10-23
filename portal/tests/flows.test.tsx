@@ -27,7 +27,7 @@ const MESSENGER = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleW
 const DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36';
 
 async function click(key: string, ua: string, done = false): Promise<Response> {
-  return fetch(`${SDK}/${key}${done ? '?_dt=1' : ''}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
+  return fetch(`${SDK}/${key}${done ? '?_dt=1&tz=UTC' : ''}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
 }
 
 // first SDK launch on the clicking iPhone: same IP + iOS -> matches latest click. UA = distinct device.
@@ -694,7 +694,7 @@ describe('portal client flows', () => {
     await within(section).findByText('Nothing flagged in this range.');
     expect(within(section).queryByLabelText('Flagged installs per signal')).toBeNull();
 
-    // click -> launch within seconds: timing fires (tagged), install still attributed (IP 500 + iOS version 350)
+    // click -> launch within seconds: timing fires (tagged), install still attributed (IP 400 + iOS version 350 + timezone 200)
     expect((await click(key, IPHONE, true)).status).toBe(302);
     expect((await matchLink(app)).status).toBe(200);
 
