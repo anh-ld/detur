@@ -3,19 +3,21 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
 
-// Config: runtime config from env vars: DOMAIN, DB_PATH, RETENTION_HOURS, CLICK_ID_DAYS, TRUST_PROXY, LOGOUT_URL, ADMIN_PASSWORD, ADMIN_SESSION_HOURS, PORTAL_HOSTS.
+// Config: runtime config from env vars: DOMAIN, DB_PATH, RETENTION_HOURS, CLICK_ID_DAYS, TRUST_PROXY, TRUSTED_PROXIES, LOGOUT_URL, ADMIN_PASSWORD, ADMIN_SESSION_HOURS, PORTAL_HOSTS.
 type Config struct {
 	Domain            string // public domain for links, well-known, redirects
 	DBPath            string
 	RetentionHours    int      // click + event retention floor
 	ClickIDDays       int      // unmatched click_id lifetime
 	TrustProxy        bool     // honor X-Forwarded-For (only behind a trusted proxy)
+	TrustedProxies    string   // TRUSTED_PROXIES: comma-separated CIDR ranges; empty = default RFC 1918 + loopback
 	LogoutURL         string   // gateway sign-out URL for the Log out link; "" hides it
 	AdminPassword     string   // master password for admin elevation; "" = no gating
 	AdminSessionHours int      // elevated session TTL (1-72h, default 12)
@@ -30,6 +32,7 @@ func Load() (*Config, error) {
 		RetentionHours:    24,
 		ClickIDDays:       30,
 		TrustProxy:        os.Getenv("TRUST_PROXY") == "1",
+		TrustedProxies:    strings.TrimSpace(os.Getenv("TRUSTED_PROXIES")),
 		LogoutURL:         os.Getenv("LOGOUT_URL"),
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		AdminSessionHours: 12,
@@ -53,7 +56,26 @@ func Load() (*Config, error) {
 	if err := checkLogoutURL(cfg.LogoutURL); err != nil {
 		return nil, err
 	}
+	if cfg.TrustedProxies != "" {
+		if err := validateTrustedProxies(cfg.TrustedProxies); err != nil {
+			return nil, err
+		}
+	}
 	return cfg, nil
+}
+
+// validateTrustedProxies: comma-separated list of CIDR strings.
+func validateTrustedProxies(v string) error {
+	for _, raw := range strings.Split(v, ",") {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(s); err != nil {
+			return fmt.Errorf("TRUSTED_PROXIES: invalid CIDR %q: %w", s, err)
+		}
+	}
+	return nil
 }
 
 // checkLogoutURL: "", http(s) URL, or "/path". Rejects the rest (javascript:, "//host"): it lands in an href.

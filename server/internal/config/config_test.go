@@ -7,7 +7,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "CLICK_ID_DAYS", "TRUST_PROXY", "LOGOUT_URL", "ADMIN_PASSWORD", "ADMIN_SESSION_HOURS"} {
+	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "CLICK_ID_DAYS", "TRUST_PROXY", "TRUSTED_PROXIES", "LOGOUT_URL", "ADMIN_PASSWORD", "ADMIN_SESSION_HOURS"} {
 		t.Setenv(k, "")
 	}
 }
@@ -80,6 +80,25 @@ func TestLoadInvalidValues(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Errorf("%s=%s: err = %v, want containing %q", tc.key, tc.val, err, tc.wantErr)
 		}
+	}
+}
+
+func TestLoadTrustedProxies(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8, 192.168.1.0/24")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TrustedProxies != "10.0.0.0/8, 192.168.1.0/24" {
+		t.Errorf("TrustedProxies = %q, want '10.0.0.0/8, 192.168.1.0/24'", cfg.TrustedProxies)
+	}
+
+	clearEnv(t)
+	t.Setenv("TRUSTED_PROXIES", "not-a-valid-cidr")
+	_, err = Load()
+	if err == nil || !strings.Contains(err.Error(), "TRUSTED_PROXIES: invalid CIDR") {
+		t.Errorf("Load with invalid CIDR err = %v, want invalid CIDR error", err)
 	}
 }
 
