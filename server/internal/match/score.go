@@ -9,9 +9,12 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// Documented scoring weights (detour.swmansion.com/docs/platform/architecture/matching/). ONE device signal per candidate: Android model+system version (450) if click has both, else iOS system version (350), else UA device signature (350); never two. Keeps documented max 1700 iOS / 1450 Android.
+// Documented scoring weights (detour.swmansion.com/docs/platform/architecture/matching/).
+// IP exact rebalanced to 400 (R2) so that IP (400) + iOS version (350) = 750 < default threshold 850,
+// preventing shared Wi-Fi attribution collisions.
+// ONE device signal per candidate: Android model+system version (450) if click has both, else iOS system version (350), else UA device signature (350); never two.
 const (
-	weightIPExact           = 500
+	weightIPExact           = 400
 	weightModelSystemVer    = 450
 	weightiOSSystemVersion  = 350
 	weightUADeviceSignature = 350
