@@ -59,7 +59,8 @@ type assetlinkTarget struct {
 }
 
 // handleAASA: iOS association file, one details entry per app with ios_app_id.
-// One iOS app claims every path; several -> each claims own link keys (iOS routes URL to first matching entry).
+// Serves wildcard paths ["*"] and components [{"/": "*"}] by default (R7) to prevent
+// Apple CDN caching from breaking newly generated short links.
 func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 	if !w.allowedHost(r) {
 		http.NotFound(rw, r)
@@ -79,20 +80,11 @@ func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 	payload := aasaPayload{AppLinks: aasaAppLinks{Apps: []string{}, Details: []aasaDetails{}}}
 	for _, a := range iosApps {
 		paths := []string{"*"}
-		if len(iosApps) > 1 {
-			links, err := w.st.ListLinks(a.ID)
-			if err != nil {
-				http.Error(rw, "internal error", http.StatusInternalServerError)
-				return
-			}
-			paths = paths[:0]
-			for _, l := range links {
-				paths = append(paths, "/"+l.Key)
-			}
-		}
-		d := aasaDetails{AppID: a.IOSAppID, Paths: paths, AppIDs: []string{a.IOSAppID}, Components: []map[string]string{}}
-		for _, p := range paths {
-			d.Components = append(d.Components, map[string]string{"/": p})
+		d := aasaDetails{
+			AppID:      a.IOSAppID,
+			Paths:      paths,
+			AppIDs:     []string{a.IOSAppID},
+			Components: []map[string]string{{"/": "*"}},
 		}
 		payload.AppLinks.Details = append(payload.AppLinks.Details, d)
 	}

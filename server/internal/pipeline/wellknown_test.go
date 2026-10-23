@@ -96,7 +96,7 @@ func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	return app
 }
 
-// Scenario 1: AASA valid JSON per app. Several iOS apps: each claims only own link keys (iOS routes URL to first matching entry; blanket ["*"] per app shadows all but first). Single iOS app claims every path.
+// Scenario 1: AASA valid JSON per app. Wildcard ["*"] per app ensures newly created links work immediately without Apple CDN cache staleness (R7). Single and multiple iOS apps claim wildcard paths.
 func TestAASAValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	iosOnly, err := st.CreateApp("ios only", "key-1")
@@ -126,8 +126,8 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 		t.Errorf("apps = %v; want empty array", aasa.AppLinks.Apps)
 	}
 	want := map[string][]string{
-		"TEAM1.com.example.ios":   {"/abc"},
-		"TEAM123.com.example.app": {},
+		"TEAM1.com.example.ios":   {"*"},
+		"TEAM123.com.example.app": {"*"},
 	}
 	if len(aasa.AppLinks.Details) != len(want) {
 		t.Fatalf("details = %+v; want %d entries", aasa.AppLinks.Details, len(want))
@@ -152,6 +152,24 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 		// iOS 13+ format, same claim (appIDs + components)
 		if len(d.AppIDs) != 1 || d.AppIDs[0] != d.AppID || len(d.Components) != len(d.Paths) {
 			t.Errorf("appID %s appIDs/components = %v/%v; want one entry mirroring paths", d.AppID, d.AppIDs, d.Components)
+		}
+	}
+
+	// Verify that creating a new link in the DB does not alter AASA file (prevents Apple CDN cache invalidation need)
+	if _, err := st.CreateLink(store.Link{AppID: iosOnly.ID, Key: "newkey123", URL: "https://example.com/new"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	resp2, b2 := getWithHost(t, ts, "/.well-known/apple-app-site-association", primaryDomain)
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body %s; want 200", resp2.StatusCode, b2)
+	}
+	var aasa2 aasaResp
+	if err := json.Unmarshal(b2, &aasa2); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	for _, d := range aasa2.AppLinks.Details {
+		if len(d.Paths) != 1 || d.Paths[0] != "*" {
+			t.Errorf("appID %s paths = %v; want wildcard [*]", d.AppID, d.Paths)
 		}
 	}
 }
