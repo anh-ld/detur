@@ -9,15 +9,16 @@ SDK `Config`: no base URL. Patch = only way.
 
 ## Changes
 
-5 constants × 2 copies (`src/*.ts` Metro, `lib/module/*.js` others) = 10 files:
+5 constants + clipboard URL guard × 2 copies (`src/*.ts` Metro, `lib/module/*.js` others) = 12 files:
 
-| Endpoint | Constant | File (`src/` .ts, `lib/module/` .js) |
+| Feature | Change | File (`src/` .ts, `lib/module/` .js) |
 |---|---|---|
 | match-link | `API_URL` | `links/api/getDeferredLink` |
 | resolve-short | `API_URL` | `links/api/resolveShortLink` |
 | universal-link-click | `API_URL` | `links/api/sendUniversalLinkClick` |
 | analytics event | `EVENT_API_URL` | `analytics/api/events` |
 | analytics retention | `RETENTION_API_URL` | `analytics/api/retention` |
+| iOS paste guard | `hasUrlAsync` / `hasWebURL` guard | `links/utils/fingerprint` |
 
 Untouched:
 
