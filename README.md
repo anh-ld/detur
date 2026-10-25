@@ -65,6 +65,7 @@ Prod: pin version (`:0.1.0`).
 | `RETENTION_HOURS` | no | `24` | Click TTL (hours) |
 | `CLICK_ID_DAYS` | no | `30` | Referrer TTL (days) |
 | `TRUST_PROXY` | no | `0` | Trust reverse proxy |
+| `TRUSTED_PROXIES` | no | private ranges | Trusted proxy CIDRs |
 | `LOGOUT_URL` | no | empty | Sign-out URL |
 | `ADMIN_PASSWORD` | no | empty | Admin password |
 | `ADMIN_SESSION_HOURS` | no | `12` | Session length (hours) |

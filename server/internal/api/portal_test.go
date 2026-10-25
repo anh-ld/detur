@@ -186,7 +186,7 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 	}
 }
 
-// Scenario 2: PATCH /api/apps/{id}/matching drives matching: same fingerprint matches or 404s per threshold (950-score candidate: matches at 850, not 1200).
+// Scenario 2: PATCH /api/apps/{id}/matching drives matching: same fingerprint matches or 404s per threshold (900-score candidate: matches at 850, not 1200).
 func TestPortalAppMatchingDrivesMatching(t *testing.T) {
 	portal, sdk, st := newPortalEnv(t)
 	app, link := setup(t, st)
@@ -197,27 +197,27 @@ func TestPortalAppMatchingDrivesMatching(t *testing.T) {
 		t.Fatalf("set settings: %d %s", resp.StatusCode, b)
 	}
 
-	// score 950 (IP differs: 127.0.0.1 vs click IP) < raised threshold.
+	// score 900 (IP differs: 127.0.0.1 vs click IP) < raised threshold.
 	resp, b = portalReq(t, sdk, "POST", "/api/link/match-link", androidFingerprintJSON(), authHeaders(app.ID))
 	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("at threshold 1200 the 950-score match must 404, got %d %s", resp.StatusCode, b)
+		t.Fatalf("at threshold 1200 the 900-score match must 404, got %d %s", resp.StatusCode, b)
 	}
-	// same fingerprint + IP match via XFF: 1450 >= 1200.
+	// same fingerprint + IP match via XFF: 1300 >= 1200.
 	hdr := authHeaders(app.ID)
 	hdr["X-Forwarded-For"] = testIP
 	resp, b = portalReq(t, sdk, "POST", "/api/link/match-link", androidFingerprintJSON(), hdr)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("at threshold 1200 the 1450-score match must match, got %d %s", resp.StatusCode, b)
+		t.Fatalf("at threshold 1200 the 1300-score match must match, got %d %s", resp.StatusCode, b)
 	}
 
-	// threshold back to default: 950 candidate matches.
+	// threshold back to default: 900 candidate matches.
 	resp, b = portalReq(t, portal, "PATCH", "/api/apps/"+app.ID+"/matching", `{"threshold":850,"windowMinutes":15}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("reset settings: %d %s", resp.StatusCode, b)
 	}
 	resp, b = portalReq(t, sdk, "POST", "/api/link/match-link", androidFingerprintJSON(), authHeaders(app.ID))
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("at threshold 850 the 950-score match must match, got %d %s", resp.StatusCode, b)
+		t.Fatalf("at threshold 850 the 900-score match must match, got %d %s", resp.StatusCode, b)
 	}
 
 	resp, b = portalReq(t, portal, "GET", "/api/apps/"+app.ID, "", nil)

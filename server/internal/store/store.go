@@ -413,6 +413,9 @@ func (s *Store) GetLink(id string) (Link, error) {
 	))
 }
 
+// MaxAASAKeys: per-app link-key cap for multi-app AASA enumeration; Apple drops oversized association files whole.
+const MaxAASAKeys = 256
+
 func (s *Store) ListLinks(appID string) ([]Link, error) {
 	rows, err := s.db.Query(
 		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, '')

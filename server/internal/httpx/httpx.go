@@ -4,7 +4,6 @@ package httpx
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -54,6 +53,9 @@ func SetTrustedProxies(cidrs []string) error {
 	}
 	trustedMu.Lock()
 	trustedNets = nets
+	// Re-baseline: the counters mean "since the current TRUSTED_PROXIES configuration".
+	xffIgnored.Store(0)
+	lastXFFPeer.Store("")
 	trustedMu.Unlock()
 	return nil
 }
@@ -100,10 +102,9 @@ func RemoteIP(r *http.Request) string {
 			if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
 				return ip
 			}
-		} else {
-			if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Real-IP") != "" {
-				log.Printf("httpx: untrusted peer %s sent forwarded headers; ignoring", host)
-			}
+		} else if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Real-IP") != "" {
+			xffIgnored.Add(1)
+			lastXFFPeer.Store(host)
 		}
 	} else {
 		notePeer(host)
@@ -125,6 +126,23 @@ func notePeer(host string) {
 // PeerStats: peers seen, private/loopback count.
 func PeerStats() (total, private int64) {
 	return peers.Load(), privatePeers.Load()
+}
+
+// Forwarded headers ignored from peers outside TRUSTED_PROXIES while TRUST_PROXY=1; since start.
+var xffIgnored atomic.Int64
+
+// Host of the most recent untrusted peer whose forwarded headers were ignored; for the health page.
+var lastXFFPeer atomic.Value
+
+// XFFIgnored: X-Forwarded-For/X-Real-IP ignores from untrusted peers.
+func XFFIgnored() int64 { return xffIgnored.Load() }
+
+// LastXFFPeer: most recent untrusted peer that sent ignored forwarded headers; "" if none.
+func LastXFFPeer() string {
+	if v, ok := lastXFFPeer.Load().(string); ok {
+		return v
+	}
+	return ""
 }
 
 // WriteJSON: v as JSON with status.

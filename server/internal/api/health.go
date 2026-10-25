@@ -106,6 +106,13 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 			} else {
 				add("AASA refresh", "ok", "No links newer than 48h.")
 			}
+			keyWarnings, err := aasaKeyWarnings(p.st, apps)
+			if err != nil {
+				return nil, err
+			}
+			for _, warn := range keyWarnings {
+				add("AASA keys", "warn", warn)
+			}
 		}
 	}
 
@@ -119,6 +126,31 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 		add("Proxy", "fail", fmt.Sprintf("%d of %d requests came from private IPs: every click shares one IP. Behind a proxy? Set TRUST_PROXY=1.", private, total))
 	default:
 		add("Proxy", "ok", "Client IPs look public.")
+	}
+	if n := httpx.XFFIgnored(); n > 0 {
+		last := ""
+		if p := httpx.LastXFFPeer(); p != "" {
+			last = " (last: " + p + ")"
+		}
+		add("Forwarded headers", "warn", fmt.Sprintf("%d request(s) carried X-Forwarded-For/X-Real-IP from a peer outside TRUSTED_PROXIES%s; those clients share the peer IP. Behind a proxy? Add its CIDR to TRUSTED_PROXIES.", n, last))
+	}
+	return out, nil
+}
+
+// aasaKeyWarnings: multi-app AASA risk — links past the enumeration cap open the browser until trimmed. Cross-app key collisions cannot occur: keys are globally unique (COLLATE NOCASE) and iOS matches each literal key pattern exactly.
+func aasaKeyWarnings(st *store.Store, apps []store.App) ([]string, error) {
+	var out []string
+	for _, a := range apps {
+		if a.IOSAppID == "" {
+			continue
+		}
+		links, err := st.ListLinks(a.ID)
+		if err != nil {
+			return out, err
+		}
+		if len(links) > store.MaxAASAKeys {
+			out = append(out, fmt.Sprintf("%s: %d links, AASA serves only the newest %d; the rest open the browser until trimmed", a.IOSAppID, len(links), store.MaxAASAKeys))
+		}
 	}
 	return out, nil
 }

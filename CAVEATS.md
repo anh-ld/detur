@@ -10,18 +10,19 @@ Operational gotchas, architectural limits, and security constraints to read befo
 - **Logout behavior (`LOGOUT_URL`)**: The "Log out" button only redirects to `LOGOUT_URL`. If your identity provider re-authenticates automatically (or if using Tailscale), sessions do not truly terminate on click.
 - **TLS termination**: Detur does not enforce TLS internally. Running over plain HTTP leaks SDK API keys and device fingerprints. Always terminate HTTPS at a reverse proxy or load balancer.
 - **API key storage**: Stored as unsalted SHA-256 hashes. Safe only because generated keys possess ~131 bits of entropy.
-- **Proxy trust risk**: Setting `TRUST_PROXY=1` without an actual reverse proxy stripping upstream headers allows clients to spoof `X-Forwarded-For` and game the 500-point IP matching score.
+- **Proxy trust risk**: Setting `TRUST_PROXY=1` without an actual reverse proxy stripping upstream headers allows clients to spoof `X-Forwarded-For` and game the 400-point IP matching score. Running behind a proxy with `TRUST_PROXY=0` has the inverse cost: every user shares the proxy's IP, awarding the 400-point IP match to unrelated installs.
 
 ## Matching
 
 - **Identical hardware fingerprints**: Two identical devices (same model, OS version, screen resolution, timezone) on the same Wi-Fi share a single fingerprint; this can lead to undercounting non-organic installs or misattributing candidates.
+- **Same-model shared Wi-Fi**: A colleague with the same phone model on the same Wi-Fi shares timezone and screen by location and hardware. With the OS version differing they score IP 400 + timezone 200 + screen 200 = 800, or 900 when the device language also matches — crossing the 850 default only in the 900 case. Different-model peers (≤700) are always isolated.
 - **Single-use clicks**: Matched clicks are consumed immediately. If two users install from the same Wi-Fi after a single shared link click, only the first user receives the deferred deep link; the second is recorded as organic.
 - **Late Play referrer (`clickId`)**: `clickId` matches are supported for up to `CLICK_ID_DAYS` (default 30 days). However, the raw click fingerprint is purged after `RETENTION_HOURS` (default 24h), so installs matching late `clickId`s lose original click metadata (such as platform).
 - **Matching thresholds & windows**: Configured per app (threshold default 850, window default 15 min). There are no per-link threshold overrides.
 - **Reinstalls within retention**: A user reinstalling the app within `RETENTION_HOURS` receives their earlier matched link again, even if they tapped a newer link in between.
 - **Device clock drift**: The matching window uses the SDK client timestamp only if it is within 180 minutes of server time; otherwise, it clamps to server time.
 - **iPad Safari**: iPadOS Safari sends a Mac UA. Mac Safari visitors also get the interstitial (one extra reload on real Macs); a touch screen marks the visit as iPad. No tap-to-copy page for iPad (unknown at hop 1) → no pasteboard signal.
-- **One-hop interstitial**: Mobile browsers reload through an interstitial to capture screen, timezone, and client hints (model + OS). Maximum probabilistic score on iOS is 1350 without pasteboard.
+- **One-hop interstitial**: Mobile browsers reload through an interstitial to capture screen, timezone, and client hints (model + OS). Maximum probabilistic score on iOS is 1250 without pasteboard.
 - **iOS App Store pasteboard**: Redirecting to the App Store shows a tap-to-copy page to feed pasteboard matching (350 points exact / 175 points domain). If the user denies pasteboard permission in iOS, the signal is lost. Note: The SDK's `pastedLink` is checked server-side against the clicked link to prevent tampering.
 - **In-app browser escape (iOS)**: In-app webviews (Messenger, TikTok, Zalo) show an interstitial "Get the app" tap-page to escape sandbox restrictions. If the app is already installed on iOS, it can only open to the home screen rather than the deep link due to iOS webview sandbox limitations.
 - **In-app browser escape (Android)**: Android deep links can launch the installed app directly via `intent://` only if the package name and verified App Links certificates match; otherwise, it falls back to Google Play.

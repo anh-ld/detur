@@ -10,12 +10,13 @@ import (
 )
 
 // Documented scoring weights (detour.swmansion.com/docs/platform/architecture/matching/).
-// IP exact rebalanced to 400 (R2) so that IP (400) + iOS version (350) = 750 < default threshold 850,
-// preventing shared Wi-Fi attribution collisions.
-// ONE device signal per candidate: Android model+system version (450) if click has both, else iOS system version (350), else UA device signature (350); never two.
+// IP exact rebalanced to 400 (R2) and Android model+version rebalanced to 400 so that neither
+// IP (400) + iOS version (350) = 750 nor IP (400) + Android model/version (400) = 800 reaches
+// default threshold 850, preventing shared Wi-Fi attribution collisions across all platforms.
+// ONE device signal per candidate: Android model+system version (400) if click has both, else iOS system version (350), else UA device signature (350); never two.
 const (
 	weightIPExact           = 400
-	weightModelSystemVer    = 450
+	weightModelSystemVer    = 400
 	weightiOSSystemVersion  = 350
 	weightUADeviceSignature = 350
 	weightPasteboardToken   = 350 // token + URL prefix

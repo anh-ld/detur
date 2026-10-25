@@ -16,7 +16,9 @@ func TestValidateLinkRules(t *testing.T) {
 	split := func(name string, variants ...store.SplitVariant) store.LinkRule {
 		return store.LinkRule{Name: name, Action: store.RuleAction{Split: variants}}
 	}
-	v := func(name string, weight int) store.SplitVariant { return store.SplitVariant{Name: name, Weight: weight} }
+	v := func(name string, weight int) store.SplitVariant {
+		return store.SplitVariant{Name: name, Weight: weight}
+	}
 	from := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 
