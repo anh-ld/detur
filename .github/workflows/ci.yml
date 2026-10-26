@@ -23,12 +23,10 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: server/go.mod
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: portal/package-lock.json
-      - run: npm ci
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
         working-directory: portal
-      - run: npm test
+      - run: bun --bun run test
         working-directory: portal
