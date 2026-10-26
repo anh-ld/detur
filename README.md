@@ -99,8 +99,11 @@ Point the installed @swmansion/react-native-detour at your detur server.
    (dev: :8080, prod: https://<DOMAIN>). Keep /api/... paths.
 3. Verify: grep -r "godetour.dev" node_modules/@swmansion/react-native-detour
    → zero matches. package.json author line is metadata — ignore.
-4. Generate: npx patch-package @swmansion/react-native-detour.
-5. Survive fresh installs: add "postinstall": "patch-package" to package.json.
+4. Generate: npm/yarn app → npx patch-package @swmansion/react-native-detour;
+   Bun app → bun patch @swmansion/react-native-detour before editing, then
+   bun patch --commit node_modules/@swmansion/react-native-detour.
+5. Survive fresh installs: npm/yarn → add "postinstall": "patch-package";
+   Bun → patchedDependencies (written by bun patch --commit).
 6. Report: changed files + patch file path.
 ```
 
@@ -130,12 +133,14 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 
 ## Dev run
 
+Prerequisites: Go 1.27, Bun 1.4.4.
+
 ```sh
 ./dev.sh
 ```
 
 - Portal HMR on `:8000` + Go server reload via [air](https://github.com/air-verse/air).
-- Tests: `cd server && go test ./...` · `cd portal && npm test`
+- Tests: `cd server && go test ./...` · `cd portal && bun --bun run test`
 
 ## Credits
 

@@ -1,6 +1,7 @@
 {
   "name": "detur-portal",
   "type": "module",
+  "packageManager": "bun@1.4.4",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

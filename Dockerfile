@@ -14,12 +14,12 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/detur ./cmd/detur
 RUN mkdir -p /out/data && chown -R 1000:1000 /out/data
 
 # --- Stage 2: portal (kinu, vite) ---
-FROM node:24-alpine AS portal
+FROM oven/bun:1.4.4-alpine AS portal
 WORKDIR /src
-COPY portal/package.json portal/package-lock.json ./
-RUN npm ci
+COPY portal/package.json portal/bun.lock ./
+RUN bun install --frozen-lockfile
 COPY portal/ .
-RUN npm run build   # vite outDir=dist -> /src/dist
+RUN bun run build   # vite outDir=dist -> /src/dist
 
 # --- Stage 3: runtime ---
 FROM alpine:3.24

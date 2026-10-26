@@ -7,6 +7,7 @@ detur.db-*
 # Node / portal build output
 node_modules/
 portal/dist/
+.expo/
 
 # OS / editor
 .DS_Store

@@ -1,0 +1,164 @@
+diff --git a/lib/module/analytics/api/events.js b/lib/module/analytics/api/events.js
+index 6837e532ff9c2e63da7f721fb9ea7bfd13a38a0c..347e77d1bc0fc95d9ea9067842f7c9dd29f8eb35 100644
+--- a/lib/module/analytics/api/events.js
++++ b/lib/module/analytics/api/events.js
+@@ -2,7 +2,7 @@
+ 
+ import { Platform } from "react-native";
+ import { SDK_HEADER_VALUE } from "../../version.js";
+-const EVENT_API_URL = "https://godetour.dev/api/analytics/event";
++const EVENT_API_URL = "http://localhost:8080/api/analytics/event";
+ export const sendEvent = async ({
+   apiKey,
+   appID,
+diff --git a/lib/module/analytics/api/retention.js b/lib/module/analytics/api/retention.js
+index e141d9abeeb9ff3a3a3a8963b489b99b04b01bb3..c55440a78f633eb735ae62250b803c6926c1a8ab 100644
+--- a/lib/module/analytics/api/retention.js
++++ b/lib/module/analytics/api/retention.js
+@@ -2,7 +2,7 @@
+ 
+ import { Platform } from "react-native";
+ import { SDK_HEADER_VALUE } from "../../version.js";
+-const RETENTION_API_URL = "https://godetour.dev/api/analytics/retention";
++const RETENTION_API_URL = "http://localhost:8080/api/analytics/retention";
+ export const sendRetentionEvent = async ({
+   apiKey,
+   appID,
+diff --git a/lib/module/links/api/getDeferredLink.js b/lib/module/links/api/getDeferredLink.js
+index da4301f4aa51a59207d7a86164e7f037e30966cd..39c614aa2fa9a76d64da602d209166b6fe201df1 100644
+--- a/lib/module/links/api/getDeferredLink.js
++++ b/lib/module/links/api/getDeferredLink.js
+@@ -3,7 +3,7 @@
+ import * as Application from "expo-application";
+ import { SDK_HEADER_VALUE } from "../../version.js";
+ import { getDeterministicFingerprint, getProbabilisticFingerprint } from "../utils/fingerprint.js";
+-const API_URL = "https://godetour.dev/api/link/match-link";
++const API_URL = "http://localhost:8080/api/link/match-link";
+ const sendFingerprint = async ({
+   API_KEY,
+   appID,
+diff --git a/lib/module/links/api/resolveShortLink.js b/lib/module/links/api/resolveShortLink.js
+index 2fcd8b5da5f036eb5293f789cf06247090e8dc3e..d4b817cb3019e415ffc22dc41562a01baf85a2a7 100644
+--- a/lib/module/links/api/resolveShortLink.js
++++ b/lib/module/links/api/resolveShortLink.js
+@@ -1,7 +1,7 @@
+ "use strict";
+ 
+ import { SDK_HEADER_VALUE } from "../../version.js";
+-const API_URL = "https://godetour.dev/api/link/resolve-short";
++const API_URL = "http://localhost:8080/api/link/resolve-short";
+ export const resolveShortLink = async ({
+   apiKey: API_KEY,
+   appID,
+diff --git a/lib/module/links/api/sendUniversalLinkClick.js b/lib/module/links/api/sendUniversalLinkClick.js
+index f1ca2e19292e3e06be5caf2e4fffebece6b5bf01..c0a7ee52fdaa062800e82ccbedd8426b0cd10515 100644
+--- a/lib/module/links/api/sendUniversalLinkClick.js
++++ b/lib/module/links/api/sendUniversalLinkClick.js
+@@ -4,7 +4,7 @@ import { Platform } from "react-native";
+ import Constants from "expo-constants";
+ import { SDK_HEADER_VALUE } from "../../version.js";
+ import { getSyncDeviceInfo } from "../utils/deviceInfo.js";
+-const API_URL = "https://godetour.dev/api/link/universal-link-click";
++const API_URL = "http://localhost:8080/api/link/universal-link-click";
+ const resolvePlatform = () => Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : "unknown";
+ const extractParams = url => {
+   try {
+diff --git a/lib/module/links/utils/fingerprint.js b/lib/module/links/utils/fingerprint.js
+index e8c0076ca8146a5f23675fe0299899fd8a9955db..bdd8731c42dbe6b238f3de5f83d6ce8aa4f8fe04 100644
+--- a/lib/module/links/utils/fingerprint.js
++++ b/lib/module/links/utils/fingerprint.js
+@@ -43,7 +43,7 @@ export const getProbabilisticFingerprint = async shouldUseClipboard => {
+     timezone: Localization.getCalendars()[0]?.timeZone,
+     userAgent,
+     timestamp: Date.now(),
+-    pastedLink: shouldUseClipboard && Platform.OS === "ios" ? await Clipboard.getStringAsync() : undefined
++    pastedLink: shouldUseClipboard && Platform.OS === "ios" ? (await (typeof Clipboard.hasUrlAsync === "function" ? Clipboard.hasUrlAsync() : typeof Clipboard.hasWebURL === "function" ? Clipboard.hasWebURL() : true)) ? await Clipboard.getStringAsync() : undefined : undefined
+   };
+ };
+ //# sourceMappingURL=fingerprint.js.map
+\ No newline at end of file
+diff --git a/src/analytics/api/events.ts b/src/analytics/api/events.ts
+index 854df78fdad096bdf5d8a309d855c43f61fbf4f6..de75adfe930c068be415f3cb785b9213f590a979 100644
+--- a/src/analytics/api/events.ts
++++ b/src/analytics/api/events.ts
+@@ -3,7 +3,7 @@ import { Platform } from "react-native";
+ import { SDK_HEADER_VALUE } from "../../version";
+ import type { DetourEvent } from "../types";
+ 
+-const EVENT_API_URL = "https://godetour.dev/api/analytics/event";
++const EVENT_API_URL = "http://localhost:8080/api/analytics/event";
+ 
+ export const sendEvent = async ({
+   apiKey,
+diff --git a/src/analytics/api/retention.ts b/src/analytics/api/retention.ts
+index 927b81c8443fb180520f0939e1784ea36b5b1aec..1a53ea4db97fe423d0416a0643a96ebb9fa5ea24 100644
+--- a/src/analytics/api/retention.ts
++++ b/src/analytics/api/retention.ts
+@@ -2,7 +2,7 @@ import { Platform } from "react-native";
+ 
+ import { SDK_HEADER_VALUE } from "../../version";
+ 
+-const RETENTION_API_URL = "https://godetour.dev/api/analytics/retention";
++const RETENTION_API_URL = "http://localhost:8080/api/analytics/retention";
+ 
+ export const sendRetentionEvent = async ({
+   apiKey,
+diff --git a/src/links/api/getDeferredLink.ts b/src/links/api/getDeferredLink.ts
+index 88a832ff75ed98bb6de649b48cecdcc977c1b0be..b21ab4755d0a4056ef46c6fe8140aa1078bbd2c9 100644
+--- a/src/links/api/getDeferredLink.ts
++++ b/src/links/api/getDeferredLink.ts
+@@ -9,7 +9,7 @@ import {
+   getProbabilisticFingerprint,
+ } from "../utils/fingerprint";
+ 
+-const API_URL = "https://godetour.dev/api/link/match-link";
++const API_URL = "http://localhost:8080/api/link/match-link";
+ 
+ const sendFingerprint = async ({
+   API_KEY,
+diff --git a/src/links/api/resolveShortLink.ts b/src/links/api/resolveShortLink.ts
+index 27c6c5649643a02da671a3ef112d5fd1e04e7c9f..abd7167156a3e9c76c31bd43870bc4c9ca32b089 100644
+--- a/src/links/api/resolveShortLink.ts
++++ b/src/links/api/resolveShortLink.ts
+@@ -1,7 +1,7 @@
+ import { SDK_HEADER_VALUE } from "../../version";
+ import type { RequiredConfig } from "../types";
+ 
+-const API_URL = "https://godetour.dev/api/link/resolve-short";
++const API_URL = "http://localhost:8080/api/link/resolve-short";
+ 
+ export type ResolveShortLinkResponse = {
+   link: string;
+diff --git a/src/links/api/sendUniversalLinkClick.ts b/src/links/api/sendUniversalLinkClick.ts
+index a4a227a865b572f656e0d94c93b40da947bdaae6..e2a773b690a1bcadb2c57ab18faa5c894cdd3bd6 100644
+--- a/src/links/api/sendUniversalLinkClick.ts
++++ b/src/links/api/sendUniversalLinkClick.ts
+@@ -6,7 +6,7 @@ import { SDK_HEADER_VALUE } from "../../version";
+ import type { RequiredConfig } from "../types";
+ import { getSyncDeviceInfo } from "../utils/deviceInfo";
+ 
+-const API_URL = "https://godetour.dev/api/link/universal-link-click";
++const API_URL = "http://localhost:8080/api/link/universal-link-click";
+ 
+ type UniversalLinkClickResponseBody = {
+   allowed?: boolean;
+diff --git a/src/links/utils/fingerprint.ts b/src/links/utils/fingerprint.ts
+index afa5e06710fed2dbe0a685ef1fc822d74a3eb434..12b80239068a9797be46e43e665b83aca8992cd6 100644
+--- a/src/links/utils/fingerprint.ts
++++ b/src/links/utils/fingerprint.ts
+@@ -61,6 +61,14 @@ export const getProbabilisticFingerprint = async (
+     userAgent,
+     timestamp: Date.now(),
+     pastedLink:
+-      shouldUseClipboard && Platform.OS === "ios" ? await Clipboard.getStringAsync() : undefined,
++      shouldUseClipboard && Platform.OS === "ios"
++        ? (await (typeof Clipboard.hasUrlAsync === "function"
++            ? Clipboard.hasUrlAsync()
++            : typeof (Clipboard as any).hasWebURL === "function"
++              ? (Clipboard as any).hasWebURL()
++              : true))
++          ? await Clipboard.getStringAsync()
++          : undefined
++        : undefined,
+   };
+ };

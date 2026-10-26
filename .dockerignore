@@ -1,5 +1,5 @@
 # Build context = repo root. Lean + deterministic.
-# Else `COPY portal/ .` drags local node_modules + macOS dist over `npm ci` / `vite build`.
+# Else `COPY portal/ .` drags local node_modules + macOS dist over `bun install` / `vite build`.
 .git
 .gitignore
 **/node_modules

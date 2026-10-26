@@ -479,6 +479,8 @@ describe('portal client flows', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
 
     await within(dlg).findByText('Split Test 1');
+    // leaving the editor moves focus to the next step, never onto Discard
+    await waitFor(() => expect(document.activeElement).toBe(within(dlg).getByRole('button', { name: 'Save rules' })));
 
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save rules' }));
     await within(dlg).findByText('Rules saved');

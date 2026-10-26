@@ -11,9 +11,8 @@ Expo SDK 57 + patched `@swmansion/react-native-detour` → local detur. All 5 SD
 1. detur on `http://localhost:8080`.
 2. Portal: create app, copy `appID` + `apiKey`.
 3. `cp .env.example .env`, fill `EXPO_PUBLIC_DETOUR_APP_ID`, `EXPO_PUBLIC_DETOUR_API_KEY`.
-4. `npm i` (postinstall applies patch). Missing from `patches/`? Copy
-   `../patch/@swmansion+react-native-detour+2.3.1.patch`.
-5. `npx expo start`.
+4. `bun install` (Bun 1.4.4). Applies `patches/` via `patchedDependencies`.
+5. `bun run ios` (Expo Go SDK 57) or `bun run start`.
 
 ## Notes
 

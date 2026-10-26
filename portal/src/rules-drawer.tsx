@@ -1,5 +1,5 @@
 import { cloneElement, JSX } from 'preact';
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Tab, Table, TabList, Toggle, ToggleGroup } from 'kinu';
 import { api, Link, LinkRule, Platform, RuleTargets, SplitVariant, VariantStat } from './api';
 import { adminCall, closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
@@ -256,6 +256,17 @@ export function RulesDialog({
     setDraftRule({ ...draftRule!, action: { ...draftRule!.action, targets: { ...draftRule!.action.targets, ...patch } } });
   const editing = tab === 'rules' && editingIndex !== null && !!draftRule;
   const fid = (s: string) => `${dialogId}-${s}`;
+
+  // leaving the editor (Done/Cancel): focus the next step, Save if enabled else Close.
+  // Without this, focus stays on whatever button took the clicked one's place (e.g. Discard).
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    if (wasEditing.current && !editing) {
+      const save = document.getElementById(fid('save')) as HTMLButtonElement | null;
+      (save && !save.disabled ? save : document.getElementById(fid('close')))?.focus();
+    }
+    wasEditing.current = editing;
+  }, [editing]);
 
   return (
     <Dialog id={dialogId}>
@@ -616,11 +627,11 @@ export function RulesDialog({
                     Discard
                   </Button>
                 )}
-                <Button variant="outline" disabled={saving} onClick={() => closeDialog(dialogId)}>
+                <Button id={fid('close')} variant="outline" disabled={saving} onClick={() => closeDialog(dialogId)}>
                   Close
                 </Button>
                 {tab === 'rules' && (rules.length > 0 || dirty) && (
-                  <Button disabled={saving || !dirty} aria-busy={saving} onClick={saveAllToBackend}>
+                  <Button id={fid('save')} disabled={saving || !dirty} aria-busy={saving} onClick={saveAllToBackend}>
                     {saving ? 'Saving…' : 'Save rules'}
                   </Button>
                 )}
