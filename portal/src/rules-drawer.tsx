@@ -1,5 +1,5 @@
 import { cloneElement, JSX } from 'preact';
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Tab, Table, TabList, Toggle, ToggleGroup } from 'kinu';
 import { api, Link, LinkRule, Platform, RuleTargets, SplitVariant, VariantStat } from './api';
 import { adminCall, closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
@@ -231,8 +231,6 @@ export function RulesDialog({
     setDirty(true);
     setEditingIndex(null);
     setDraftRule(null);
-    // next step is Save: focus it, not whatever button now sits where Done was
-    requestAnimationFrame(() => document.getElementById(`${dialogId}-save`)?.focus());
   };
 
   const saveAllToBackend = async () => {
@@ -258,6 +256,17 @@ export function RulesDialog({
     setDraftRule({ ...draftRule!, action: { ...draftRule!.action, targets: { ...draftRule!.action.targets, ...patch } } });
   const editing = tab === 'rules' && editingIndex !== null && !!draftRule;
   const fid = (s: string) => `${dialogId}-${s}`;
+
+  // leaving the editor (Done/Cancel): focus the next step, Save if enabled else Close.
+  // Without this, focus stays on whatever button took the clicked one's place (e.g. Discard).
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    if (wasEditing.current && !editing) {
+      const save = document.getElementById(fid('save')) as HTMLButtonElement | null;
+      (save && !save.disabled ? save : document.getElementById(fid('close')))?.focus();
+    }
+    wasEditing.current = editing;
+  }, [editing]);
 
   return (
     <Dialog id={dialogId}>
@@ -600,10 +609,10 @@ export function RulesDialog({
           <div class="dialog-actions">
             {editing ? (
               <>
-                <Button key="cancel" variant="outline" onClick={() => setEditingIndex(null)}>
+                <Button variant="outline" onClick={() => setEditingIndex(null)}>
                   Cancel
                 </Button>
-                <Button key="done" onClick={saveDraftRule}>Done</Button>
+                <Button onClick={saveDraftRule}>Done</Button>
               </>
             ) : (
               <>
@@ -614,15 +623,15 @@ export function RulesDialog({
                   </Button>
                 )}
                 {dirty && !saving && (
-                  <Button key="discard" variant="ghost" onClick={discardChanges}>
+                  <Button variant="ghost" onClick={discardChanges}>
                     Discard
                   </Button>
                 )}
-                <Button variant="outline" disabled={saving} onClick={() => closeDialog(dialogId)}>
+                <Button id={fid('close')} variant="outline" disabled={saving} onClick={() => closeDialog(dialogId)}>
                   Close
                 </Button>
                 {tab === 'rules' && (rules.length > 0 || dirty) && (
-                  <Button key="save" id={fid('save')} disabled={saving || !dirty} aria-busy={saving} onClick={saveAllToBackend}>
+                  <Button id={fid('save')} disabled={saving || !dirty} aria-busy={saving} onClick={saveAllToBackend}>
                     {saving ? 'Saving…' : 'Save rules'}
                   </Button>
                 )}

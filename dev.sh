@@ -24,7 +24,7 @@ portal() {
   cd portal
   [ -d node_modules ] || bun install --frozen-lockfile
   until (: >/dev/tcp/127.0.0.1/8081) 2>/dev/null; do sleep 0.3; done
-  bun run dev --port 8000 --strictPort
+  bun --bun run dev --port 8000 --strictPort
 }
 
 [ $# -gt 0 ] || set -- server portal
