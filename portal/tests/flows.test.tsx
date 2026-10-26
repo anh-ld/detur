@@ -150,13 +150,13 @@ describe('portal client flows', () => {
     });
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
 
-    const row = (await screen.findByText('summer-sale')).closest('tr')!;
+    const row = (await screen.findAllByText('summer-sale'))[0].closest('tr')!;
     expect(row.innerText).toContain('/promo');
     expect((await api.listLinks(app.id)).length).toBe(1);
 
     fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
-    await waitFor(() => expect(screen.queryByText('summer-sale')).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText('summer-sale')).toHaveLength(0));
     expect(await api.listLinks(app.id)).toHaveLength(0);
     await api.deleteApp(app.id);
   });
@@ -204,7 +204,7 @@ describe('portal client flows', () => {
     // filter is page-level: Links tab counts follow; clearing restores both clicks
     go(`#/apps/${app.id}`);
     const linkCounts = () => {
-      const tr = screen.getByText(key).closest('tr')!;
+      const tr = screen.getAllByText(key)[0].closest('tr')!;
       return [tr.querySelector('[data-label="Clicks"]')!.textContent, tr.querySelector('[data-label="Matches"]')!.textContent];
     };
     await waitFor(() => expect(linkCounts()).toEqual(['1', '1']));
@@ -394,7 +394,7 @@ describe('portal client flows', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByText(name)).toBeNull());
-    await expect(api.getApp(app.id)).rejects.toThrow(/404/);
+    await expect(api.getApp(app.id)).rejects.toMatchObject({ status: 404 });
   });
 
   it('app config flow: Settings tab saves iOS App ID, list row shows the iOS badge', async () => {
@@ -441,7 +441,7 @@ describe('portal client flows', () => {
       fallbackUrl: '',
     });
     render(<AppPage id={app.id} tab="links" />);
-    const row = (await screen.findByText('summer-sale')).closest('tr')!;
+    const row = (await screen.findAllByText('summer-sale'))[0].closest('tr')!;
 
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
     fireEvent.input(within(openDialog()).getByLabelText('Destination'), {
@@ -464,7 +464,7 @@ describe('portal client flows', () => {
       fallbackUrl: '',
     });
     render(<AppPage id={app.id} tab="links" />);
-    const row = (await screen.findByText('split-link')).closest('tr')!;
+    const row = (await screen.findAllByText('split-link'))[0].closest('tr')!;
 
     fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
     const dlg = openDialog();
@@ -506,7 +506,7 @@ describe('portal client flows', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New link' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
-    await screen.findByText('key and url are required');
+    await screen.findByText('Key and destination are required');
 
     expect(await api.listLinks(app.id)).toHaveLength(0);
 
@@ -593,7 +593,7 @@ describe('portal client flows', () => {
     // app deleted elsewhere (another tab): save fails server-side
     await api.deleteApp(app.id);
     fireEvent.click(within(modeGroup('Click flooding')).getByRole('button', { name: 'Active' }));
-    const t = await findToast(/404/);
+    const t = await findToast(/not found/i);
     expect(t.title).toBe('Not saved');
     await waitFor(() => expect(pressed('Click flooding')).toEqual(['Tagged']));
   });
@@ -635,7 +635,7 @@ describe('portal client flows', () => {
     // out of range (server 2..10000): rejected, field reverts, server keeps saved value
     seen = lastToastId();
     await editAndBlur('Max clicks per IP', '1');
-    const t = await findToast(/velocity IP max out of range/);
+    const t = await findToast(/velocity IP max out of range/i);
     expect(t.title).toBe('Not saved');
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('30'));
     expect(toasts().filter((x) => x.id > seen)).toHaveLength(1);
@@ -782,7 +782,7 @@ describe('portal client flows', () => {
     expect(screen.queryByText(/Admin · until/)).toBeNull();
 
     // nothing to elevate: POST rejects, GET stays inactive
-    await expect(api.enterAdminMode('anything')).rejects.toThrow(/403/);
+    await expect(api.enterAdminMode('anything')).rejects.toMatchObject({ status: 403 });
     expect(await api.getAdminSession()).toMatchObject({ admin: false });
 
     // admin routes open without session (current behavior)

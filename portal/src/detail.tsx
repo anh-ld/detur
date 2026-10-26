@@ -245,7 +245,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
                           {isExpired(l) && <Badge variant="outline">Expired</Badge>}
                         </div>
                         <span class="link-dest" title={l.url}>
-                          <span aria-hidden="true">↳</span> {l.url}
+                          {l.url}
                         </span>
                       </div>
                     </td>

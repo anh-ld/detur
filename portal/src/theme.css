@@ -874,6 +874,10 @@ button:disabled {
   min-width: 0;
 }
 
+.link-dest::before {
+  content: "↳ ";
+}
+
 .link-dest {
   max-width: 360px;
   overflow: hidden;

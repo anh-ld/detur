@@ -261,7 +261,7 @@ describe('portal admin flows (gated)', () => {
     });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByText(app.name)).toBeNull());
-    await expect(api.getApp(app.id)).rejects.toThrow(/404/);
+    await expect(api.getApp(app.id)).rejects.toMatchObject({ status: 404 });
   });
 
   it('viewer admin call: a stale-lifted call that 403s routes to the prompt, not a raw error', async () => {
@@ -313,7 +313,7 @@ describe('portal admin flows (gated)', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
 
     // elevated: empty state + Add webhook
-    await screen.findByText('No webhook endpoints configured for this app.');
+    await screen.findByText(/^No webhooks yet\./);
     expect(screen.getByRole('button', { name: 'Add webhook' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add webhook' }));
