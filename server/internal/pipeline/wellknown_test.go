@@ -6,10 +6,12 @@ package pipeline
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"detur.dev/server/internal/config"
 	"detur.dev/server/internal/store"
@@ -96,7 +98,7 @@ func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	return app
 }
 
-// Scenario 1: AASA valid JSON per app. Several iOS apps: each claims only own link keys (iOS routes URL to first matching entry; blanket ["*"] per app shadows all but first). Single iOS app claims every path.
+// Scenario 1: AASA valid JSON per app. Several iOS apps: each claims only own link keys (iOS routes URL to first matching entry; blanket ["*"] per app shadows all but first).
 func TestAASAValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	iosOnly, err := st.CreateApp("ios only", "key-1")
@@ -109,50 +111,187 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 	if _, err := st.CreateLink(store.Link{AppID: iosOnly.ID, Key: "abc", URL: "https://example.com/abc"}); err != nil {
 		t.Fatalf("CreateLink: %v", err)
 	}
-	setupWellKnownApp(t, st)
+	sibling := setupWellKnownApp(t, st)
+	if _, err := st.CreateLink(store.Link{AppID: sibling.ID, Key: "second", URL: "https://example.com/second"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	zeroLink, err := st.CreateApp("zero link ios", "key-2")
+	if err != nil {
+		t.Fatalf("CreateApp: %v", err)
+	}
+	if err := st.UpdateAppDetails(zeroLink.ID, "TEAM9.com.example.zero", "", ""); err != nil {
+		t.Fatalf("UpdateAppDetails: %v", err)
+	}
+
+	// Multi-app: each app claims only own link keys, zero-link apps omitted, new keys appear on refetch.
+	checkAASA := func(team1Want []string) {
+		resp, b := getWithHost(t, ts, "/.well-known/apple-app-site-association", primaryDomain)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, body %s; want 200", resp.StatusCode, b)
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("Content-Type = %q; want application/json", ct)
+		}
+		var aasa aasaResp
+		if err := json.Unmarshal(b, &aasa); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, b)
+		}
+		if len(aasa.AppLinks.Apps) != 0 {
+			t.Errorf("apps = %v; want empty array", aasa.AppLinks.Apps)
+		}
+		want := map[string][]string{
+			"TEAM1.com.example.ios":   team1Want,
+			"TEAM123.com.example.app": {"/second"},
+		}
+		if len(aasa.AppLinks.Details) != len(want) {
+			t.Fatalf("details = %+v; want %d entries", aasa.AppLinks.Details, len(want))
+		}
+		for _, d := range aasa.AppLinks.Details {
+			wantPaths, ok := want[d.AppID]
+			if !ok {
+				t.Errorf("unexpected details appID %q", d.AppID)
+				continue
+			}
+			if len(d.Paths) != len(wantPaths) {
+				t.Errorf("appID %s paths = %v; want %v", d.AppID, d.Paths, wantPaths)
+				continue
+			}
+			for i, p := range wantPaths {
+				if d.Paths[i] != p {
+					t.Errorf("appID %s paths = %v; want %v", d.AppID, d.Paths, wantPaths)
+					break
+				}
+			}
+			// iOS 13+ format, same claim (appIDs + components mirroring paths, "*" -> "/*")
+			if len(d.AppIDs) != 1 || d.AppIDs[0] != d.AppID || len(d.Components) != len(d.Paths) {
+				t.Errorf("appID %s appIDs/components = %v/%v; want one entry mirroring paths", d.AppID, d.AppIDs, d.Components)
+				continue
+			}
+			for i, cp := range d.Components {
+				wantCP := wantPaths[i]
+				if wantCP == "*" {
+					wantCP = "/*"
+				}
+				if cp["/"] != wantCP {
+					t.Errorf("appID %s component[%d] = %v; want {\"/\": %q}", d.AppID, i, cp, wantCP)
+				}
+			}
+		}
+	}
+
+	checkAASA([]string{"/abc"})
+
+	// New key appears under its owning app on refetch; the sibling's claim is untouched.
+	if _, err := st.CreateLink(store.Link{AppID: iosOnly.ID, Key: "later", URL: "https://example.com/later"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	checkAASA([]string{"/abc", "/later"})
+}
+
+// AASA enumeration keeps the newest MaxAASAKeys per app (wellknown.go slice direction).
+func TestAASAEnumerationKeepsNewestKeys(t *testing.T) {
+	ts, st := newWellKnownServer(t, testDomains(t))
+
+	app, err := st.CreateApp("cap ios", "key-3")
+	if err != nil {
+		t.Fatalf("CreateApp: %v", err)
+	}
+	if err := st.UpdateAppDetails(app.ID, "TEAM77.com.example.cap", "", ""); err != nil {
+		t.Fatalf("UpdateAppDetails: %v", err)
+	}
+	if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: "first", URL: "https://example.com/first"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	time.Sleep(1100 * time.Millisecond) // strictly later created_at than "first", even at second precision
+	for i := 0; i < store.MaxAASAKeys; i++ {
+		key := fmt.Sprintf("k%03d", i)
+		if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: key, URL: "https://example.com/" + key}); err != nil {
+			t.Fatalf("CreateLink %s: %v", key, err)
+		}
+	}
+	setupWellKnownApp(t, st) // second iOS app: switches the domain to per-key enumeration
 
 	resp, b := getWithHost(t, ts, "/.well-known/apple-app-site-association", primaryDomain)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, body %s; want 200", resp.StatusCode, b)
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %q; want application/json", ct)
-	}
 	var aasa aasaResp
 	if err := json.Unmarshal(b, &aasa); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, b)
 	}
-	if len(aasa.AppLinks.Apps) != 0 {
-		t.Errorf("apps = %v; want empty array", aasa.AppLinks.Apps)
-	}
-	want := map[string][]string{
-		"TEAM1.com.example.ios":   {"/abc"},
-		"TEAM123.com.example.app": {},
-	}
-	if len(aasa.AppLinks.Details) != len(want) {
-		t.Fatalf("details = %+v; want %d entries", aasa.AppLinks.Details, len(want))
-	}
 	for _, d := range aasa.AppLinks.Details {
-		wantPaths, ok := want[d.AppID]
-		if !ok {
-			t.Errorf("unexpected details appID %q", d.AppID)
+		if d.AppID != "TEAM77.com.example.cap" {
 			continue
 		}
-		delete(want, d.AppID)
-		if len(d.Paths) != len(wantPaths) {
-			t.Errorf("appID %s paths = %v; want %v", d.AppID, d.Paths, wantPaths)
-			continue
+		if len(d.Paths) != store.MaxAASAKeys {
+			t.Fatalf("paths = %d; want %d", len(d.Paths), store.MaxAASAKeys)
 		}
-		for i, p := range wantPaths {
-			if d.Paths[i] != p {
-				t.Errorf("appID %s paths = %v; want %v", d.AppID, d.Paths, wantPaths)
-				break
-			}
+		served := map[string]bool{}
+		for _, p := range d.Paths {
+			served[p] = true
 		}
-		// iOS 13+ format, same claim (appIDs + components)
-		if len(d.AppIDs) != 1 || d.AppIDs[0] != d.AppID || len(d.Components) != len(d.Paths) {
-			t.Errorf("appID %s appIDs/components = %v/%v; want one entry mirroring paths", d.AppID, d.AppIDs, d.Components)
+		if served["/first"] {
+			t.Errorf("oldest key /first served; want dropped by the cap")
 		}
+		if !served["/k000"] || !served[fmt.Sprintf("/k%03d", store.MaxAASAKeys-1)] {
+			t.Errorf("newest keys missing from served paths")
+		}
+		return
+	}
+	t.Fatalf("app TEAM77.com.example.cap missing from details: %+v", aasa.AppLinks.Details)
+}
+
+// Scenario 1b: AASA wildcard for single iOS app. Wildcard ["*"] ensures newly created links work immediately without Apple CDN cache staleness (R7).
+func TestAASASingleAppWildcard(t *testing.T) {
+	ts, st := newWellKnownServer(t, testDomains(t))
+	app, err := st.CreateApp("single ios app", "key-single")
+	if err != nil {
+		t.Fatalf("CreateApp: %v", err)
+	}
+	if err := st.UpdateAppDetails(app.ID, "TEAM1.com.example.single", "", ""); err != nil {
+		t.Fatalf("UpdateAppDetails: %v", err)
+	}
+
+	resp, b := getWithHost(t, ts, "/.well-known/apple-app-site-association", primaryDomain)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body %s; want 200", resp.StatusCode, b)
+	}
+	var aasa aasaResp
+	if err := json.Unmarshal(b, &aasa); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(aasa.AppLinks.Details) != 1 {
+		t.Fatalf("details length = %d; want 1", len(aasa.AppLinks.Details))
+	}
+	d := aasa.AppLinks.Details[0]
+	if d.AppID != "TEAM1.com.example.single" {
+		t.Errorf("appID = %q; want TEAM1.com.example.single", d.AppID)
+	}
+	if len(d.Paths) != 1 || d.Paths[0] != "*" {
+		t.Errorf("paths = %v; want [*]", d.Paths)
+	}
+	if len(d.Components) != 1 || d.Components[0]["/"] != "/*" {
+		t.Errorf("components = %v; want [{\"/\": \"/*\"}]", d.Components)
+	}
+
+	// Verify that creating a new link in the DB does not alter AASA file (prevents Apple CDN cache invalidation need)
+	if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: "newkey123", URL: "https://example.com/new"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	resp2, b2 := getWithHost(t, ts, "/.well-known/apple-app-site-association", primaryDomain)
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body %s; want 200", resp2.StatusCode, b2)
+	}
+	var aasa2 aasaResp
+	if err := json.Unmarshal(b2, &aasa2); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	d2 := aasa2.AppLinks.Details[0]
+	if len(d2.Paths) != 1 || d2.Paths[0] != "*" {
+		t.Errorf("paths after link creation = %v; want [*]", d2.Paths)
+	}
+	if len(d2.Components) != 1 || d2.Components[0]["/"] != "/*" {
+		t.Errorf("components after link creation = %v; want [{\"/\": \"/*\"}]", d2.Components)
 	}
 }
 

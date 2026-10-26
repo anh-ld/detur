@@ -3,19 +3,21 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
 
-// Config: runtime config from env vars: DOMAIN, DB_PATH, RETENTION_HOURS, CLICK_ID_DAYS, TRUST_PROXY, LOGOUT_URL, ADMIN_PASSWORD, ADMIN_SESSION_HOURS, PORTAL_HOSTS.
+// Config: runtime config from env vars: DOMAIN, DB_PATH, RETENTION_HOURS, CLICK_ID_DAYS, TRUST_PROXY, TRUSTED_PROXIES, LOGOUT_URL, ADMIN_PASSWORD, ADMIN_SESSION_HOURS, PORTAL_HOSTS.
 type Config struct {
 	Domain            string // public domain for links, well-known, redirects
 	DBPath            string
 	RetentionHours    int      // click + event retention floor
 	ClickIDDays       int      // unmatched click_id lifetime
 	TrustProxy        bool     // honor X-Forwarded-For (only behind a trusted proxy)
+	TrustedProxies    []string // TRUSTED_PROXIES: CIDR ranges, comma-separated; empty = default RFC 1918 + loopback
 	LogoutURL         string   // gateway sign-out URL for the Log out link; "" hides it
 	AdminPassword     string   // master password for admin elevation; "" = no gating
 	AdminSessionHours int      // elevated session TTL (1-72h, default 12)
@@ -53,7 +55,26 @@ func Load() (*Config, error) {
 	if err := checkLogoutURL(cfg.LogoutURL); err != nil {
 		return nil, err
 	}
+	if cfg.TrustedProxies, err = parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// parseTrustedProxies: comma-separated list of CIDR strings.
+func parseTrustedProxies(v string) ([]string, error) {
+	var out []string
+	for _, raw := range strings.Split(v, ",") {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(s); err != nil {
+			return nil, fmt.Errorf("TRUSTED_PROXIES: invalid CIDR %q: %w", s, err)
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 // checkLogoutURL: "", http(s) URL, or "/path". Rejects the rest (javascript:, "//host"): it lands in an href.

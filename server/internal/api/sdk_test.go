@@ -57,7 +57,7 @@ func setup(t *testing.T, s *store.Store) (store.App, store.Link) {
 	return app, link
 }
 
-// recordAndroidClick: click with every Android-scorable signal; matching fingerprint scores 1450 >= 850.
+// recordAndroidClick: click with every Android-scorable signal; matching fingerprint scores 1300 >= 850.
 func recordAndroidClick(t *testing.T, s *store.Store, app store.App, link store.Link) store.Click {
 	t.Helper()
 	c, err := s.RecordClick(store.Click{
@@ -675,7 +675,7 @@ func TestMatchLinkRetryAfterReattributed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	flagged := recordAndroidClick(t, s, app, link) // newer: wins 950 tie (TRUST_PROXY off, no IP match) -> excluded overall best
+	flagged := recordAndroidClick(t, s, app, link) // newer: wins 900 tie (TRUST_PROXY off, no IP match) -> excluded overall best
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)

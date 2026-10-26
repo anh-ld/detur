@@ -143,5 +143,14 @@ const copyJS = `function copy(text) {
   if (!ok && navigator.clipboard && navigator.clipboard.writeText) {
     try { navigator.clipboard.writeText(text).catch(function () {}); } catch (e) {}
   }
+  // iOS app paste guard (hasURLs) sees a URL type, not plain text: re-write as text/uri-list; reject = plain copy stays
+  if (ok && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+    try {
+      navigator.clipboard.write([new ClipboardItem({
+        "text/uri-list": new Blob([text], { type: "text/uri-list" }),
+        "text/plain": new Blob([text], { type: "text/plain" })
+      })]).catch(function () {});
+    } catch (e) {}
+  }
   return ok;
 }`

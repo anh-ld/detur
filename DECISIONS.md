@@ -14,7 +14,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
-| M1 | Weights: IP 500, model+version 450, iOS version 350, UA signature 350, pasteboard 350/175, timezone 200, screen 200 (±1, ±0.01 scale), language 100. One device signal per candidate. Max 1700 iOS / 1450 Android. | Detour | Documented. | — |
+| M1 | Weights: IP 400 (rebalanced from 500), model+version 400 (rebalanced from 450), iOS version 350, UA signature 350, pasteboard 350/175, timezone 200, screen 200 (±1, ±0.01 scale), language 100. One device signal per candidate. Max 1600 iOS / 1300 Android. Timezone + language count only with pasteboard or device signal + screen → default 850 unreachable without one (test: every signal combination). | Detour + ours | Timezone + language are shared by a whole network: they confirm, never decide. Shared Wi-Fi peers stay organic. Threshold raise rejected: breaks cellular → Wi-Fi matches (850). Off-network max 850 iOS / 900 Android (was 950 Android) → saved thresholds above it lose those matches (CAVEATS). | 0142 |
 | M2 | Threshold 850 (700–1200), window 15 min (5–180), per app. No global default, no per-link override. | Detour | "App-level settings." Upgrade copies the old global value into each app. | 005 |
 | M3 | Matched click is consumed: 1 click, 1 install. | Detour | Candidates = "unmatched clicks". Dub doesn't consume. | 006 |
 | M4 | Same device retries → same earlier click. Claim stores the device hash: an overlapping retry (install not written yet) still wins its own click. | Ours | SDK retries must be idempotent. Detour silent. Client timeout + retry raced to organic. | 006 |
@@ -27,6 +27,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | M11 | No match → organic + 404. Backend error → 404 + hidden `unknown` install, replaced by the next real result (new row). Unknown never sent to webhooks. | Detour + ours | Fail-open is ours: never block the app. New row: webhook cursor already past the unknown one. | 003 |
 | M12 | Device hash = SHA-256 of fingerprint, no timestamp. | Ours | Stable key, idempotent installs. | — |
 | M13 | Install receipt: method (`click_id`, `probabilistic`, `prior`, `organic`, `unknown`), best score, runner-up. Organic keeps its best below-threshold score. Settings shows method mix, histogram, threshold what-if. | Ours | Otherwise the threshold is set blind. | — |
+| M14 | Multi-app AASA (>1 iOS app): each app claims its own link keys in paths + components; a single iOS app keeps the `["*"]` wildcard (R7 freshness). Zero-link apps are omitted; per-app enumeration is capped at 256 newest keys. | Ours | Blanket wildcard per app: iOS opens the first matching details entry, so the first app shadowed every sibling's Universal Links. | 0142 |
 
 ## Click capture
 

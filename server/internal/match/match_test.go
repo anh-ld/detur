@@ -191,18 +191,18 @@ func TestScoreBelowThresholdNoMatch(t *testing.T) {
 	}
 }
 
-// Scenario 5: exactly threshold -> match. Docs' example "iOS: IP + exact pasteboard token and URL, 500 + 350 = 850".
+// Scenario 5: exactly threshold -> match. Rebalanced: IP (400) + pasteboard token (350) + locale (100) = 850.
 func TestScoreAtThresholdMatches(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
 	recordClick(t, s, iosClick(link))
-	fp := Fingerprint{PastedLink: "https://lnk.example/abc123"}
+	fp := Fingerprint{PastedLink: "https://lnk.example/abc123", Locale: "en-US"}
 	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fp})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
 	if !res.Matched {
-		t.Errorf("score 850 (IP+pasteboard) rejected at threshold 850: %+v", res)
+		t.Errorf("score 850 (IP+pasteboard+locale) rejected at threshold 850: %+v", res)
 	}
 }
 
@@ -284,30 +284,30 @@ func TestTieBreaksToNewerClick(t *testing.T) {
 	}
 }
 
-// Scenario 11: Android model+systemVersion 450; UA device signature NOT added (one-device-signal rule).
+// Scenario 11: Android model+systemVersion 400; UA device signature NOT added (one-device-signal rule).
 func TestAndroidModelSystemVersionWeight(t *testing.T) {
 	link := testLink()
-	if s := Score(androidClick(link), androidFP(), testIP); s != 1450 {
-		t.Errorf("android full score = %d; want 1450 (450 device signal, no UA double-count)", s)
+	if s := Score(androidClick(link), androidFP(), testIP); s != 1300 {
+		t.Errorf("android full score = %d; want 1300 (400 device signal, no UA double-count, 400 IP)", s)
 	}
-	// model mismatch: 450 branch fails -> 0 device, no UA signature stacked
+	// model mismatch: 400 branch fails -> 0 device, no UA signature stacked; no device -> tz/lang not counted
 	bad := androidFP()
 	bad.Model = "Pixel 8"
-	if s := Score(androidClick(link), bad, testIP); s != 1000 {
-		t.Errorf("android model mismatch = %d; want 1000 (500 IP + 200 tz + 200 screen + 100 lang)", s)
+	if s := Score(androidClick(link), bad, testIP); s != 600 {
+		t.Errorf("android model mismatch = %d; want 600 (400 IP + 200 screen)", s)
 	}
 }
 
 // Scenario 12: iOS systemVersion 350; UA signature not double-counted.
 func TestIOSSystemVersionWeight(t *testing.T) {
 	link := testLink()
-	if s := Score(iosClick(link), iosFP(), testIP); s != 1700 {
-		t.Errorf("ios full score = %d; want 1700 (350 sysver, no UA double-count)", s)
+	if s := Score(iosClick(link), iosFP(), testIP); s != 1600 {
+		t.Errorf("ios full score = %d; want 1600 (350 sysver, no UA double-count, 400 IP)", s)
 	}
 	bad := iosFP()
 	bad.SystemVersion = "16.6"
-	if s := Score(iosClick(link), bad, testIP); s != 1350 {
-		t.Errorf("ios sysver mismatch = %d; want 1350 (350 sysver dropped)", s)
+	if s := Score(iosClick(link), bad, testIP); s != 1250 {
+		t.Errorf("ios sysver mismatch = %d; want 1250 (350 sysver dropped)", s)
 	}
 }
 
@@ -316,13 +316,13 @@ func TestUADeviceSignatureFallback(t *testing.T) {
 	link := testLink()
 	c := androidClick(link)
 	c.Fingerprint.UserAgent = "Mozilla/5.0 (Linux; Android; Pixel 7 Build/TQ3A.230805.001)"
-	if s := Score(c, androidFP(), testIP); s != 1350 {
-		t.Errorf("UA fallback score = %d; want 1350 (500 IP + 350 UA sig + 200 tz + 200 screen + 100 lang)", s)
+	if s := Score(c, androidFP(), testIP); s != 1250 {
+		t.Errorf("UA fallback score = %d; want 1250 (400 IP + 350 UA sig + 200 tz + 200 screen + 100 lang)", s)
 	}
 	bad := androidFP()
 	bad.Model = "Pixel 8"
-	if s := Score(c, bad, testIP); s != 1000 {
-		t.Errorf("UA fallback mismatch = %d; want 1000", s)
+	if s := Score(c, bad, testIP); s != 600 {
+		t.Errorf("UA fallback mismatch = %d; want 600 (400 IP + 200 screen)", s)
 	}
 }
 
@@ -360,34 +360,46 @@ func TestScreenTolerance(t *testing.T) {
 	if s := Score(c, fp, ""); s != 0 {
 		t.Errorf("scale +0.02 = %d; want 0", s)
 	}
+	c.Fingerprint.Screen = "852x393@3" // rotated: either orientation matches
+	if s := Score(c, fp, ""); s != 200 {
+		t.Errorf("rotated = %d; want 200", s)
+	}
+	c.Fingerprint.Screen = "854x393@3" // rotated, height +2
+	if s := Score(c, fp, ""); s != 0 {
+		t.Errorf("rotated height +2 = %d; want 0", s)
+	}
 	c.Fingerprint.Screen = "not-a-screen"
 	if s := Score(c, fp, ""); s != 0 {
 		t.Errorf("unparseable screen = %d; want 0", s)
 	}
 }
 
-// Scenario 16: IP exact 500.
+// Scenario 16: IP exact 400.
 func TestIPExactWeight(t *testing.T) {
 	c := store.Click{Fingerprint: store.Fingerprint{IP: testIP}}
-	if s := Score(c, Fingerprint{}, testIP); s != 500 {
-		t.Errorf("ip exact = %d; want 500", s)
+	if s := Score(c, Fingerprint{}, testIP); s != 400 {
+		t.Errorf("ip exact = %d; want 400", s)
 	}
 	if s := Score(c, Fingerprint{}, otherIP); s != 0 {
 		t.Errorf("ip mismatch = %d; want 0", s)
 	}
 }
 
-// Scenario 17: timezone exact 200; language (locale prefix) 100.
+// Scenario 17: timezone exact 200; language (locale prefix) 100; both only on top of pasteboard or device+screen.
 func TestTimezoneAndLanguageWeights(t *testing.T) {
-	c := store.Click{Fingerprint: store.Fingerprint{Timezone: "Europe/Warsaw", Locale: "en"}}
-	if s := Score(c, Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US"}, ""); s != 300 {
-		t.Errorf("tz+lang = %d; want 300", s)
+	const pb = "https://lnk.example/abc123"
+	c := store.Click{Fingerprint: store.Fingerprint{Timezone: "Europe/Warsaw", Locale: "en", PastedLink: pb}}
+	if s := Score(c, Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US", PastedLink: pb}, ""); s != 650 {
+		t.Errorf("pasteboard+tz+lang = %d; want 650", s)
 	}
-	if s := Score(c, Fingerprint{Timezone: "UTC", Locale: "en-US"}, ""); s != 100 {
-		t.Errorf("tz mismatch = %d; want 100 (language only)", s)
+	if s := Score(c, Fingerprint{Timezone: "UTC", Locale: "en-US", PastedLink: pb}, ""); s != 450 {
+		t.Errorf("tz mismatch = %d; want 450 (pasteboard + language)", s)
 	}
-	if s := Score(c, Fingerprint{Timezone: "UTC", Locale: "fr-FR"}, ""); s != 0 {
-		t.Errorf("no signal match = %d; want 0", s)
+	if s := Score(c, Fingerprint{Timezone: "UTC", Locale: "fr-FR", PastedLink: pb}, ""); s != 350 {
+		t.Errorf("no tz/lang match = %d; want 350 (pasteboard only)", s)
+	}
+	if s := Score(c, Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US"}, ""); s != 0 {
+		t.Errorf("tz+lang alone = %d; want 0 (shared by a whole network)", s)
 	}
 }
 
@@ -396,8 +408,8 @@ func TestMissingSignalsNoPanic(t *testing.T) {
 	if s := Score(store.Click{Fingerprint: store.Fingerprint{}}, androidFP(), testIP); s != 0 {
 		t.Errorf("empty click = %d; want 0", s)
 	}
-	if s := Score(androidClick(testLink()), Fingerprint{Timezone: "Europe/Warsaw"}, ""); s != 200 {
-		t.Errorf("partial fingerprint = %d; want 200 (timezone only)", s)
+	if s := Score(androidClick(testLink()), Fingerprint{ScreenWidth: 393, ScreenHeight: 852, Scale: 3, Timezone: "Europe/Warsaw"}, ""); s != 200 {
+		t.Errorf("partial fingerprint = %d; want 200 (screen only, tz not counted)", s)
 	}
 	// nil fingerprint through Match: no panic either
 	s, _ := newTestStore(t)
@@ -412,14 +424,14 @@ func TestMissingSignalsNoPanic(t *testing.T) {
 	}
 }
 
-// Scenario 19: documented max: iOS 1700, Android 1450 (one-device-signal rule).
+// Scenario 19: documented max with rebalanced IP (400) and Android model (400): iOS 1600, Android 1300 (one-device-signal rule).
 func TestMaxTotalsSanity(t *testing.T) {
 	link := testLink()
-	if s := Score(androidClick(link), androidFP(), testIP); s != 1450 {
-		t.Errorf("android max = %d; want 1450", s)
+	if s := Score(androidClick(link), androidFP(), testIP); s != 1300 {
+		t.Errorf("android max = %d; want 1300", s)
 	}
-	if s := Score(iosClick(link), iosFP(), testIP); s != 1700 {
-		t.Errorf("ios max = %d; want 1700", s)
+	if s := Score(iosClick(link), iosFP(), testIP); s != 1600 {
+		t.Errorf("ios max = %d; want 1600", s)
 	}
 }
 
@@ -439,13 +451,14 @@ func TestValidateSettings(t *testing.T) {
 	}
 }
 
-// TestAppThresholdApplies: IP 500 + timezone 200 + screen 200 = 900 passes app threshold 850, fails 1000.
+// TestAppThresholdApplies: IP 400 + model/version 400 + screen 200 = 1000 (tz/lang differ) passes app threshold 850, fails 1200.
 func TestAppThresholdApplies(t *testing.T) {
-	fp := Fingerprint{Timezone: "Europe/Warsaw", ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
+	fp := androidFP()
+	fp.Timezone, fp.Locale = "UTC", "fr-FR"
 	for _, tc := range []struct {
 		threshold int
 		want      bool
-	}{{850, true}, {1000, false}} {
+	}{{850, true}, {1200, false}} {
 		s, _ := newTestStore(t)
 		app, link := setupApp(t, s)
 		if err := s.UpdateAppMatchSettings(app.ID, tc.threshold, 15); err != nil {
@@ -648,11 +661,11 @@ func TestMatchReceipts(t *testing.T) {
 		t.Errorf("receipt = %s %d/%d; want probabilistic %d/%d", res.Method, res.Score, res.RunnerUp, scores[0], scores[1])
 	}
 
-	// docs' rejection example: 500 < 850
+	// near miss: screen 200 only (no device -> tz/lang not counted) < 850
 	miss := Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US", ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
 	res, _ = Match(s, link.AppID, Request{IP: "192.0.2.99", Fingerprint: &miss})
-	if res.Matched || res.Method != store.MethodOrganic || res.Score != 500 {
-		t.Errorf("near miss = %+v; want organic, score 500", res)
+	if res.Matched || res.Method != store.MethodOrganic || res.Score != 200 {
+		t.Errorf("near miss = %+v; want organic, score 200", res)
 	}
 
 	c := androidClick(link)
@@ -736,7 +749,7 @@ func modeOf(f *fraud.Settings, sig string) *string {
 	panic("no mode for " + sig)
 }
 
-// flaggedAndClean: best click (IP match, 1450) on link + clean candidate (950) on second link, both first seen 1 min ago.
+// flaggedAndClean: best click (IP match, 1300) on link + clean candidate (900) on second link, both first seen 1 min ago.
 func flaggedAndClean(t *testing.T, s *store.Store, path string, link store.Link) (flagged, clean store.Click) {
 	t.Helper()
 	flagged = recordAged(t, s, path, androidClick(link))
@@ -744,8 +757,8 @@ func flaggedAndClean(t *testing.T, s *store.Store, path string, link store.Link)
 	c.Fingerprint.IP = otherIP
 	clean = recordAged(t, s, path, c)
 	fp := androidFP()
-	if a, b := Score(flagged, fp, testIP), Score(clean, fp, testIP); a != 1450 || b != 950 {
-		t.Fatalf("scores %d/%d; want 1450/950", a, b)
+	if a, b := Score(flagged, fp, testIP), Score(clean, fp, testIP); a != 1300 || b != 900 {
+		t.Fatalf("scores %d/%d; want 1300/900", a, b)
 	}
 	return flagged, clean
 }
@@ -787,13 +800,13 @@ func TestFraudSignalModes(t *testing.T) {
 					t.Errorf("fraud = %q; want %q", res.Fraud, tc.sig)
 				}
 				if mode != "active" {
-					if !res.Matched || res.Click.ID != flagged.ID || res.Score != 1450 || res.RunnerUp != 950 || res.FraudAction != "" || res.FraudLinkID != "" {
-						t.Errorf("got %v %s %d/%d action %q link %q; want flagged click 1450/950, no action", res.Matched, res.Click.ID, res.Score, res.RunnerUp, res.FraudAction, res.FraudLinkID)
+					if !res.Matched || res.Click.ID != flagged.ID || res.Score != 1300 || res.RunnerUp != 900 || res.FraudAction != "" || res.FraudLinkID != "" {
+						t.Errorf("got %v %s %d/%d action %q link %q; want flagged click 1300/900, no action", res.Matched, res.Click.ID, res.Score, res.RunnerUp, res.FraudAction, res.FraudLinkID)
 					}
 					return
 				}
-				if !res.Matched || res.Click.ID != clean.ID || res.Score != 950 || res.RunnerUp != -1 {
-					t.Errorf("got %v %s %d/%d; want clean click %s 950/-1", res.Matched, res.Click.ID, res.Score, res.RunnerUp, clean.ID)
+				if !res.Matched || res.Click.ID != clean.ID || res.Score != 900 || res.RunnerUp != -1 {
+					t.Errorf("got %v %s %d/%d; want clean click %s 900/-1", res.Matched, res.Click.ID, res.Score, res.RunnerUp, clean.ID)
 				}
 				if res.FraudAction != store.FraudActionReattributed || res.FraudLinkID != link.ID {
 					t.Errorf("action %q link %q; want reattributed, %s", res.FraudAction, res.FraudLinkID, link.ID)
@@ -960,8 +973,8 @@ func TestFraudActiveCleanBestUnchanged(t *testing.T) {
 	h.Fingerprint.IP, h.IPHosting = otherIP, true
 	recordAged(t, s, path, h)
 	res, _ := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
-	if !res.Matched || res.Click.ID != best.ID || res.Score != 1450 || res.RunnerUp != -1 || res.FraudAction != "" || res.Fraud != "" {
-		t.Errorf("clean best = %+v; want best click 1450/-1, no labels", res)
+	if !res.Matched || res.Click.ID != best.ID || res.Score != 1300 || res.RunnerUp != -1 || res.FraudAction != "" || res.Fraud != "" {
+		t.Errorf("clean best = %+v; want best click 1300/-1, no labels", res)
 	}
 }
 
@@ -976,11 +989,11 @@ func TestFraudBelowThresholdNoAction(t *testing.T) {
 	clean := androidClick(link)
 	clean.Fingerprint.IP = otherIP
 	recordAged(t, s, path, clean)
-	flagged := recordAged(t, s, path, androidClick(link)) // 1450 on IP match, but request IP matches neither
+	flagged := recordAged(t, s, path, androidClick(link)) // 1300 on IP match, but request IP matches neither
 	setClick(t, path, flagged.ID, `hits_ip = 50`)
 	res, _ := Match(s, app.ID, Request{IP: "192.0.2.99", Fingerprint: fpPtr(androidFP())})
-	if res.Matched || res.FraudAction != "" || res.FraudLinkID != "" || res.Fraud != "" || res.Score != 950 {
-		t.Errorf("below threshold = %+v; want organic 950, no labels", res)
+	if res.Matched || res.FraudAction != "" || res.FraudLinkID != "" || res.Fraud != "" || res.Score != 900 {
+		t.Errorf("below threshold = %+v; want organic 900, no labels", res)
 	}
 }
 
@@ -997,8 +1010,8 @@ func TestFraudClaimRaceKeepsExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
-	if res.Matched || res.Method != store.MethodOrganic || res.Score != 950 || res.RunnerUp != -1 {
-		t.Errorf("got %v %s %d/%d; want organic 950/-1", res.Matched, res.Method, res.Score, res.RunnerUp)
+	if res.Matched || res.Method != store.MethodOrganic || res.Score != 900 || res.RunnerUp != -1 {
+		t.Errorf("got %v %s %d/%d; want organic 900/-1", res.Matched, res.Method, res.Score, res.RunnerUp)
 	}
 	if res.FraudAction != store.FraudActionExcluded || res.FraudLinkID != link.ID || res.Fraud != fraud.SignalVelocity {
 		t.Errorf("labels %q %q %q; want velocity, excluded, %s", res.Fraud, res.FraudAction, res.FraudLinkID, link.ID)
@@ -1142,19 +1155,19 @@ func TestFraudThresholdInclusive(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, path := newTestStore(t)
 			app, link := setupApp(t, s)
-			if err := s.UpdateAppMatchSettings(app.ID, 950, 15); err != nil {
+			if err := s.UpdateAppMatchSettings(app.ID, 900, 15); err != nil {
 				t.Fatal(err)
 			}
 			setFraud(t, s, app.ID, func(f *fraud.Settings) { f.VelocityMode = fraud.ModeActive })
 			c := recordAged(t, s, path, androidClick(link))
 			setClick(t, path, c.ID, `hits_ip = ?`, tc.hits)
-			res, err := Match(s, app.ID, Request{IP: otherIP, Fingerprint: fpPtr(androidFP())}) // no IP match: 950
+			res, err := Match(s, app.ID, Request{IP: otherIP, Fingerprint: fpPtr(androidFP())}) // no IP match: 900
 			if err != nil {
 				t.Fatalf("Match: %v", err)
 			}
 			if tc.action == "" {
-				if !res.Matched || res.Score != 950 || res.FraudAction != "" {
-					t.Errorf("got %+v; want matched at 950, no action", res)
+				if !res.Matched || res.Score != 900 || res.FraudAction != "" {
+					t.Errorf("got %+v; want matched at 900, no action", res)
 				}
 				return
 			}
@@ -1165,8 +1178,8 @@ func TestFraudThresholdInclusive(t *testing.T) {
 	}
 }
 
-// Runner-up from valid set in any scan order: newest clean 1450 wins, older active-excluded 950 skipped, oldest
-// clean 750 = runner-up.
+// Runner-up from valid set in any scan order: newest clean 1300 wins, older active-excluded 900 skipped, oldest
+// clean 700 = runner-up.
 func TestFraudRunnerUpFromValidSet(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1180,12 +1193,12 @@ func TestFraudRunnerUpFromValidSet(t *testing.T) {
 	recordAged(t, s, path, flagged)
 	best := recordAged(t, s, path, androidClick(link))
 	fp := androidFP()
-	if a, b, c := Score(best, fp, testIP), Score(flagged, fp, testIP), Score(low, fp, testIP); a != 1450 || b != 950 || c != 750 {
-		t.Fatalf("scores %d/%d/%d; want 1450/950/750", a, b, c)
+	if a, b, c := Score(best, fp, testIP), Score(flagged, fp, testIP), Score(low, fp, testIP); a != 1300 || b != 900 || c != 700 {
+		t.Fatalf("scores %d/%d/%d; want 1300/900/700", a, b, c)
 	}
 	res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: &fp})
-	if err != nil || !res.Matched || res.Click.ID != best.ID || res.Score != 1450 || res.RunnerUp != 750 || res.FraudAction != "" {
-		t.Errorf("Match = %+v, %v; want %s at 1450, runner-up 750, no action", res, err, best.ID)
+	if err != nil || !res.Matched || res.Click.ID != best.ID || res.Score != 1300 || res.RunnerUp != 700 || res.FraudAction != "" {
+		t.Errorf("Match = %+v, %v; want %s at 1300, runner-up 700, no action", res, err, best.ID)
 	}
 }
 
@@ -1203,5 +1216,189 @@ func TestFraudFingerprintNeedsDeviceHash(t *testing.T) {
 	res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
 	if err != nil || !res.Matched || res.Fraud != "" {
 		t.Errorf("Match = %+v, %v; want matched, no labels", res, err)
+	}
+}
+
+// AE1: Shared Wi-Fi Isolation (Covers R1, R2). Realistic office: every peer shares IP, timezone, language.
+// User B: same iOS, different screen -> 400 IP + 350 iOS = 750 (tz/lang need device+screen) -> organic, click unconsumed.
+// User D: same screen, different iOS -> 400 IP + 200 screen = 600 -> organic.
+// User A (clicker): iOS + screen + tz + lang -> 1250 -> matched.
+func TestSharedWiFiIsolation(t *testing.T) {
+	s, _ := newTestStore(t)
+	_, link := setupApp(t, s)
+	click := recordClick(t, s, store.Click{
+		AppID: link.AppID, LinkID: link.ID, Destination: link.URL,
+		Fingerprint: store.Fingerprint{
+			IP: testIP, Device: "iPhone 15", Locale: "en", Timezone: "America/New_York",
+			Screen:    "393x852@3",
+			UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
+		},
+	})
+	peer := func(sysVer string, w, h int) Fingerprint {
+		return Fingerprint{SystemVersion: sysVer, ScreenWidth: w, ScreenHeight: h, Scale: 3, Timezone: "America/New_York", Locale: "en-US"}
+	}
+	for _, tc := range []struct {
+		name string
+		fp   Fingerprint
+		want int
+	}{
+		{"User B (same iOS, other screen)", peer("18.0", 430, 932), 750},
+		{"User D (same screen, other iOS)", peer("17.6", 393, 852), 600},
+	} {
+		res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &tc.fp})
+		if err != nil {
+			t.Fatalf("Match %s: %v", tc.name, err)
+		}
+		if res.Matched || res.Score != tc.want {
+			t.Errorf("%s = matched %v, score %d; want organic, %d", tc.name, res.Matched, res.Score, tc.want)
+		}
+	}
+	if !unconsumed(t, s, link.AppID, click.ClickID) {
+		t.Errorf("click consumed by a peer; want unconsumed")
+	}
+
+	fpA := peer("18.0", 852, 393) // first launch in landscape: rotation must not cost the match
+	resA, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fpA})
+	if err != nil {
+		t.Fatalf("Match User A: %v", err)
+	}
+	if !resA.Matched || resA.Click.ID != click.ID || resA.Score != 1250 {
+		t.Errorf("User A = %+v; want matched %s at 1250", resA, click.ID)
+	}
+}
+
+// Android Shared Wi-Fi Isolation: peers share IP, timezone, language.
+// User B: other model + screen -> 400 IP = 400 -> organic. User C: same model, other OS -> 400 IP + 200 screen = 600 -> organic.
+// User A (clicker): full match 1300 -> matched.
+func TestAndroidSharedWiFiIsolation(t *testing.T) {
+	s, _ := newTestStore(t)
+	_, link := setupApp(t, s)
+	click := recordClick(t, s, androidClick(link)) // Pixel 7, Android 14, Europe/Warsaw, 393x852@3
+
+	fpB := androidFP()
+	fpB.Model, fpB.SystemVersion = "SM-S911B", "15"
+	fpB.ScreenWidth, fpB.ScreenHeight = 360, 780
+	fpC := androidFP()
+	fpC.SystemVersion = "15"
+	for _, tc := range []struct {
+		name string
+		fp   Fingerprint
+		want int
+	}{{"User B (other model)", fpB, 400}, {"User C (same model, other OS)", fpC, 600}} {
+		res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &tc.fp})
+		if err != nil {
+			t.Fatalf("Match %s: %v", tc.name, err)
+		}
+		if res.Matched || res.Score != tc.want {
+			t.Errorf("%s = matched %v, score %d; want organic, %d", tc.name, res.Matched, res.Score, tc.want)
+		}
+	}
+	if !unconsumed(t, s, link.AppID, click.ClickID) {
+		t.Errorf("click consumed by a peer; want unconsumed")
+	}
+
+	fpA := androidFP()
+	resA, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fpA})
+	if err != nil {
+		t.Fatalf("Match User A: %v", err)
+	}
+	if !resA.Matched || resA.Click.ID != click.ID || resA.Score != 1300 {
+		t.Errorf("User A = %+v; want matched %s at 1300", resA, click.ID)
+	}
+}
+
+// Invariant (R1): every combination of matching signals, both platforms: score >= default 850 only with
+// pasteboard, or device signal AND screen. Pins legit floors: other-network iOS 850, Android 900; same network 1250 / 1300.
+func TestScoreDiscriminatorInvariant(t *testing.T) {
+	const ip, device, pb, tz, scr, lang = 1, 2, 4, 8, 16, 32
+	for _, platform := range []string{"ios", "android"} {
+		for set := 0; set < 64; set++ {
+			click, fp := iosClick(testLink()), iosFP()
+			if platform == "android" {
+				click, fp = androidClick(testLink()), androidFP()
+				click.Fingerprint.PastedLink, fp.PastedLink = "https://lnk.example/abc123", "https://lnk.example/abc123" // what-if: pasteboard on Android too
+			}
+			reqIP := testIP
+			if set&ip == 0 {
+				reqIP = otherIP
+			}
+			if set&device == 0 {
+				fp.SystemVersion = "9.9"
+			}
+			if set&pb == 0 {
+				fp.PastedLink = ""
+			}
+			if set&tz == 0 {
+				fp.Timezone = "UTC"
+			}
+			if set&scr == 0 {
+				fp.ScreenWidth = 1
+			}
+			if set&lang == 0 {
+				fp.Locale = "fr-FR"
+			}
+			got := Score(click, fp, reqIP)
+			if got >= 850 && set&pb == 0 && (set&device == 0 || set&scr == 0) {
+				t.Errorf("%s signals %06b = %d >= 850 without pasteboard or device+screen", platform, set, got)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		click store.Click
+		fp    Fingerprint
+		ip    string
+		want  int
+	}{
+		{"ios same network, no pasteboard", iosClick(testLink()), func() Fingerprint { f := iosFP(); f.PastedLink = ""; return f }(), testIP, 1250},
+		{"ios other network, no pasteboard", iosClick(testLink()), func() Fingerprint { f := iosFP(); f.PastedLink = ""; return f }(), otherIP, 850},
+		{"android same network", androidClick(testLink()), androidFP(), testIP, 1300},
+		{"android other network", androidClick(testLink()), androidFP(), otherIP, 900},
+	} {
+		if got := Score(tc.click, tc.fp, tc.ip); got != tc.want {
+			t.Errorf("%s = %d; want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// AE2: Minimum Install Timing Defense (Covers R3).
+// Candidate clicked 3-4s ago (< 10s TimingShortSeconds) with active timing mode is excluded as organic install;
+// original click remains unconsumed. Candidate clicked 20s ago matches normally.
+func TestMinimumInstallTimingDefense(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	setFraud(t, s, app.ID, func(f *fraud.Settings) {
+		f.TimingMode = fraud.ModeActive
+		f.TimingShortSeconds = 10
+	})
+
+	rapidClick := recordClick(t, s, androidClick(link))
+	setClick(t, path, rapidClick.ID, `first_seen_at = ?`, ago(3*time.Second))
+
+	fp := androidFP()
+	res, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: &fp})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	if res.Matched {
+		t.Fatalf("rapid install (<10s) matched; want organic install")
+	}
+	if res.FraudAction != store.FraudActionExcluded || res.FraudLinkID != link.ID || res.Fraud != fraud.SignalTiming {
+		t.Errorf("res = %+v; want FraudAction=excluded, FraudLinkID=%s, Fraud=timing", res, link.ID)
+	}
+
+	// Verify rapid click remains unconsumed
+	if !unconsumed(t, s, app.ID, rapidClick.ClickID) {
+		t.Errorf("rapid click was consumed; want unconsumed")
+	}
+
+	// Now age the click to 20 seconds ago (> 10s)
+	setClick(t, path, rapidClick.ID, `first_seen_at = ?`, ago(20*time.Second))
+	res2, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: &fp})
+	if err != nil {
+		t.Fatalf("Match aged: %v", err)
+	}
+	if !res2.Matched || res2.Click.ID != rapidClick.ID {
+		t.Errorf("aged click failed to match: %+v", res2)
 	}
 }

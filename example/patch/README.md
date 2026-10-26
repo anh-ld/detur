@@ -9,15 +9,16 @@ SDK `Config`: no base URL. Patch = only way.
 
 ## Changes
 
-5 constants × 2 copies (`src/*.ts` Metro, `lib/module/*.js` others) = 10 files:
+5 constants + clipboard URL guard × 2 copies (`src/*.ts` Metro, `lib/module/*.js` others) = 12 files:
 
-| Endpoint | Constant | File (`src/` .ts, `lib/module/` .js) |
+| Feature | Change | File (`src/` .ts, `lib/module/` .js) |
 |---|---|---|
 | match-link | `API_URL` | `links/api/getDeferredLink` |
 | resolve-short | `API_URL` | `links/api/resolveShortLink` |
 | universal-link-click | `API_URL` | `links/api/sendUniversalLinkClick` |
 | analytics event | `EVENT_API_URL` | `analytics/api/events` |
 | analytics retention | `RETENTION_API_URL` | `analytics/api/retention` |
+| iOS paste guard | `hasUrlAsync` / `hasWebURL` guard | `links/utils/fingerprint` |
 
 Untouched:
 
@@ -31,7 +32,7 @@ Each SDK release:
 ```sh
 npm init -y
 npm i @swmansion/react-native-detour@2.3.1 patch-package
-# edit the 10 files above: https://godetour.dev -> <your base URL>
+# edit the 12 files above: https://godetour.dev -> <your base URL> + paste guard in links/utils/fingerprint (copy from current patch)
 npx patch-package @swmansion/react-native-detour
 # -> patches/@swmansion+react-native-detour+2.3.1.patch
 ```

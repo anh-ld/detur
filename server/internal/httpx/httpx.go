@@ -3,37 +3,105 @@ package httpx
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
 // TrustProxy: honor X-Forwarded-For (TRUST_PROXY). Set only when TLS ends at a trusted proxy; off = client header can't spoof IP match signal.
 var TrustProxy bool
 
-// RemoteIP: client IP. TrustProxy: last XFF entry (proxy appends its peer; earlier entries client-set), else X-Real-IP. Caddy/ALB/Cloudflare pass client X-Real-IP through; Dub trusts it only because Vercel sets it.
-func RemoteIP(r *http.Request) string {
-	if TrustProxy {
-		if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
-			last := xff[len(xff)-1]
-			if i := strings.LastIndexByte(last, ','); i >= 0 {
-				last = last[i+1:]
-			}
-			if ip := strings.TrimSpace(last); ip != "" {
-				return ip
-			}
+var defaultTrustedCIDRStrings = []string{
+	"127.0.0.1/32",
+	"::1/128",
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+}
+
+var (
+	trustedMu   sync.RWMutex
+	trustedNets []*net.IPNet
+)
+
+func init() {
+	_ = SetTrustedProxies(nil)
+}
+
+// SetTrustedProxies parses and sets the allowed CIDR ranges for reverse proxies.
+// If cidrs is empty or nil, it resets to default private/loopback CIDRs.
+func SetTrustedProxies(cidrs []string) error {
+	list := cidrs
+	if len(list) == 0 {
+		list = defaultTrustedCIDRStrings
+	}
+	nets := make([]*net.IPNet, 0, len(list))
+	for _, c := range list {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
 		}
-		if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
-			return ip
+		_, ipNet, err := net.ParseCIDR(c)
+		if err != nil {
+			return fmt.Errorf("invalid CIDR %q: %w", c, err)
+		}
+		nets = append(nets, ipNet)
+	}
+	trustedMu.Lock()
+	trustedNets = nets
+	// Re-baseline: the counters mean "since the current TRUSTED_PROXIES configuration".
+	xffIgnored.Store(0)
+	lastXFFPeer.Store("")
+	trustedMu.Unlock()
+	return nil
+}
+
+func isTrustedPeer(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	trustedMu.RLock()
+	defer trustedMu.RUnlock()
+	for _, n := range trustedNets {
+		if n.Contains(ip) {
+			return true
 		}
 	}
+	return false
+}
+
+// RemoteIP: client IP. TrustProxy: verifies peer IP against trusted CIDRs, then parses
+// last XFF entry (proxy appends its peer; earlier entries client-set), else X-Real-IP.
+// Untrusted peers ignore forwarded headers to prevent IP spoofing (R4, R6).
+func RemoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	if !TrustProxy {
+	if TrustProxy {
+		if isTrustedPeer(host) {
+			if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
+				last := xff[len(xff)-1]
+				if i := strings.LastIndexByte(last, ','); i >= 0 {
+					last = last[i+1:]
+				}
+				if ip := strings.TrimSpace(last); ip != "" {
+					return ip
+				}
+			}
+			if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+				return ip
+			}
+		} else if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Real-IP") != "" {
+			xffIgnored.Add(1)
+			lastXFFPeer.Store(host)
+		}
+	} else {
 		notePeer(host)
 	}
 	return host
@@ -53,6 +121,23 @@ func notePeer(host string) {
 // PeerStats: peers seen, private/loopback count.
 func PeerStats() (total, private int64) {
 	return peers.Load(), privatePeers.Load()
+}
+
+// Forwarded headers ignored from peers outside TRUSTED_PROXIES while TRUST_PROXY=1; since start.
+var xffIgnored atomic.Int64
+
+// Host of the most recent untrusted peer whose forwarded headers were ignored; for the health page.
+var lastXFFPeer atomic.Value
+
+// XFFIgnored: X-Forwarded-For/X-Real-IP ignores from untrusted peers.
+func XFFIgnored() int64 { return xffIgnored.Load() }
+
+// LastXFFPeer: most recent untrusted peer that sent ignored forwarded headers; "" if none.
+func LastXFFPeer() string {
+	if v, ok := lastXFFPeer.Load().(string); ok {
+		return v
+	}
+	return ""
 }
 
 // WriteJSON: v as JSON with status.

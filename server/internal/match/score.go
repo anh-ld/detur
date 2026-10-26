@@ -9,10 +9,13 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// Documented scoring weights (detour.swmansion.com/docs/platform/architecture/matching/). ONE device signal per candidate: Android model+system version (450) if click has both, else iOS system version (350), else UA device signature (350); never two. Keeps documented max 1700 iOS / 1450 Android.
+// Documented scoring weights (detour.swmansion.com/docs/platform/architecture/matching/).
+// IP 400 and Android model+version 400 (rebalanced). Timezone + language count only with pasteboard or device+screen (see Score),
+// so nothing reaches default 850 without pasteboard or device+screen: shared Wi-Fi peers stay organic (M1).
+// ONE device signal per candidate: Android model+system version (400) if click has both, else iOS system version (350), else UA device signature (350); never two.
 const (
-	weightIPExact           = 500
-	weightModelSystemVer    = 450
+	weightIPExact           = 400
+	weightModelSystemVer    = 400
 	weightiOSSystemVersion  = 350
 	weightUADeviceSignature = 350
 	weightPasteboardToken   = 350 // token + URL prefix
@@ -28,12 +31,15 @@ func Score(click store.Click, fp Fingerprint, ip string) int {
 	if ip != "" && click.Fingerprint.IP != "" && ip == click.Fingerprint.IP {
 		s += weightIPExact
 	}
-	s += deviceSignal(click, fp)
-	s += pasteboard(click, fp)
+	d, p, sc := deviceSignal(click, fp), pasteboard(click, fp), screen(click, fp)
+	s += d + p + sc
+	// Timezone + language are shared by everyone on one network: they confirm (pasteboard, or device AND screen), never decide.
+	if p == 0 && (d == 0 || sc == 0) {
+		return s
+	}
 	if click.Fingerprint.Timezone != "" && fp.Timezone != "" && click.Fingerprint.Timezone == fp.Timezone {
 		s += weightTimezone
 	}
-	s += screen(click, fp)
 	if langMatch(click.Fingerprint.Locale, fp.Locale) {
 		s += weightLanguage
 	}
@@ -115,13 +121,14 @@ func linkToken(u string) string {
 	return ""
 }
 
-// screen: tolerance ±1 width/height, ±0.01 scale.
+// screen: tolerance ±1 width/height, ±0.01 scale. Either orientation: SDK Dimensions follow rotation, click page may not.
 func screen(click store.Click, fp Fingerprint) int {
 	cw, ch, cs, ok := parseScreen(click.Fingerprint.Screen)
-	if !ok || fp.ScreenWidth <= 0 || fp.ScreenHeight <= 0 || fp.Scale <= 0 {
+	if !ok || fp.ScreenWidth <= 0 || fp.ScreenHeight <= 0 || fp.Scale <= 0 || math.Abs(cs-fp.Scale) > 0.01 {
 		return 0
 	}
-	if abs(cw-fp.ScreenWidth) <= 1 && abs(ch-fp.ScreenHeight) <= 1 && math.Abs(cs-fp.Scale) <= 0.01 {
+	fw, fh := fp.ScreenWidth, fp.ScreenHeight
+	if (abs(cw-fw) <= 1 && abs(ch-fh) <= 1) || (abs(cw-fh) <= 1 && abs(ch-fw) <= 1) {
 		return weightScreen
 	}
 	return 0

@@ -1,12 +1,14 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"detur.dev/server/internal/httpx"
+	"detur.dev/server/internal/store"
 )
 
 func healthOf(t *testing.T, portal *httptest.Server, appID string) map[string]healthCheck {
@@ -80,5 +82,34 @@ func TestHealthChecks(t *testing.T) {
 	}
 	if c := healthOf(t, portal, app.ID)["Proxy"]; c.Status != "fail" {
 		t.Errorf("Proxy = %+v; want fail", c)
+	}
+
+	// untrusted peer sending XFF with TrustProxy=true → Forwarded headers warn
+	defer func() {
+		httpx.TrustProxy = false
+		_ = httpx.SetTrustedProxies(nil)
+	}()
+	httpx.TrustProxy = true
+	_ = httpx.SetTrustedProxies(nil)
+	httpx.RemoteIP(&http.Request{
+		RemoteAddr: "203.0.113.50:5678",
+		Header:     http.Header{"X-Forwarded-For": {"198.51.100.1"}},
+	})
+	if c := healthOf(t, portal, app.ID)["Forwarded headers"]; c.Status != "warn" || !strings.Contains(c.Detail, "203.0.113.50") {
+		t.Errorf("Forwarded headers = %+v; want warn naming 203.0.113.50", c)
+	}
+
+	// multi-app iOS exceeding MaxAASAKeys on app.ID → AASA keys warn on app, not on other
+	for i := range store.MaxAASAKeys {
+		key := fmt.Sprintf("cap-%03d", i)
+		if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: key, URL: "https://example.com/" + key}); err != nil {
+			t.Fatalf("CreateLink %s: %v", key, err)
+		}
+	}
+	if c := healthOf(t, portal, app.ID)["AASA keys"]; c.Status != "warn" || !strings.Contains(c.Detail, "ABCDE12345.com.example.app") {
+		t.Errorf("AASA keys on capped app = %+v; want warn naming ABCDE12345.com.example.app", c)
+	}
+	if _, ok := healthOf(t, portal, other.ID)["AASA keys"]; ok {
+		t.Errorf("AASA keys shown on sibling app with 0 links; want omitted")
 	}
 }

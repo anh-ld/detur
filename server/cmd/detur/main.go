@@ -24,6 +24,13 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	httpx.TrustProxy = cfg.TrustProxy // XFF honored only behind a trusted proxy
+	// empty TRUSTED_PROXIES = loopback + private defaults
+	if err := httpx.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Fatalf("trusted proxies: %v", err)
+	}
+	if cfg.TrustProxy && len(cfg.TrustedProxies) == 0 {
+		log.Printf("TRUST_PROXY=1, TRUSTED_PROXIES unset: forwarded headers honored only from loopback + private ranges; proxy on a public IP (Cloudflare, ALB) -> add its CIDR")
+	}
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("store: %v", err)

@@ -59,7 +59,10 @@ type assetlinkTarget struct {
 }
 
 // handleAASA: iOS association file, one details entry per app with ios_app_id.
-// One iOS app claims every path; several -> each claims own link keys (iOS routes URL to first matching entry).
+// Single iOS app claims wildcard ["*"] and components [{"/": "/*"}] (R7) to prevent
+// Apple CDN caching from breaking newly generated short links.
+// Multiple iOS apps partition paths by app link keys to prevent the first app
+// in the details array from shadowing Universal Links intended for sibling apps.
 func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 	if !w.allowedHost(r) {
 		http.NotFound(rw, r)
@@ -80,19 +83,35 @@ func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 	for _, a := range iosApps {
 		paths := []string{"*"}
 		if len(iosApps) > 1 {
+			// ponytail: full-list read per AASA fetch is fine on this cold Apple-CDN path; upgrade = key-only query with LIMIT if scale ever needs it.
 			links, err := w.st.ListLinks(a.ID)
 			if err != nil {
 				http.Error(rw, "internal error", http.StatusInternalServerError)
 				return
 			}
+			if len(links) > store.MaxAASAKeys {
+				links = links[len(links)-store.MaxAASAKeys:] // ListLinks is created_at-ascending: keep newest
+			}
 			paths = paths[:0]
 			for _, l := range links {
 				paths = append(paths, "/"+l.Key)
 			}
+			if len(paths) == 0 {
+				continue // zero-link app claims nothing; omit the entry
+			}
 		}
-		d := aasaDetails{AppID: a.IOSAppID, Paths: paths, AppIDs: []string{a.IOSAppID}, Components: []map[string]string{}}
+		d := aasaDetails{
+			AppID:      a.IOSAppID,
+			Paths:      paths,
+			AppIDs:     []string{a.IOSAppID},
+			Components: []map[string]string{},
+		}
 		for _, p := range paths {
-			d.Components = append(d.Components, map[string]string{"/": p})
+			cp := p
+			if cp == "*" {
+				cp = "/*"
+			}
+			d.Components = append(d.Components, map[string]string{"/": cp})
 		}
 		payload.AppLinks.Details = append(payload.AppLinks.Details, d)
 	}

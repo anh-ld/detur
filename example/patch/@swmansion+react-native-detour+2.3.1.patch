@@ -63,6 +63,20 @@ index f1ca2e1..c0a7ee5 100644
  const resolvePlatform = () => Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : "unknown";
  const extractParams = url => {
    try {
+diff --git a/node_modules/@swmansion/react-native-detour/lib/module/links/utils/fingerprint.js b/node_modules/@swmansion/react-native-detour/lib/module/links/utils/fingerprint.js
+index e8c0076..bdd8731 100644
+--- a/node_modules/@swmansion/react-native-detour/lib/module/links/utils/fingerprint.js
++++ b/node_modules/@swmansion/react-native-detour/lib/module/links/utils/fingerprint.js
+@@ -43,7 +43,7 @@ export const getProbabilisticFingerprint = async shouldUseClipboard => {
+     timezone: Localization.getCalendars()[0]?.timeZone,
+     userAgent,
+     timestamp: Date.now(),
+-    pastedLink: shouldUseClipboard && Platform.OS === "ios" ? await Clipboard.getStringAsync() : undefined
++    pastedLink: shouldUseClipboard && Platform.OS === "ios" ? (await (typeof Clipboard.hasUrlAsync === "function" ? Clipboard.hasUrlAsync() : typeof Clipboard.hasWebURL === "function" ? Clipboard.hasWebURL() : true)) ? await Clipboard.getStringAsync() : undefined : undefined
+   };
+ };
+ //# sourceMappingURL=fingerprint.js.map
+\ No newline at end of file
 diff --git a/node_modules/@swmansion/react-native-detour/src/analytics/api/events.ts b/node_modules/@swmansion/react-native-detour/src/analytics/api/events.ts
 index 854df78..de75adf 100644
 --- a/node_modules/@swmansion/react-native-detour/src/analytics/api/events.ts
@@ -128,3 +142,23 @@ index a4a227a..e2a773b 100644
  
  type UniversalLinkClickResponseBody = {
    allowed?: boolean;
+diff --git a/node_modules/@swmansion/react-native-detour/src/links/utils/fingerprint.ts b/node_modules/@swmansion/react-native-detour/src/links/utils/fingerprint.ts
+index afa5e06..12b8023 100644
+--- a/node_modules/@swmansion/react-native-detour/src/links/utils/fingerprint.ts
++++ b/node_modules/@swmansion/react-native-detour/src/links/utils/fingerprint.ts
+@@ -61,6 +61,14 @@ export const getProbabilisticFingerprint = async (
+     userAgent,
+     timestamp: Date.now(),
+     pastedLink:
+-      shouldUseClipboard && Platform.OS === "ios" ? await Clipboard.getStringAsync() : undefined,
++      shouldUseClipboard && Platform.OS === "ios"
++        ? (await (typeof Clipboard.hasUrlAsync === "function"
++            ? Clipboard.hasUrlAsync()
++            : typeof (Clipboard as any).hasWebURL === "function"
++              ? (Clipboard as any).hasWebURL()
++              : true))
++          ? await Clipboard.getStringAsync()
++          : undefined
++        : undefined,
+   };
+ };

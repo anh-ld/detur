@@ -106,6 +106,14 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 			} else {
 				add("AASA refresh", "ok", "No links newer than 48h.")
 			}
+			// Multi-app AASA risk: links past the enumeration cap open the browser until trimmed.
+			links, err := p.st.ListLinks(app.ID)
+			if err != nil {
+				return nil, err
+			}
+			if len(links) > store.MaxAASAKeys {
+				add("AASA keys", "warn", fmt.Sprintf("%s: %d links, AASA serves only the newest %d; the rest open the browser until trimmed", app.IOSAppID, len(links), store.MaxAASAKeys))
+			}
 		}
 	}
 
@@ -119,6 +127,9 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 		add("Proxy", "fail", fmt.Sprintf("%d of %d requests came from private IPs: every click shares one IP. Behind a proxy? Set TRUST_PROXY=1.", private, total))
 	default:
 		add("Proxy", "ok", "Client IPs look public.")
+	}
+	if httpx.XFFIgnored() > 0 { // count is per header read (several per request): show the peer, not a number
+		add("Forwarded headers", "warn", fmt.Sprintf("X-Forwarded-For/X-Real-IP from %s ignored: outside TRUSTED_PROXIES, its clients share one IP. If that is your proxy, add its CIDR to TRUSTED_PROXIES; if not, firewall the origin.", httpx.LastXFFPeer()))
 	}
 	return out, nil
 }

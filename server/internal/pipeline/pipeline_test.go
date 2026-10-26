@@ -402,11 +402,12 @@ func TestRecordFailureDoesNotBlockRedirect(t *testing.T) {
 	}
 }
 
-// Scenario 10: full chain: GET /{key} click, then match-link with same IP/UA/locale -> destination + non-organic install
+// Scenario 10: full chain: GET /{key} click (interstitial screen + tz), then match-link with same IP/UA/locale/screen -> destination + non-organic install
 func TestIntegrationBrowserClickThenMatchLinkNonOrganic(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
-	mobileClick(t, ts, "/"+link.Key, map[string]string{
+	signals := url.Values{paramScreen: {"393x852@3"}, paramTimezone: {"Europe/Warsaw"}}
+	mobileClick(t, ts, "/"+link.Key+"?"+signals.Encode(), map[string]string{
 		"User-Agent":      androidUA,
 		"Accept-Language": "en-US,en;q=0.9",
 		"X-Forwarded-For": testIP,
