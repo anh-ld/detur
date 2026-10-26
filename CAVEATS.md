@@ -16,7 +16,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 ## Matching
 
 - **Shared Wi-Fi peers**: Timezone + language = same for a whole network → count only with pasteboard or device + screen. Peer with other OS version or screen size → ≤ 750 → organic, clicker's link kept.
-- **Identical devices, same Wi-Fi**: Same OS version + same screen size + same network → 1250, indistinguishable without pasteboard → may take the clicker's link. Hard limit of fingerprinting.
+- **Identical devices, same Wi-Fi**: Same OS version + same screen size + same network → 1250, indistinguishable without pasteboard → a non-clicking peer may take the clicker's link. Hard limit of fingerprinting. Two identical clickers: told apart by paste token (iOS).
 - **No interstitial signals**: Click without screen (interstitial skipped) → IP + device ≤ 800 → organic unless pasteboard matches.
 - **Single-use clicks**: Matched clicks are consumed immediately. If two users install from the same Wi-Fi after a single shared link click, only the first user receives the deferred deep link; the second is recorded as organic.
 - **Late Play referrer (`clickId`)**: `clickId` matches are supported for up to `CLICK_ID_DAYS` (default 30 days). However, the raw click fingerprint is purged after `RETENTION_HOURS` (default 24h), so installs matching late `clickId`s lose original click metadata (such as platform).
@@ -26,7 +26,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 - **Device clock drift**: The matching window uses the SDK client timestamp only if it is within 180 minutes of server time; otherwise, it clamps to server time.
 - **iPad Safari**: iPadOS Safari sends a Mac UA. Mac Safari visitors also get the interstitial (one extra reload on real Macs); a touch screen marks the visit as iPad. No tap-to-copy page for iPad (unknown at hop 1) → no pasteboard signal.
 - **One-hop interstitial**: Mobile browsers reload through an interstitial to capture screen, timezone, and client hints (model + OS). Maximum probabilistic score on iOS is 1250 without pasteboard.
-- **iOS App Store pasteboard**: Redirecting to the App Store shows a tap-to-copy page to feed pasteboard matching (350 points exact / 175 points domain). If the user denies pasteboard permission in iOS, the signal is lost. Note: The SDK's `pastedLink` is checked server-side against the clicked link to prevent tampering.
+- **iOS App Store pasteboard**: Tap-to-copy page before the App Store. Copied link carries a paste token (`?_dc=`) → exact match, no window, `CLICK_ID_DAYS`. No token → 350 exact / 175 domain. Paste denied → signal lost. SDK `pastedLink` checked server-side against the clicked link.
 - **iOS paste guard (SDK patch)**: SDK reads the clipboard only when iOS reports a URL type → no paste alert for plain text. Tap page writes `text/uri-list`; browser that can't → plain text only → no pasteboard signal, match falls back to device + screen.
 - **Multi-app AASA size**: >1 iOS app → newest 256 keys per app, older links open the browser. Apple drops files > 128 KB: many apps × long keys → whole file rejected. Keep keys short.
 - **In-app browser escape (iOS)**: In-app webviews (Messenger, TikTok, Zalo) show an interstitial "Get the app" tap-page to escape sandbox restrictions. If the app is already installed on iOS, it can only open to the home screen rather than the deep link due to iOS webview sandbox limitations.
@@ -86,6 +86,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 
 ## Compatibility
 
+- **Desktop page**: App-scheme target, no web fallback → QR page. QR uses `https://<host>`; `host:port` without TLS (dev) → `http`.
 - **Single-segment link paths**: Only single-segment slugs (e.g., `links.example.com/promo`) are supported. Multi-segment paths like `/app/promo` will return 404 without recording clicks.
 - **No billing or platform API**: Detur is purely self-hosted. There is no billing engine, tier enforcement, or upstream godetour platform API.
 - **SDK limits response**: Returns `effectiveLimit: -1` to signal unlimited clicks to `@swmansion/react-native-detour` (compatible with SDK 2.3.x).
