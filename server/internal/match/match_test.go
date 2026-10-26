@@ -290,11 +290,11 @@ func TestAndroidModelSystemVersionWeight(t *testing.T) {
 	if s := Score(androidClick(link), androidFP(), testIP); s != 1300 {
 		t.Errorf("android full score = %d; want 1300 (400 device signal, no UA double-count, 400 IP)", s)
 	}
-	// model mismatch: 400 branch fails -> 0 device, no UA signature stacked
+	// model mismatch: 400 branch fails -> 0 device, no UA signature stacked; no device -> tz/lang not counted
 	bad := androidFP()
 	bad.Model = "Pixel 8"
-	if s := Score(androidClick(link), bad, testIP); s != 900 {
-		t.Errorf("android model mismatch = %d; want 900 (400 IP + 200 tz + 200 screen + 100 lang)", s)
+	if s := Score(androidClick(link), bad, testIP); s != 600 {
+		t.Errorf("android model mismatch = %d; want 600 (400 IP + 200 screen)", s)
 	}
 }
 
@@ -321,8 +321,8 @@ func TestUADeviceSignatureFallback(t *testing.T) {
 	}
 	bad := androidFP()
 	bad.Model = "Pixel 8"
-	if s := Score(c, bad, testIP); s != 900 {
-		t.Errorf("UA fallback mismatch = %d; want 900", s)
+	if s := Score(c, bad, testIP); s != 600 {
+		t.Errorf("UA fallback mismatch = %d; want 600 (400 IP + 200 screen)", s)
 	}
 }
 
@@ -360,6 +360,14 @@ func TestScreenTolerance(t *testing.T) {
 	if s := Score(c, fp, ""); s != 0 {
 		t.Errorf("scale +0.02 = %d; want 0", s)
 	}
+	c.Fingerprint.Screen = "852x393@3" // rotated: either orientation matches
+	if s := Score(c, fp, ""); s != 200 {
+		t.Errorf("rotated = %d; want 200", s)
+	}
+	c.Fingerprint.Screen = "854x393@3" // rotated, height +2
+	if s := Score(c, fp, ""); s != 0 {
+		t.Errorf("rotated height +2 = %d; want 0", s)
+	}
 	c.Fingerprint.Screen = "not-a-screen"
 	if s := Score(c, fp, ""); s != 0 {
 		t.Errorf("unparseable screen = %d; want 0", s)
@@ -377,17 +385,21 @@ func TestIPExactWeight(t *testing.T) {
 	}
 }
 
-// Scenario 17: timezone exact 200; language (locale prefix) 100.
+// Scenario 17: timezone exact 200; language (locale prefix) 100; both only on top of pasteboard or device+screen.
 func TestTimezoneAndLanguageWeights(t *testing.T) {
-	c := store.Click{Fingerprint: store.Fingerprint{Timezone: "Europe/Warsaw", Locale: "en"}}
-	if s := Score(c, Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US"}, ""); s != 300 {
-		t.Errorf("tz+lang = %d; want 300", s)
+	const pb = "https://lnk.example/abc123"
+	c := store.Click{Fingerprint: store.Fingerprint{Timezone: "Europe/Warsaw", Locale: "en", PastedLink: pb}}
+	if s := Score(c, Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US", PastedLink: pb}, ""); s != 650 {
+		t.Errorf("pasteboard+tz+lang = %d; want 650", s)
 	}
-	if s := Score(c, Fingerprint{Timezone: "UTC", Locale: "en-US"}, ""); s != 100 {
-		t.Errorf("tz mismatch = %d; want 100 (language only)", s)
+	if s := Score(c, Fingerprint{Timezone: "UTC", Locale: "en-US", PastedLink: pb}, ""); s != 450 {
+		t.Errorf("tz mismatch = %d; want 450 (pasteboard + language)", s)
 	}
-	if s := Score(c, Fingerprint{Timezone: "UTC", Locale: "fr-FR"}, ""); s != 0 {
-		t.Errorf("no signal match = %d; want 0", s)
+	if s := Score(c, Fingerprint{Timezone: "UTC", Locale: "fr-FR", PastedLink: pb}, ""); s != 350 {
+		t.Errorf("no tz/lang match = %d; want 350 (pasteboard only)", s)
+	}
+	if s := Score(c, Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US"}, ""); s != 0 {
+		t.Errorf("tz+lang alone = %d; want 0 (shared by a whole network)", s)
 	}
 }
 
@@ -396,8 +408,8 @@ func TestMissingSignalsNoPanic(t *testing.T) {
 	if s := Score(store.Click{Fingerprint: store.Fingerprint{}}, androidFP(), testIP); s != 0 {
 		t.Errorf("empty click = %d; want 0", s)
 	}
-	if s := Score(androidClick(testLink()), Fingerprint{Timezone: "Europe/Warsaw"}, ""); s != 200 {
-		t.Errorf("partial fingerprint = %d; want 200 (timezone only)", s)
+	if s := Score(androidClick(testLink()), Fingerprint{ScreenWidth: 393, ScreenHeight: 852, Scale: 3, Timezone: "Europe/Warsaw"}, ""); s != 200 {
+		t.Errorf("partial fingerprint = %d; want 200 (screen only, tz not counted)", s)
 	}
 	// nil fingerprint through Match: no panic either
 	s, _ := newTestStore(t)
@@ -439,13 +451,14 @@ func TestValidateSettings(t *testing.T) {
 	}
 }
 
-// TestAppThresholdApplies: IP 400 + timezone 200 + screen 200 + locale 100 = 900 passes app threshold 850, fails 1000.
+// TestAppThresholdApplies: IP 400 + model/version 400 + screen 200 = 1000 (tz/lang differ) passes app threshold 850, fails 1200.
 func TestAppThresholdApplies(t *testing.T) {
-	fp := Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US", ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
+	fp := androidFP()
+	fp.Timezone, fp.Locale = "UTC", "fr-FR"
 	for _, tc := range []struct {
 		threshold int
 		want      bool
-	}{{850, true}, {1000, false}} {
+	}{{850, true}, {1200, false}} {
 		s, _ := newTestStore(t)
 		app, link := setupApp(t, s)
 		if err := s.UpdateAppMatchSettings(app.ID, tc.threshold, 15); err != nil {
@@ -648,11 +661,11 @@ func TestMatchReceipts(t *testing.T) {
 		t.Errorf("receipt = %s %d/%d; want probabilistic %d/%d", res.Method, res.Score, res.RunnerUp, scores[0], scores[1])
 	}
 
-	// docs' rejection example: 500 < 850
+	// near miss: screen 200 only (no device -> tz/lang not counted) < 850
 	miss := Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US", ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
 	res, _ = Match(s, link.AppID, Request{IP: "192.0.2.99", Fingerprint: &miss})
-	if res.Matched || res.Method != store.MethodOrganic || res.Score != 500 {
-		t.Errorf("near miss = %+v; want organic, score 500", res)
+	if res.Matched || res.Method != store.MethodOrganic || res.Score != 200 {
+		t.Errorf("near miss = %+v; want organic, score 200", res)
 	}
 
 	c := androidClick(link)
@@ -1206,11 +1219,10 @@ func TestFraudFingerprintNeedsDeviceHash(t *testing.T) {
 	}
 }
 
-// AE1: Shared Wi-Fi Isolation (Covers R1, R2).
-// User A clicks link from Wi-Fi IP on an iPhone running iOS 18.0.
-// User B on same Wi-Fi with identical iOS version launches organically without matching screen dimensions or timezone:
-// Score = IP (400) + iOS Version (350) = 750 < threshold 850 -> organic install; User A's click remains unconsumed.
-// Identical device with matching screen (200) and timezone (200) scores 1150 >= 850 -> successfully matched.
+// AE1: Shared Wi-Fi Isolation (Covers R1, R2). Realistic office: every peer shares IP, timezone, language.
+// User B: same iOS, different screen -> 400 IP + 350 iOS = 750 (tz/lang need device+screen) -> organic, click unconsumed.
+// User D: same screen, different iOS -> 400 IP + 200 screen = 600 -> organic.
+// User A (clicker): iOS + screen + tz + lang -> 1250 -> matched.
 func TestSharedWiFiIsolation(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -1222,108 +1234,130 @@ func TestSharedWiFiIsolation(t *testing.T) {
 			UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
 		},
 	})
-
-	// User B on same Wi-Fi, same iOS, but different screen size / timezone:
-	fpB := Fingerprint{
-		SystemVersion: "18.0",
-		ScreenWidth:   430, ScreenHeight: 932, Scale: 3, // iPhone 15 Pro Max screen
-		Timezone: "Europe/London",
-		Locale:   "es-ES",
+	peer := func(sysVer string, w, h int) Fingerprint {
+		return Fingerprint{SystemVersion: sysVer, ScreenWidth: w, ScreenHeight: h, Scale: 3, Timezone: "America/New_York", Locale: "en-US"}
 	}
-	resB, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fpB})
-	if err != nil {
-		t.Fatalf("Match User B: %v", err)
+	for _, tc := range []struct {
+		name string
+		fp   Fingerprint
+		want int
+	}{
+		{"User B (same iOS, other screen)", peer("18.0", 430, 932), 750},
+		{"User D (same screen, other iOS)", peer("17.6", 393, 852), 600},
+	} {
+		res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &tc.fp})
+		if err != nil {
+			t.Fatalf("Match %s: %v", tc.name, err)
+		}
+		if res.Matched || res.Score != tc.want {
+			t.Errorf("%s = matched %v, score %d; want organic, %d", tc.name, res.Matched, res.Score, tc.want)
+		}
 	}
-	if resB.Matched {
-		t.Fatalf("User B matched on shared Wi-Fi with score %d; want organic (<850)", resB.Score)
-	}
-	if resB.Score != 750 {
-		t.Errorf("User B score = %d; want 750 (400 IP + 350 iOS version)", resB.Score)
-	}
-	// Verify click remains unconsumed
 	if !unconsumed(t, s, link.AppID, click.ClickID) {
-		t.Errorf("Click was consumed by User B; want unconsumed")
+		t.Errorf("click consumed by a peer; want unconsumed")
 	}
 
-	// User A on same Wi-Fi, matching screen and timezone:
-	fpA := Fingerprint{
-		SystemVersion: "18.0",
-		ScreenWidth:   393, ScreenHeight: 852, Scale: 3,
-		Timezone: "America/New_York",
-		Locale:   "en-US",
-	}
+	fpA := peer("18.0", 852, 393) // first launch in landscape: rotation must not cost the match
 	resA, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fpA})
 	if err != nil {
 		t.Fatalf("Match User A: %v", err)
 	}
-	if !resA.Matched || resA.Click.ID != click.ID {
-		t.Fatalf("User A failed to match: %+v", resA)
-	}
-	if resA.Score < 850 {
-		t.Errorf("User A score = %d; want >= 850", resA.Score)
+	if !resA.Matched || resA.Click.ID != click.ID || resA.Score != 1250 {
+		t.Errorf("User A = %+v; want matched %s at 1250", resA, click.ID)
 	}
 }
 
-// Android Shared Wi-Fi Isolation, reachable devices only:
-// User B: same Wi-Fi, different model (Galaxy S23, same office timezone/lang) -> 400 IP + 200 tz + 100 lang = 700 < 850, organic.
-// User A: full match 1300 >= 850, matches.
-// User C: same Wi-Fi, same model, different OS version -> known same-model ceiling (CAVEATS.md "Same-model shared Wi-Fi"):
-// 400 IP + 200 tz + 200 screen + 100 lang = 900 >= 850, still matches.
+// Android Shared Wi-Fi Isolation: peers share IP, timezone, language.
+// User B: other model + screen -> 400 IP = 400 -> organic. User C: same model, other OS -> 400 IP + 200 screen = 600 -> organic.
+// User A (clicker): full match 1300 -> matched.
 func TestAndroidSharedWiFiIsolation(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
+	click := recordClick(t, s, androidClick(link)) // Pixel 7, Android 14, Europe/Warsaw, 393x852@3
 
-	click := recordClick(t, s, androidClick(link)) // User A clicks: Pixel 7, Android 14, Europe/Warsaw, 393x852@3
-
-	// User B on same Wi-Fi: different model (Galaxy S23), realistic shared-office device:
 	fpB := androidFP()
 	fpB.Model, fpB.SystemVersion = "SM-S911B", "15"
-	fpB.ScreenWidth, fpB.ScreenHeight, fpB.Scale = 360, 780, 3
-
-	resB, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fpB})
-	if err != nil {
-		t.Fatalf("Match User B: %v", err)
-	}
-	if resB.Matched {
-		t.Fatalf("User B matched on shared Wi-Fi with score %d; want organic (<850)", resB.Score)
-	}
-	if resB.Score != 700 {
-		t.Errorf("User B score = %d; want 700 (400 IP + 200 tz + 100 lang)", resB.Score)
+	fpB.ScreenWidth, fpB.ScreenHeight = 360, 780
+	fpC := androidFP()
+	fpC.SystemVersion = "15"
+	for _, tc := range []struct {
+		name string
+		fp   Fingerprint
+		want int
+	}{{"User B (other model)", fpB, 400}, {"User C (same model, other OS)", fpC, 600}} {
+		res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &tc.fp})
+		if err != nil {
+			t.Fatalf("Match %s: %v", tc.name, err)
+		}
+		if res.Matched || res.Score != tc.want {
+			t.Errorf("%s = matched %v, score %d; want organic, %d", tc.name, res.Matched, res.Score, tc.want)
+		}
 	}
 	if !unconsumed(t, s, link.AppID, click.ClickID) {
-		t.Errorf("Click was consumed by User B; want unconsumed")
+		t.Errorf("click consumed by a peer; want unconsumed")
 	}
 
-	// User A on same Wi-Fi, matching everything:
 	fpA := androidFP()
 	resA, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fpA})
 	if err != nil {
 		t.Fatalf("Match User A: %v", err)
 	}
-	if !resA.Matched || resA.Click.ID != click.ID {
-		t.Fatalf("User A failed to match: %+v", resA)
+	if !resA.Matched || resA.Click.ID != click.ID || resA.Score != 1300 {
+		t.Errorf("User A = %+v; want matched %s at 1300", resA, click.ID)
 	}
-	if resA.Score < 850 {
-		t.Errorf("User A score = %d; want >= 850", resA.Score)
-	}
+}
 
-	// User C on same Wi-Fi, same model, different OS version — pins the documented ceiling:
-	fpC := androidFP()
-	fpC.SystemVersion = "15"
-	link2, err := s.CreateLink(store.Link{AppID: link.AppID, Key: "ceiling", URL: "https://example.com/ceiling"})
-	if err != nil {
-		t.Fatalf("CreateLink: %v", err)
+// Invariant (R1): every combination of matching signals, both platforms: score >= default 850 only with
+// pasteboard, or device signal AND screen. Pins legit floors: other-network iOS 850, Android 900; same network 1250 / 1300.
+func TestScoreDiscriminatorInvariant(t *testing.T) {
+	const ip, device, pb, tz, scr, lang = 1, 2, 4, 8, 16, 32
+	for _, platform := range []string{"ios", "android"} {
+		for set := 0; set < 64; set++ {
+			click, fp := iosClick(testLink()), iosFP()
+			if platform == "android" {
+				click, fp = androidClick(testLink()), androidFP()
+				click.Fingerprint.PastedLink, fp.PastedLink = "https://lnk.example/abc123", "https://lnk.example/abc123" // what-if: pasteboard on Android too
+			}
+			reqIP := testIP
+			if set&ip == 0 {
+				reqIP = otherIP
+			}
+			if set&device == 0 {
+				fp.SystemVersion = "9.9"
+			}
+			if set&pb == 0 {
+				fp.PastedLink = ""
+			}
+			if set&tz == 0 {
+				fp.Timezone = "UTC"
+			}
+			if set&scr == 0 {
+				fp.ScreenWidth = 1
+			}
+			if set&lang == 0 {
+				fp.Locale = "fr-FR"
+			}
+			got := Score(click, fp, reqIP)
+			if got >= 850 && set&pb == 0 && (set&device == 0 || set&scr == 0) {
+				t.Errorf("%s signals %06b = %d >= 850 without pasteboard or device+screen", platform, set, got)
+			}
+		}
 	}
-	click2 := recordClick(t, s, androidClick(link2))
-	resC, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fpC})
-	if err != nil {
-		t.Fatalf("Match User C: %v", err)
-	}
-	if !resC.Matched || resC.Click.ID != click2.ID {
-		t.Fatalf("User C failed to match at the same-model ceiling: %+v", resC)
-	}
-	if resC.Score != 900 {
-		t.Errorf("User C score = %d; want 900 (400 IP + 200 tz + 200 screen + 100 lang)", resC.Score)
+	for _, tc := range []struct {
+		name  string
+		click store.Click
+		fp    Fingerprint
+		ip    string
+		want  int
+	}{
+		{"ios same network, no pasteboard", iosClick(testLink()), func() Fingerprint { f := iosFP(); f.PastedLink = ""; return f }(), testIP, 1250},
+		{"ios other network, no pasteboard", iosClick(testLink()), func() Fingerprint { f := iosFP(); f.PastedLink = ""; return f }(), otherIP, 850},
+		{"android same network", androidClick(testLink()), androidFP(), testIP, 1300},
+		{"android other network", androidClick(testLink()), androidFP(), otherIP, 900},
+	} {
+		if got := Score(tc.click, tc.fp, tc.ip); got != tc.want {
+			t.Errorf("%s = %d; want %d", tc.name, got, tc.want)
+		}
 	}
 }
 

@@ -60,11 +60,6 @@ func SetTrustedProxies(cidrs []string) error {
 	return nil
 }
 
-// ResetTrustedProxies resets trusted proxy CIDRs back to defaults.
-func ResetTrustedProxies() {
-	_ = SetTrustedProxies(nil)
-}
-
 func isTrustedPeer(host string) bool {
 	ip := net.ParseIP(host)
 	if ip == nil {

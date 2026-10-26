@@ -73,7 +73,7 @@ func TestRemoteIP(t *testing.T) {
 
 	defer func() {
 		TrustProxy = false
-		ResetTrustedProxies()
+		_ = SetTrustedProxies(nil)
 	}()
 
 	for _, c := range cases {
@@ -94,7 +94,7 @@ func TestRemoteIP(t *testing.T) {
 func TestSetTrustedProxies(t *testing.T) {
 	defer func() {
 		TrustProxy = false
-		ResetTrustedProxies()
+		_ = SetTrustedProxies(nil)
 	}()
 
 	TrustProxy = true
@@ -118,9 +118,21 @@ func TestSetTrustedProxies(t *testing.T) {
 		t.Errorf("SetTrustedProxies(invalid) want error, got nil")
 	}
 
-	// Reset reverts to defaults: 203.0.113.50 is untrusted again
-	ResetTrustedProxies()
+	// Reset reverts to defaults: 203.0.113.50 is untrusted again and increments XFFIgnored
+	_ = SetTrustedProxies(nil)
+	if XFFIgnored() != 0 || LastXFFPeer() != "" {
+		t.Errorf("After SetTrustedProxies(nil): XFFIgnored=%d LastXFFPeer=%q; want 0 and empty", XFFIgnored(), LastXFFPeer())
+	}
 	if got := RemoteIP(r); got != "203.0.113.50" {
-		t.Errorf("After ResetTrustedProxies: RemoteIP = %q, want socket peer 203.0.113.50", got)
+		t.Errorf("After SetTrustedProxies(nil): RemoteIP = %q, want socket peer 203.0.113.50", got)
+	}
+	if XFFIgnored() != 1 || LastXFFPeer() != "203.0.113.50" {
+		t.Errorf("After untrusted XFF: XFFIgnored=%d LastXFFPeer=%q; want 1 and 203.0.113.50", XFFIgnored(), LastXFFPeer())
+	}
+	if err := SetTrustedProxies([]string{"10.0.0.0/8"}); err != nil {
+		t.Fatalf("SetTrustedProxies: %v", err)
+	}
+	if XFFIgnored() != 0 || LastXFFPeer() != "" {
+		t.Errorf("After SetTrustedProxies re-baseline: XFFIgnored=%d LastXFFPeer=%q; want 0 and empty", XFFIgnored(), LastXFFPeer())
 	}
 }

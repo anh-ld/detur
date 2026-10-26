@@ -32,7 +32,7 @@ Each SDK release:
 ```sh
 npm init -y
 npm i @swmansion/react-native-detour@2.3.1 patch-package
-# edit the 10 files above: https://godetour.dev -> <your base URL>
+# edit the 12 files above: https://godetour.dev -> <your base URL> + paste guard in links/utils/fingerprint (copy from current patch)
 npx patch-package @swmansion/react-native-detour
 # -> patches/@swmansion+react-native-detour+2.3.1.patch
 ```

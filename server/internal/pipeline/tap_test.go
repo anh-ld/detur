@@ -219,7 +219,7 @@ func TestInAppIOSTapReportsPastedLink(t *testing.T) {
 	app, link := setupPipeline(t, s)
 	hdr := map[string]string{"User-Agent": messengerIOSUA}
 	_, body := doGET(t, ts, "/"+link.Key+"?_dt=1", hdr)
-	if page := string(body); !strings.Contains(page, "pasted_link") || !strings.Contains(page, `execCommand("copy")`) {
+	if page := string(body); !strings.Contains(page, "pasted_link") || !strings.Contains(page, `execCommand("copy")`) || !strings.Contains(page, `"text/uri-list"`) {
 		t.Fatalf("iOS tap page missing copy/report script:\n%s", page)
 	}
 	pasted := ts.URL + "/" + link.Key

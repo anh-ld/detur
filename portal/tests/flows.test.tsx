@@ -27,15 +27,15 @@ const MESSENGER = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleW
 const DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36';
 
 async function click(key: string, ua: string, done = false): Promise<Response> {
-  return fetch(`${SDK}/${key}${done ? '?_dt=1&tz=UTC' : ''}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
+  return fetch(`${SDK}/${key}${done ? '?_dt=1&tz=UTC&screen=393x852%403' : ''}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
 }
 
-// first SDK launch on the clicking iPhone: same IP + iOS -> matches latest click. UA = distinct device.
+// first SDK launch on the clicking iPhone: same IP + iOS + screen -> matches latest click. UA = distinct device.
 async function matchLink(app: { id: string; apiKey: string }, userAgent = IPHONE): Promise<Response> {
   return fetch(`${SDK}/api/link/match-link`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${app.apiKey}`, 'X-App-ID': app.id, 'X-SDK': 'react-native/2.3.1' },
-    body: JSON.stringify({ platform: 'ios', model: 'iPhone', systemVersion: '17.5', timezone: 'UTC', userAgent }),
+    body: JSON.stringify({ platform: 'ios', model: 'iPhone', systemVersion: '17.5', screenWidth: 393, screenHeight: 852, scale: 3, timezone: 'UTC', userAgent }),
   });
 }
 

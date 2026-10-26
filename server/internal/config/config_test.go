@@ -90,8 +90,8 @@ func TestLoadTrustedProxies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.TrustedProxies != "10.0.0.0/8, 192.168.1.0/24" {
-		t.Errorf("TrustedProxies = %q, want '10.0.0.0/8, 192.168.1.0/24'", cfg.TrustedProxies)
+	if len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0] != "10.0.0.0/8" || cfg.TrustedProxies[1] != "192.168.1.0/24" {
+		t.Errorf("TrustedProxies = %v, want [10.0.0.0/8 192.168.1.0/24]", cfg.TrustedProxies)
 	}
 
 	clearEnv(t)

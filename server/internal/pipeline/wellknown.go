@@ -59,7 +59,7 @@ type assetlinkTarget struct {
 }
 
 // handleAASA: iOS association file, one details entry per app with ios_app_id.
-// Single iOS app claims wildcard ["*"] and components [{"/": "*"}] (R7) to prevent
+// Single iOS app claims wildcard ["*"] and components [{"/": "/*"}] (R7) to prevent
 // Apple CDN caching from breaking newly generated short links.
 // Multiple iOS apps partition paths by app link keys to prevent the first app
 // in the details array from shadowing Universal Links intended for sibling apps.

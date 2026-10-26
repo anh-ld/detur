@@ -17,7 +17,7 @@ type Config struct {
 	RetentionHours    int      // click + event retention floor
 	ClickIDDays       int      // unmatched click_id lifetime
 	TrustProxy        bool     // honor X-Forwarded-For (only behind a trusted proxy)
-	TrustedProxies    string   // TRUSTED_PROXIES: comma-separated CIDR ranges; empty = default RFC 1918 + loopback
+	TrustedProxies    []string // TRUSTED_PROXIES: CIDR ranges, comma-separated; empty = default RFC 1918 + loopback
 	LogoutURL         string   // gateway sign-out URL for the Log out link; "" hides it
 	AdminPassword     string   // master password for admin elevation; "" = no gating
 	AdminSessionHours int      // elevated session TTL (1-72h, default 12)
@@ -32,7 +32,6 @@ func Load() (*Config, error) {
 		RetentionHours:    24,
 		ClickIDDays:       30,
 		TrustProxy:        os.Getenv("TRUST_PROXY") == "1",
-		TrustedProxies:    strings.TrimSpace(os.Getenv("TRUSTED_PROXIES")),
 		LogoutURL:         os.Getenv("LOGOUT_URL"),
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		AdminSessionHours: 12,
@@ -56,26 +55,26 @@ func Load() (*Config, error) {
 	if err := checkLogoutURL(cfg.LogoutURL); err != nil {
 		return nil, err
 	}
-	if cfg.TrustedProxies != "" {
-		if err := validateTrustedProxies(cfg.TrustedProxies); err != nil {
-			return nil, err
-		}
+	if cfg.TrustedProxies, err = parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
 
-// validateTrustedProxies: comma-separated list of CIDR strings.
-func validateTrustedProxies(v string) error {
+// parseTrustedProxies: comma-separated list of CIDR strings.
+func parseTrustedProxies(v string) ([]string, error) {
+	var out []string
 	for _, raw := range strings.Split(v, ",") {
 		s := strings.TrimSpace(raw)
 		if s == "" {
 			continue
 		}
 		if _, _, err := net.ParseCIDR(s); err != nil {
-			return fmt.Errorf("TRUSTED_PROXIES: invalid CIDR %q: %w", s, err)
+			return nil, fmt.Errorf("TRUSTED_PROXIES: invalid CIDR %q: %w", s, err)
 		}
+		out = append(out, s)
 	}
-	return nil
+	return out, nil
 }
 
 // checkLogoutURL: "", http(s) URL, or "/path". Rejects the rest (javascript:, "//host"): it lands in an href.
