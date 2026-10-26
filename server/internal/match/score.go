@@ -98,7 +98,8 @@ func clickSignals(click store.Click) (platform, model, sysVer string) {
 
 // pasteboard: iOS two-tier: 350 = short-link token match AND first-launch pasted URL starts with click's pasted URL; 175 = URL prefix only.
 func pasteboard(click store.Click, fp Fingerprint) int {
-	cp, pp := click.Fingerprint.PastedLink, fp.PastedLink
+	// paste tokens differ per copy; a token miss still scores as the bare link did
+	cp, pp := store.StripPasteToken(click.Fingerprint.PastedLink), store.StripPasteToken(fp.PastedLink)
 	if cp == "" || pp == "" || !strings.HasPrefix(pp, cp) {
 		return 0
 	}

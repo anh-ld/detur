@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/httpx"
@@ -168,21 +169,24 @@ func toAppJSON(a store.App) appJSON {
 
 // linkJSON: link wire shape.
 type linkJSON struct {
-	ID          string `json:"id"`
-	AppID       string `json:"appId"`
-	Key         string `json:"key"`
-	URL         string `json:"url"`
-	IOS         string `json:"ios"`
-	Android     string `json:"android"`
-	FallbackURL string `json:"fallbackUrl"`
-	ExpiresAt   string `json:"expiresAt"` // RFC3339; empty = never
-	ExpiredURL  string `json:"expiredUrl"`
+	ID            string `json:"id"`
+	AppID         string `json:"appId"`
+	Key           string `json:"key"`
+	URL           string `json:"url"`
+	IOS           string `json:"ios"`
+	Android       string `json:"android"`
+	FallbackURL   string `json:"fallbackUrl"`
+	ExpiresAt     string `json:"expiresAt"` // RFC3339; empty = never
+	ExpiredURL    string `json:"expiredUrl"`
+	OGTitle       string `json:"ogTitle"`
+	OGDescription string `json:"ogDescription"`
+	OGImage       string `json:"ogImage"`
 }
 
 func toLinkJSON(l store.Link) linkJSON {
 	j := linkJSON{ID: l.ID, AppID: l.AppID, Key: l.Key, URL: l.URL, IOS: l.IOS,
 		Android: l.Android, FallbackURL: l.FallbackURL,
-		ExpiredURL: l.ExpiredURL}
+		ExpiredURL: l.ExpiredURL, OGTitle: l.OGTitle, OGDescription: l.OGDescription, OGImage: l.OGImage}
 	if l.ExpiresAt != nil {
 		j.ExpiresAt = l.ExpiresAt.UTC().Format(time.RFC3339)
 	}
@@ -191,13 +195,38 @@ func toLinkJSON(l store.Link) linkJSON {
 
 // linkBody: link payload (create + update). Omitted update fields unchanged.
 type linkBody struct {
-	Key         string  `json:"key"`
-	URL         string  `json:"url"`
-	IOS         *string `json:"ios"`
-	Android     *string `json:"android"`
-	FallbackURL *string `json:"fallbackUrl"`
-	ExpiresAt   *string `json:"expiresAt"` // RFC3339; "" clears
-	ExpiredURL  *string `json:"expiredUrl"`
+	Key           string  `json:"key"`
+	URL           string  `json:"url"`
+	IOS           *string `json:"ios"`
+	Android       *string `json:"android"`
+	FallbackURL   *string `json:"fallbackUrl"`
+	ExpiresAt     *string `json:"expiresAt"` // RFC3339; "" clears
+	ExpiredURL    *string `json:"expiredUrl"`
+	OGTitle       *string `json:"ogTitle"`
+	OGDescription *string `json:"ogDescription"`
+	OGImage       *string `json:"ogImage"`
+}
+
+// Social preview limits: title / description in characters; image absolute https (crawlers and chat apps fetch it).
+const (
+	maxOGTitle = 100
+	maxOGDesc  = 300
+)
+
+// validOG: preview fields within limits.
+func validOG(l store.Link) error {
+	if utf8.RuneCountInString(l.OGTitle) > maxOGTitle {
+		return fmt.Errorf("ogTitle must be at most %d characters", maxOGTitle)
+	}
+	if utf8.RuneCountInString(l.OGDescription) > maxOGDesc {
+		return fmt.Errorf("ogDescription must be at most %d characters", maxOGDesc)
+	}
+	if l.OGImage != "" {
+		if u, err := url.Parse(l.OGImage); err != nil || u.Scheme != "https" || u.Host == "" {
+			return errors.New("ogImage must be an absolute https URL")
+		}
+	}
+	return nil
 }
 
 // parseExpiry: optional RFC3339 expiry; nil or "" = never.
@@ -405,8 +434,14 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		IOS: strings.TrimSpace(stringValue(body.IOS)), Android: strings.TrimSpace(stringValue(body.Android)),
 		FallbackURL: strings.TrimSpace(stringValue(body.FallbackURL)),
 		ExpiresAt:   expiresAt, ExpiredURL: strings.TrimSpace(stringValue(body.ExpiredURL)),
+		OGTitle: strings.TrimSpace(stringValue(body.OGTitle)), OGDescription: strings.TrimSpace(stringValue(body.OGDescription)),
+		OGImage: strings.TrimSpace(stringValue(body.OGImage)),
 	}
 	if err := validTargets(nl); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := validOG(nl); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -452,7 +487,20 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 	if body.ExpiredURL != nil {
 		l.ExpiredURL = strings.TrimSpace(*body.ExpiredURL)
 	}
+	if body.OGTitle != nil {
+		l.OGTitle = strings.TrimSpace(*body.OGTitle)
+	}
+	if body.OGDescription != nil {
+		l.OGDescription = strings.TrimSpace(*body.OGDescription)
+	}
+	if body.OGImage != nil {
+		l.OGImage = strings.TrimSpace(*body.OGImage)
+	}
 	if err := validTargets(l); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := validOG(l); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

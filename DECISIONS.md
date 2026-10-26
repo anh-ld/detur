@@ -22,12 +22,13 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | M6 | Window starts at SDK `timestamp`; ignored if >180 min off or in the future. | Detour + ours | Clamp is ours: clock drift. | 007 |
 | M7 | iOS 26 frozen UA (`OS 18_6`): use Safari `Version/` if its major is higher. `Version/` click compared at its precision (`26.0` = SDK `26.0.1`); OS-token click exact (`17_4` = `17.4.0`). | Detour + ours | Documented workaround. `Version/` has no patch; exact compare lost 350 on every 26.x.y. | 007 |
 | M8 | UA signature scored on Android only. | Detour | Weights table. | 007 |
-| M9 | Pasteboard: install's pasted URL vs clicked short link. Click `pasted_link` stored only if it is that link. | Detour + ours | Server check is ours: query param is forgeable. | 007 |
+| M9 | Pasteboard: install's pasted URL vs clicked short link. Click `pasted_link` stored only if it is that link (`?_dc=` allowed, M15). | Detour + ours | Server check is ours: query param is forgeable. | 007 |
 | M10 | Tie → newer click. | Detour | Documented. | — |
 | M11 | No match → organic + 404. Backend error → 404 + hidden `unknown` install, replaced by the next real result (new row). Unknown never sent to webhooks. | Detour + ours | Fail-open is ours: never block the app. New row: webhook cursor already past the unknown one. | 003 |
 | M12 | Device hash = SHA-256 of fingerprint, no timestamp. | Ours | Stable key, idempotent installs. | — |
-| M13 | Install receipt: method (`click_id`, `probabilistic`, `prior`, `organic`, `unknown`), best score, runner-up. Organic keeps its best below-threshold score. Settings shows method mix, histogram, threshold what-if. | Ours | Otherwise the threshold is set blind. | — |
+| M13 | Install receipt: method (`click_id`, `pasteboard`, `probabilistic`, `prior`, `organic`, `unknown`), best score, runner-up. Organic keeps its best below-threshold score. Settings shows method mix, histogram, threshold what-if. | Ours | Otherwise the threshold is set blind. | — |
 | M14 | Multi-app AASA (>1 iOS app): each app claims its own link keys in paths + components; a single iOS app keeps the `["*"]` wildcard (R7 freshness). Zero-link apps are omitted; per-app enumeration is capped at 256 newest keys. | Ours | Blanket wildcard per app: iOS opens the first matching details entry, so the first app shadowed every sibling's Universal Links. | 0142 |
+| M15 | Paste token: copy + tap pages copy `/<key>?_dc=<16 chars>`. Click stores it (`paste_token`), kept `CLICK_ID_DAYS`, survives scrub. Install pastes it → exact match: no window, same link key (case-insensitive), unmatched or same device, fraud as `clickId` (F3). Miss → scoring, not organic; scoring ignores the token. `_dc` never forwarded. | DeepLinkNow + ours | Pasteboard alone: 350, window-bound. Slow installs went organic; identical clickers on one Wi-Fi swapped links. Own token, not `click_id`: copy happens before the click exists. Link-bound: leaked token can't claim another link. | link-page-gaps |
 
 ## Click capture
 
@@ -36,8 +37,8 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | C1 | Mobile first hop: one-reload interstitial (screen, timezone); `Accept-CH` for model + OS. Mac Safari UA too: touch screen → iPad (UA rewritten to iPad for rules, redirect, click, scoring). | Dub + ours | Dub deeplink preview. Detour fingerprints immediately. iPadOS Safari sends a Mac UA: got the web fallback, never matched. | — |
 | C2 | iOS + App Store target → tap-to-copy page (feeds M9). Always on. Copy + reload in one tap. | Detour + ours | Detour's per-app toggle: skipped. One tap: webviews block a hand-off after an async copy. | 008, in-app |
 | C3 | Bots: Dub `UA_BOTS`, HEAD, `?bot=`. Exempt: Google webview, TikTok `Channel/googleplay`. | Dub + ours | Detour has no list. TikTok's webview tripped "google". | in-app |
-| C4 | Dedup: link + IP + UA, 1h. Re-tap refreshes time + signals, keeps id + matched. Also merged: a real-browser click (no in-app source, same platform) on the same link + IP within 1h of an in-app click. Keeps the in-app destination + pasteboard. SDK opens and other in-app browsers never merge. | Dub + ours | Dub click cache. "Open in browser" changes the UA. | in-app |
-| C5 | Clicks kept `RETENTION_HOURS` (24–8760), purged hourly. | Ours | Bounded storage. Deterministic match needs ≥24h. | 005 |
+| C4 | Dedup: link + IP + UA, 1h. Re-tap refreshes time + signals, keeps id + matched. Also merged: a real-browser click (no in-app source, same platform) on the same link + IP within 1h of an in-app click. Keeps the in-app destination. Pasteboard: latest copy wins; no browser copy → in-app one kept (M15). SDK opens and other in-app browsers never merge. | Dub + ours | Dub click cache. "Open in browser" changes the UA. | in-app |
+| C5 | Clicks kept `RETENTION_HOURS` (24–8760), purged hourly. `click_id` + `paste_token` live `CLICK_ID_DAYS` (M5, M15). | Ours | Bounded storage. Deterministic match needs ≥24h. | 005 |
 | C6 | Delete link → its clicks. Delete app → clicks, installs, events. | Ours | Orphans matched stale destinations. | 004 |
 | C7 | Click `tz` / `screen` stored only if well-formed and short. | Ours | Unvalidated input fed scoring. | 007 |
 | C8 | In-app browsers (Messenger, Facebook, Instagram, Threads, Zalo, TikTok, LinkedIn, Snapchat, LINE, X, Telegram, WeChat) get a tap page at hop 2, not the 302: Get the app link, Android `intent://` + Play backup, "Open in browser" steps. No store target → 302. | Ours | Webviews block automatic store hand-offs. A tapped link gets through. Detour docs: nothing. | in-app |
@@ -55,6 +56,8 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | R5 | Links: one path segment. | Ours (divergence) | Detour allows more. See CAVEATS. | — |
 | R6 | Targets absolute. `javascript:`, `data:`, `vbscript:`, `file:` rejected. App schemes + `market:` OK. | Ours | Typos became relative redirects. | 003 |
 | R7 | Expired → `expiredUrl`, else 410. | Dub | Dub expiry. | — |
+| R8 | Desktop (not bot) + non-http(s) target → 200 QR page: short link, copy button, store buttons when set. Click still recorded (`web`). QR: `rsc.io/qr`, only dep besides sqlite. | DeepLinkNow + ours | 302 to `myapp://` opened nothing. | link-page-gaps |
+| R9 | Per-link `og_title` (≤100), `og_description` (≤300), `og_image` (https). Set + GET + bot (C3) → OG page, canonical = short link, script redirect + Continue link. Unset → 302. Base link only; rules pick the onward target. | DeepLinkNow + ours | Store/scheme targets had no chat preview. Redirect: humans misread as bots still get through. | link-page-gaps |
 
 ## Link rules & A/B testing
 
@@ -130,7 +133,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | Item | Why not |
 |---|---|
 | Ad-network / MMP postbacks (Meta, Google, TikTok, Snap) | Google, TikTok, Snap accept data only from certified MMPs. Meta needs SDK fields Detour doesn't send. |
-| Auto escape to Safari/Chrome (`x-safari-https`) | Undocumented, fails on iOS 16. C8 tap page instead. |
+| Auto escape to Safari/Chrome (`x-safari-https`) | C8 tap page: one tap + copy already. Escape adds an app switch, saves nothing. Undocumented, fails on iOS 16. Re-checked 2026-10-26. |
 | Opening an installed iOS app at the link from a webview | iOS gives no way out. App opens on its home screen. |
 | Click-injection detection | Needs the raw Play referrer; SDK sends only `click_id`. |
 | VPN/Tor IP detection | Second dataset; flags real users. |

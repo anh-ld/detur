@@ -8,6 +8,8 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 - **Single binary**: Go + SQLite + Preact portal. ~30 MB RAM, <0.1 vCPU. Zero outbound calls.
 - **Link rules & A/B splits**: Route by platform, language, query, or date. Sticky weighted splits.
 - **In-app browser bypass**: Tap-through page for Messenger, TikTok, Zalo so users never get stuck.
+- **Exact iOS match**: Copied link carries a one-time token → exact install match, no time window.
+- **Link pages**: Per-link social previews. Desktop QR page for app-only links.
 - **Fraud protection**: Detect & block click floods, bots, datacenter IPs, and repeat devices.
 - **Analytics & webhooks**: Per-link conversions, D1/D7/D30 retention, and HMAC-signed webhook delivery.
 
