@@ -74,7 +74,11 @@ func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link s
 		Play  template.URL
 		IOS   bool
 		Steps []string
+		Paste string
 	}{Href: template.URL(dest), IOS: ios, Steps: tapSteps(source, ios)}
+	if ios {
+		data.Paste = store.PasteQuery() // reported with pasted_link (pasteToken)
+	}
 	if !ios {
 		// app package -> button = intent opening installed app at link
 		if app, err := p.st.GetApp(link.AppID); err != nil {
@@ -84,9 +88,7 @@ func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link s
 			data.Play = template.URL(dest)
 		}
 	}
-	h := w.Header()
-	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Cache-Control", "no-store")
+	htmlNoStore(w)
 	_ = tapTmpl.Execute(w, data)
 }
 
@@ -125,7 +127,7 @@ ol{padding-left:1.4em;display:grid;gap:6px}
 // copy synchronously inside the tap, report pasted_link before the navigation can unload the page
 ` + copyJS + `
 document.getElementById("go").addEventListener("click", function () {
-  var link = location.origin + location.pathname;
+  var link = location.origin + location.pathname + {{.Paste}};
   if (!copy(link)) return;
   var q = new URLSearchParams(location.search);
   q.set("pasted_link", link);

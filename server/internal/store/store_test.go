@@ -1443,8 +1443,9 @@ func TestRecordClickInAppReopenMerge(t *testing.T) {
 				t.Fatalf("clicks = %d; want %d", n, tc.wantRows)
 			}
 			if tc.wantRows == 1 {
-				if second.Destination != link.URL || second.Fingerprint.PastedLink != "" {
-					t.Errorf("reopen overwrote destination/pasted link: %q %q", second.Destination, second.Fingerprint.PastedLink)
+				// in-app click had no paste: the browser's copy is the one the app reads, so it is taken
+				if second.Destination != link.URL || second.Fingerprint.PastedLink != "https://evil.example/paste" {
+					t.Errorf("reopen: destination %q (want kept), pasted link %q (want browser's)", second.Destination, second.Fingerprint.PastedLink)
 				}
 				if second.ID != first.ID || second.Source != "messenger" {
 					t.Errorf("merged click = %s source %q; want %s source messenger", second.ID, second.Source, first.ID)

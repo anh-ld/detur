@@ -160,7 +160,10 @@ describe('iOS copy page', () => {
       expect(b.replaced).toHaveLength(0); // waits for the tap
       b.button.onclick!();
       expect(b.replaced).toHaveLength(1);
-      expect(params(b.replaced[0]).get('pasted_link')).toBe(copyWorks ? `https://links.example/${key}` : null);
+      // copied link carries the paste token (server-minted, 16 chars)
+      const pasted = params(b.replaced[0]).get('pasted_link');
+      if (copyWorks) expect(pasted).toMatch(new RegExp(`^https://links\\.example/${key}\\?_dc=[0-9A-Za-z]{16}$`));
+      else expect(pasted).toBeNull();
       vi.useRealTimers();
     }
   });
@@ -182,7 +185,9 @@ describe('tap page', () => {
       const b = browser('?_dt=1', copyWorks);
       b.run(ios);
       b.button.click!();
-      expect(b.fetched.map((u) => params(u).get('pasted_link'))).toEqual(copyWorks ? [`https://links.example/${key}`] : []);
+      const pasted = b.fetched.map((u) => params(u).get('pasted_link'));
+      if (copyWorks) expect(pasted).toEqual([expect.stringMatching(new RegExp(`^https://links\\.example/${key}\\?_dc=[0-9A-Za-z]{16}$`))]);
+      else expect(pasted).toEqual([]);
     }
   });
 });

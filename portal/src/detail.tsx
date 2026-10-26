@@ -18,6 +18,7 @@ import {
   Tab,
   Table,
   TabList,
+  Textarea,
 } from 'kinu';
 import { Analytics, api, App, DateRangeFilter, Link, Platform } from './api';
 import { closeDialog, ConfirmDelete, Loading, mono, muted, PageHeader, row } from './ui';
@@ -33,7 +34,15 @@ interface LinkDraft {
   ios: string;
   android: string;
   fallbackUrl: string;
+  ogTitle: string;
+  ogDescription: string;
+  ogImage: string;
 }
+
+// social preview limits: match the server's
+const OG_TITLE_MAX = 100;
+const OG_DESC_MAX = 300;
+const httpsUrl = (s: string) => /^https:\/\/[^/\s]+/i.test(s);
 
 const emptyDraft = (): LinkDraft => ({
   key: '',
@@ -41,6 +50,9 @@ const emptyDraft = (): LinkDraft => ({
   ios: '',
   android: '',
   fallbackUrl: '',
+  ogTitle: '',
+  ogDescription: '',
+  ogImage: '',
 });
 
 const draftFrom = (l: Link): LinkDraft => ({
@@ -49,6 +61,9 @@ const draftFrom = (l: Link): LinkDraft => ({
   ios: l.ios,
   android: l.android,
   fallbackUrl: l.fallbackUrl,
+  ogTitle: l.ogTitle ?? '',
+  ogDescription: l.ogDescription ?? '',
+  ogImage: l.ogImage ?? '',
 });
 
 // decorative 1.5px outline icon; button label carries the name
@@ -296,6 +311,7 @@ function LinkDialog({
   const [draft, setDraft] = useState<LinkDraft>(link ? draftFrom(link) : emptyDraft());
   const [err, setErr] = useState('');
   const id = link ? `dlg-edit-link-${link.id}` : 'dlg-create-link';
+  const ogImageBad = !!draft.ogImage.trim() && !httpsUrl(draft.ogImage.trim());
 
   const save = async () => {
     setErr('');
@@ -303,11 +319,18 @@ function LinkDialog({
       setErr('key and url are required');
       return;
     }
+    if (ogImageBad) {
+      setErr('Social preview image must be an absolute https URL');
+      return;
+    }
     const payload = {
       url: draft.url.trim(),
       ios: draft.ios,
       android: draft.android,
       fallbackUrl: draft.fallbackUrl,
+      ogTitle: draft.ogTitle,
+      ogDescription: draft.ogDescription,
+      ogImage: draft.ogImage,
     };
     try {
       if (link) {
@@ -393,6 +416,49 @@ function LinkDialog({
               placeholder="https://example.com"
             />
           </Field>
+
+          <details open={!!(draft.ogTitle || draft.ogDescription || draft.ogImage)}>
+            <summary style={muted}>Social preview (optional)</summary>
+            <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
+              <Field>
+                <Label htmlFor={`${id}-ogt`}>Title</Label>
+                <Input
+                  id={`${id}-ogt`}
+                  value={draft.ogTitle}
+                  maxLength={OG_TITLE_MAX}
+                  onInput={(e) => setDraft({ ...draft, ogTitle: e.currentTarget.value })}
+                  placeholder="Sam invited you"
+                />
+                <Field.Description>{draft.ogTitle.length}/{OG_TITLE_MAX}</Field.Description>
+              </Field>
+              <Field>
+                <Label htmlFor={`${id}-ogd`}>Description</Label>
+                <Textarea
+                  id={`${id}-ogd`}
+                  value={draft.ogDescription}
+                  maxLength={OG_DESC_MAX}
+                  rows={2}
+                  onInput={(e) => setDraft({ ...draft, ogDescription: e.currentTarget.value })}
+                />
+                <Field.Description>{draft.ogDescription.length}/{OG_DESC_MAX}</Field.Description>
+              </Field>
+              <Field>
+                <Label htmlFor={`${id}-ogi`}>Image URL</Label>
+                <Input
+                  id={`${id}-ogi`}
+                  value={draft.ogImage}
+                  aria-invalid={ogImageBad}
+                  onInput={(e) => setDraft({ ...draft, ogImage: e.currentTarget.value })}
+                  placeholder="https://example.com/card.png"
+                />
+                <Field.Description>
+                  {ogImageBad
+                    ? 'Must be an absolute https URL'
+                    : 'Shown when the link is shared in chats and social apps. 1200×630 works best.'}
+                </Field.Description>
+              </Field>
+            </div>
+          </details>
 
           {err && <Alert variant="destructive">{err}</Alert>}
           <div style={{ ...row, justifyContent: 'flex-end' }}>

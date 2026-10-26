@@ -335,6 +335,7 @@ function HealthTable({ app }: { app: App }) {
 
 const METHODS: [string, string][] = [
   ['click_id', 'Click ID'],
+  ['pasteboard', 'Clipboard'],
   ['probabilistic', 'Fingerprint'],
   ['prior', 'Retry'],
   ['organic', 'Organic'],

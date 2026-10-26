@@ -14,6 +14,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +41,7 @@ const (
 const (
 	MethodPrior         = "prior"         // same-device retry
 	MethodClickID       = "click_id"      // deterministic
+	MethodPasteboard    = "pasteboard"    // deterministic: clipboard paste token
 	MethodProbabilistic = "probabilistic" // score >= threshold
 	MethodOrganic       = "organic"       // no match
 	MethodUnknown       = "unknown"       // backend error
@@ -83,6 +86,11 @@ func Open(path string) (*Store, error) {
 	if err := addMissingColumns(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate columns: %w", err)
+	}
+	// paste_token is an added column: index after addMissingColumns, not in schema.sql (first pass runs before the column exists)
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_clicks_paste_token ON clicks (app_id, paste_token) WHERE paste_token IS NOT NULL`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("index paste_token: %w", err)
 	}
 	if !hadMatch {
 		if err := seedAppMatchFromSettings(db); err != nil {
@@ -331,7 +339,12 @@ type Link struct {
 	FallbackURL string
 	ExpiresAt   *time.Time // nil = never expires
 	ExpiredURL  string     // redirect target once expired; empty = 410
+	// Social preview served to link-preview crawlers; all empty = crawlers get the 302 like before.
+	OGTitle, OGDescription, OGImage string
 }
+
+const linkCols = `id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, ''),
+  COALESCE(og_title, ''), COALESCE(og_description, ''), COALESCE(og_image, '')`
 
 // Expired: link past expiry.
 func (l Link) Expired(now time.Time) bool {
@@ -355,10 +368,10 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 		return Link{}, fmt.Errorf("create link: %w", err)
 	}
 	_, err = tx.Exec(
-		`INSERT INTO links (id, app_id, key, url, ios, android, fallback_url, expires_at, expired_url)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO links (id, app_id, key, url, ios, android, fallback_url, expires_at, expired_url, og_title, og_description, og_image)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		l.ID, l.AppID, l.Key, l.URL, nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
-		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL),
+		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage),
 	)
 	if err != nil {
 		// unknown app_id hits FK; portal -> 404
@@ -375,16 +388,14 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 
 func (s *Store) GetLinkByKey(appID, key string) (Link, error) {
 	return scanLink(s.db.QueryRow(
-		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, '')
-		 FROM links WHERE app_id = ? AND key = ? COLLATE NOCASE`, appID, key,
+		`SELECT `+linkCols+` FROM links WHERE app_id = ? AND key = ? COLLATE NOCASE`, appID, key,
 	))
 }
 
 // GetLinkByKeyGlobal: resolve short key across all apps; historic dupes fail closed (no traffic to wrong app).
 func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
 	rows, err := s.db.Query(
-		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, '')
-		 FROM links WHERE key = ? COLLATE NOCASE LIMIT 2`, key,
+		`SELECT `+linkCols+` FROM links WHERE key = ? COLLATE NOCASE LIMIT 2`, key,
 	)
 	if err != nil {
 		return Link{}, err
@@ -408,8 +419,7 @@ func (s *Store) GetLinkByKeyGlobal(key string) (Link, error) {
 
 func (s *Store) GetLink(id string) (Link, error) {
 	return scanLink(s.db.QueryRow(
-		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, '')
-		 FROM links WHERE id = ?`, id,
+		`SELECT `+linkCols+` FROM links WHERE id = ?`, id,
 	))
 }
 
@@ -418,8 +428,7 @@ const MaxAASAKeys = 256
 
 func (s *Store) ListLinks(appID string) ([]Link, error) {
 	rows, err := s.db.Query(
-		`SELECT id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, '')
-		 FROM links WHERE app_id = ? ORDER BY created_at`, appID,
+		`SELECT `+linkCols+` FROM links WHERE app_id = ? ORDER BY created_at`, appID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list links: %w", err)
@@ -439,10 +448,11 @@ func (s *Store) ListLinks(appID string) ([]Link, error) {
 // UpdateLink: update mutable fields.
 func (s *Store) UpdateLink(l Link) error {
 	res, err := s.db.Exec(
-		`UPDATE links SET url = ?, ios = ?, android = ?, fallback_url = ?, expires_at = ?, expired_url = ?
+		`UPDATE links SET url = ?, ios = ?, android = ?, fallback_url = ?, expires_at = ?, expired_url = ?,
+		   og_title = ?, og_description = ?, og_image = ?
 		 WHERE id = ?`,
 		l.URL, nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
-		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), l.ID,
+		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage), l.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update link: %w", err)
@@ -498,7 +508,8 @@ func scanLink(row *sql.Row) (Link, error) {
 func scanLinkRow(row rowScanner) (Link, error) {
 	var l Link
 	var expiresAt string
-	if err := row.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.IOS, &l.Android, &l.FallbackURL, &expiresAt, &l.ExpiredURL); err != nil {
+	if err := row.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.IOS, &l.Android, &l.FallbackURL, &expiresAt, &l.ExpiredURL,
+		&l.OGTitle, &l.OGDescription, &l.OGImage); err != nil {
 		return Link{}, err
 	}
 	if expiresAt != "" {
@@ -549,6 +560,8 @@ type Click struct {
 	HitsIP, HitsLink int
 	// Variant: A/B variant name ("" = default/no rule). Stored + variant_days rollup.
 	Variant string
+	// PasteToken: `_dc` from the copied short link (PasteToken). Write-only here; looked up by ClickByPasteToken. Survives scrub like click_id.
+	PasteToken string
 }
 
 // Click kinds for analytics rollups (click_days.kind).
@@ -591,8 +604,9 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	if c.Kind != KindOpen && c.Source == "" && c.Fingerprint.IP != "" {
 		existing, err = reopenCandidate(tx, c, now)
 		if err == nil {
-			// reopen = same URL: keep in-app click's destination, variant, pasteboard signal
-			c.Destination, c.Variant, c.Fingerprint.PastedLink = "", "", ""
+			// reopen = same URL: keep in-app click's destination + variant. Pasteboard: latest copy wins (it is what the clipboard holds);
+			// browser without a copy keeps the in-app one (refreshClick COALESCE).
+			c.Destination, c.Variant = "", ""
 			return s.refreshClick(tx, existing, c, now, now.Add(expires))
 		}
 		if !errors.Is(err, ErrNotFound) {
@@ -610,13 +624,14 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	c.ExpiresAt = now.Add(expires)
 	_, err = tx.Exec(
 		`INSERT INTO clicks (rowid, id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at,
-		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant)
-		 VALUES ((SELECT n + 1 FROM row_seq WHERE name = 'clicks'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant, paste_token)
+		 VALUES ((SELECT n + 1 FROM row_seq WHERE name = 'clicks'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.AppID, c.LinkID, nullStr(c.Fingerprint.IP), nullStr(c.Fingerprint.Device),
 		nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone), nullStr(c.Fingerprint.Screen),
 		nullStr(c.Fingerprint.UserAgent), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink), c.Destination,
 		nullStr(c.ClickID), boolInt(c.IsBot), rfc3339(c.CreatedAt), rfc3339(c.ExpiresAt),
 		nullStr(c.Kind), rfc3339(c.CreatedAt), boolInt(c.UASuspect), boolInt(c.IPHosting), c.HitsIP, c.HitsLink, nullStr(c.Source), nullStr(c.Variant),
+		nullStr(c.PasteToken),
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
@@ -694,6 +709,7 @@ func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (
 		`UPDATE clicks SET created_at = ?, expires_at = MAX(expires_at, ?),
 		   device = COALESCE(?, device), locale = COALESCE(?, locale), timezone = COALESCE(?, timezone),
 		   screen = COALESCE(?, screen), os_version = COALESCE(?, os_version), pasted_link = COALESCE(?, pasted_link),
+		   paste_token = COALESCE(?, paste_token),
 		   destination = COALESCE(NULLIF(?, ''), destination),
 		   variant = CASE WHEN ? = '' THEN variant ELSE ? END,
 		   hits_ip = MAX(hits_ip, ?), hits_link = MAX(hits_link, ?)
@@ -701,6 +717,7 @@ func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (
 		rfc3339(now), rfc3339(expires),
 		nullStr(c.Fingerprint.Device), nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone),
 		nullStr(c.Fingerprint.Screen), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink),
+		nullStr(c.PasteToken),
 		c.Destination, c.Destination, nullStr(c.Variant), c.HitsIP, c.HitsLink, old.ID,
 	)
 	if err != nil {
@@ -746,6 +763,51 @@ func (s *Store) ClickByClickID(appID, clickID, deviceHash string) (Click, error)
 		   AND (matched_at IS NULL OR matched_device = ?)`,
 		appID, clickID, rfc3339(now), rfc3339(s.clickIDCutoff(now)), nullStr(deviceHash),
 	))
+}
+
+// ClickByPasteToken: ClickByClickID rules (no window, same life, unmatched or same device), bound to the link the token was copied from: a leaked token can't claim another link's click.
+func (s *Store) ClickByPasteToken(appID, key, token, deviceHash string) (Click, error) {
+	now := time.Now()
+	return scanClick(s.db.QueryRow(
+		`SELECT `+clickColsC+` FROM clicks c JOIN links l ON l.id = c.link_id
+		 WHERE c.app_id = ? AND l.key = ? COLLATE NOCASE AND c.paste_token = ? AND (c.expires_at >= ? OR c.created_at > ?)
+		   AND (c.matched_at IS NULL OR c.matched_device = ?)
+		 ORDER BY c.created_at DESC LIMIT 1`,
+		appID, key, token, rfc3339(now), rfc3339(s.clickIDCutoff(now)), nullStr(deviceHash),
+	))
+}
+
+// ParamPasteToken: query key carrying the paste token in a copied short link.
+const ParamPasteToken = "_dc"
+
+const pasteTokenLen = 16
+
+var (
+	rePasteToken      = regexp.MustCompile(fmt.Sprintf(`^[0-9A-Za-z]{%d}$`, pasteTokenLen))
+	reTrailPasteToken = regexp.MustCompile(fmt.Sprintf(`[?&]%s=[0-9A-Za-z]{%d}$`, ParamPasteToken, pasteTokenLen))
+)
+
+// StripPasteToken: pasted link without its trailing paste token (PasteQuery always appends it last).
+func StripPasteToken(raw string) string {
+	return reTrailPasteToken.ReplaceAllString(raw, "")
+}
+
+// PasteQuery: fresh "?_dc=<token>" for a copied short link (read back by PasteToken).
+func PasteQuery() string {
+	return "?" + ParamPasteToken + "=" + Nanoid(pasteTokenLen)
+}
+
+// PasteToken: link key + well-formed `_dc` token from a pasted short link; token "" when absent or malformed.
+func PasteToken(raw string) (key, token string) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", ""
+	}
+	t := u.Query().Get(ParamPasteToken)
+	if !rePasteToken.MatchString(t) {
+		return "", ""
+	}
+	return strings.Trim(u.Path, "/"), t
 }
 
 // clickIDCutoff: older clicks lost their click_id.
@@ -988,6 +1050,10 @@ func addMissingColumns(db *sql.DB) error {
 		{"apps", "tag_links", "INTEGER NOT NULL DEFAULT 0"},
 		{"clicks", "variant", "TEXT"},
 		{"installs", "variant", "TEXT"},
+		{"clicks", "paste_token", "TEXT"},
+		{"links", "og_title", "TEXT"},
+		{"links", "og_description", "TEXT"},
+		{"links", "og_image", "TEXT"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {

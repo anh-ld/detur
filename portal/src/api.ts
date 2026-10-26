@@ -21,6 +21,9 @@ export interface Link {
   ios: string;
   android: string;
   fallbackUrl: string;
+  ogTitle: string;
+  ogDescription: string;
+  ogImage: string;
 }
 
 // one UTC day. clicks = browser clicks; webFallbacks ⊂ clicks; opens = SDK opens of installed app

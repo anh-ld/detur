@@ -99,6 +99,31 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 		return label(r, req, f), nil
 	}
 
+	// paste token (iOS copy page): exact, no window. Miss or lost claim -> scoring below, never organic (stale clipboard, forged token).
+	if req.Fingerprint != nil {
+		if key, tok := store.PasteToken(req.Fingerprint.PastedLink); tok != "" {
+			c, err := st.ClickByPasteToken(appID, key, tok, req.DeviceHash)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return Result{}, err
+			}
+			if err == nil {
+				f := fired(c, set, now, true)
+				if set.Excluded(f) { // flagged: organic like a flagged clickId (F3)
+					r := noMatch(-1, -1)
+					r.FraudAction, r.FraudLinkID = store.FraudActionExcluded, c.LinkID
+					return label(r, req, f), nil
+				}
+				r, err := claim(st, c, req.DeviceHash, Result{Method: store.MethodPasteboard, Score: -1, RunnerUp: -1})
+				if err != nil {
+					return Result{}, err
+				}
+				if r.Matched {
+					return label(r, req, f), nil
+				}
+			}
+		}
+	}
+
 	// probabilistic: window scan per app (fingerprint carries no link identity)
 	app, err := st.GetApp(appID)
 	if err != nil {

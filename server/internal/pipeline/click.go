@@ -88,7 +88,8 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	agent := r.UserAgent()
 	_, noTrackQ := q[paramNoTrack]
 	_, noTrackH := r.Header[http.CanonicalHeaderKey(paramNoTrack)]
-	track := !ua.IsBot(r) && !noTrackQ && !noTrackH // presence, not value (Dub record-click.ts has())
+	bot := ua.IsBot(r)
+	track := !bot && !noTrackQ && !noTrackH // presence, not value (Dub record-click.ts has())
 	mobile := ua.IsIOS(agent) || ua.IsAndroid(agent)
 	trackedMobile := track && mobile
 	source := "" // in-app browser that sent the tap (ua.InApp)
@@ -96,6 +97,11 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 		source = ua.InApp(agent)
 	}
 	named := source != "" && source != ua.SourceUnknownInApp
+	// link-preview crawler + preview set: OG page instead of the 302 (base link's preview; rules only pick the onward target)
+	if r.Method == http.MethodGet && bot && link.OGTitle+link.OGDescription+link.OGImage != "" {
+		serveOG(w, r, link, redirectTarget(effectiveLink, agent, "", q), q)
+		return
+	}
 	if track && (mobile || ua.MaybeIPad(agent)) && q.Get(paramDone) == "" {
 		// recognized in-app: auto reload, never copy page; hop 2 serves tap page
 		serveInterstitial(w, q, ua.IsIOS(agent) && isAppStoreURL(effectiveLink.IOS) && !named, safetyNetDelay(source))
@@ -113,8 +119,9 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 			ID: clickID, AppID: link.AppID, LinkID: link.ID, Destination: deepLinkURL(effectiveLink, q),
 			Fingerprint: fp, Platform: clickPlatform(agent), Kind: clickKind(dest),
 			UASuspect: fraud.SuspectUA(agent), IPHosting: fraud.Hosting(fp.IP), // raw facts, judged at match (KTD1)
-			Source:  source,
-			Variant: route.Variant,
+			Source:     source,
+			Variant:    route.Variant,
+			PasteToken: pasteToken(fp.PastedLink),
 		}, p.retentionHours)
 		if err != nil {
 			p.log.Printf("click record failed (redirect continues): %v", err)
@@ -126,6 +133,11 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	// in-app browsers block auto hand-off: recognized ones + safety-net reload get a tap link instead
 	if _, tap := q[paramTap]; trackedMobile && (named || tap) && hasStoreTarget(effectiveLink, agent) {
 		p.serveTap(w, r, effectiveLink, dest, source, q)
+		return
+	}
+	// desktop + app-scheme target: a 302 opens nothing -> "open on your phone" page
+	if !mobile && !bot && !isWebURL(dest) {
+		p.serveDesktop(w, r, effectiveLink, q)
 		return
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
@@ -163,7 +175,7 @@ function go(pasted) {
 }
 ` + copyJS + `
 {{if .Copy}}document.getElementById("go").onclick = function () {
-  var link = location.origin + location.pathname;
+  var link = location.origin + location.pathname + {{.Paste}};
   go(copy(link) ? link : "");
 };{{else}}go("");{{end}}
 </script>`))
@@ -198,15 +210,25 @@ func serveInterstitial(w http.ResponseWriter, q url.Values, copy bool, delay int
 		next[k] = v
 	}
 	next.Set(paramDone, "1")
-	h := w.Header()
-	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Cache-Control", "no-store")
-	h.Set("Accept-CH", "Sec-CH-UA-Model, Sec-CH-UA-Platform-Version")
+	htmlNoStore(w)
+	w.Header().Set("Accept-CH", "Sec-CH-UA-Model, Sec-CH-UA-Platform-Version")
+	paste := ""
+	if copy {
+		paste = store.PasteQuery() // exact match when the app reads this copy (pasteToken)
+	}
 	_ = interstitialTmpl.Execute(w, struct {
 		Next  string
 		Copy  bool
 		Delay int
-	}{"?" + next.Encode(), copy, delay})
+		Paste string
+	}{"?" + next.Encode(), copy, delay, paste})
+}
+
+// htmlNoStore: headers shared by every detur HTML page (never cached: each hop is per visitor).
+func htmlNoStore(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
 }
 
 // fingerprint: click-time device signals: IP, device model (client hint, else UA), OS version hint, first Accept-Language tag, UA, screen/timezone/pasted_link from interstitial.
@@ -256,6 +278,12 @@ func pastedFor(raw string, r *http.Request, key string) string {
 		return ""
 	}
 	return raw
+}
+
+// pasteToken: `_dc` token of a validated pasted link (pastedFor), "" when none.
+func pasteToken(pasted string) string {
+	_, t := store.PasteToken(pasted)
+	return t
 }
 
 // hint: structured-header string client hint ("\"Pixel 7\"").

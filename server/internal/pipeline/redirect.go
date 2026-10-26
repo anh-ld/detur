@@ -11,7 +11,7 @@ import (
 
 // internalParams: detur's own query params; consumed here, never forwarded (Dub skips dub-no-track, redir_url)
 var internalParams = map[string]bool{
-	paramDone: true, paramScreen: true, paramTimezone: true, paramPasted: true, paramNoTrack: true, paramTap: true, paramTouch: true,
+	paramDone: true, paramScreen: true, paramTimezone: true, paramPasted: true, paramNoTrack: true, paramTap: true, paramTouch: true, store.ParamPasteToken: true,
 }
 
 // redirectTarget: 302 destination by platform, fallback link.URL: iOS -> link.IOS,
