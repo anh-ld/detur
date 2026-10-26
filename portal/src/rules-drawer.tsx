@@ -231,6 +231,8 @@ export function RulesDialog({
     setDirty(true);
     setEditingIndex(null);
     setDraftRule(null);
+    // next step is Save: focus it, not whatever button now sits where Done was
+    requestAnimationFrame(() => document.getElementById(`${dialogId}-save`)?.focus());
   };
 
   const saveAllToBackend = async () => {
@@ -598,10 +600,10 @@ export function RulesDialog({
           <div class="dialog-actions">
             {editing ? (
               <>
-                <Button variant="outline" onClick={() => setEditingIndex(null)}>
+                <Button key="cancel" variant="outline" onClick={() => setEditingIndex(null)}>
                   Cancel
                 </Button>
-                <Button onClick={saveDraftRule}>Done</Button>
+                <Button key="done" onClick={saveDraftRule}>Done</Button>
               </>
             ) : (
               <>
@@ -612,7 +614,7 @@ export function RulesDialog({
                   </Button>
                 )}
                 {dirty && !saving && (
-                  <Button variant="ghost" onClick={discardChanges}>
+                  <Button key="discard" variant="ghost" onClick={discardChanges}>
                     Discard
                   </Button>
                 )}
@@ -620,7 +622,7 @@ export function RulesDialog({
                   Close
                 </Button>
                 {tab === 'rules' && (rules.length > 0 || dirty) && (
-                  <Button disabled={saving || !dirty} aria-busy={saving} onClick={saveAllToBackend}>
+                  <Button key="save" id={fid('save')} disabled={saving || !dirty} aria-busy={saving} onClick={saveAllToBackend}>
                     {saving ? 'Saving…' : 'Save rules'}
                   </Button>
                 )}

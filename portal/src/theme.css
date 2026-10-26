@@ -1324,6 +1324,7 @@ code.target {
 
 /* inline code in prose */
 main p code,
+[k="alert"] code,
 [k="dialog-content"] p code {
   padding: 1px 5px;
   border-radius: 4px;

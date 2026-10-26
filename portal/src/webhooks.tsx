@@ -172,8 +172,8 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
       )}
 
       {!adminState.adminSet ? (
-        <Alert variant="destructive" style={{ marginBottom: 20 }}>
-          Webhooks management is disabled because <strong>ADMIN_PASSWORD</strong> is not set in the server environment. Configure ADMIN_PASSWORD to enable webhook delivery and administration.
+        <Alert style={{ marginBottom: 20 }}>
+          Webhooks need an admin password. Set <code>ADMIN_PASSWORD</code> on the server, then restart to add endpoints.
         </Alert>
       ) : !adminState.admin ? (
         <div style={{ marginBottom: 20 }}>
@@ -197,7 +197,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
         )}
       </div>
 
-      {webhooks && webhooks.length === 0 ? (
+      {!adminState.adminSet ? null : webhooks && webhooks.length === 0 ? (
         <Empty style={{ padding: '48px 0' }}>
           <p style={muted}>No webhooks yet. Add one to get installs, events and clicks pushed to your server.</p>
         </Empty>
