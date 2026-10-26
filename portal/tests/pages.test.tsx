@@ -32,7 +32,7 @@ beforeAll(async () => {
   key = uniq('pages');
   await api.createLink(app.id, {
     key,
-    url: 'https://example.com/p',
+    url: '/p',
     ios: 'https://apps.apple.com/app/id123',
     android: 'https://play.google.com/store/apps/details?id=com.example',
     fallbackUrl: '',

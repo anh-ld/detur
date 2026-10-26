@@ -88,8 +88,12 @@ func (p *portalServer) getLinkVariants(w http.ResponseWriter, r *http.Request) {
 }
 
 func validRuleTargets(t store.RuleTargets) error {
+	if t.Destination != "" { // empty inherits the link's route (LR2)
+		if err := validDestination("destination", t.Destination); err != nil {
+			return err
+		}
+	}
 	for _, f := range []struct{ name, v string }{
-		{"destination", t.Destination},
 		{"ios", t.IOS},
 		{"android", t.Android},
 		{"fallback_url", t.FallbackURL},

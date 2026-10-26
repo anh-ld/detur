@@ -199,12 +199,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
 
       {webhooks && webhooks.length === 0 ? (
         <Empty style={{ padding: '48px 0' }}>
-          <p style={muted}>No webhook endpoints configured for this app.</p>
-          {adminState.adminSet && (
-            <Button variant="outline" style={{ marginTop: 12 }} onClick={() => gateOpen('dlg-add-webhook')}>
-              Create first webhook
-            </Button>
-          )}
+          <p style={muted}>No webhooks yet. Add one to get installs, events and clicks pushed to your server.</p>
         </Empty>
       ) : (
         <Table>

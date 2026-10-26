@@ -170,3 +170,16 @@ func AddParams(target string, q url.Values, allow func(k, v string) bool) string
 	u.RawQuery += add.Encode()
 	return u.String()
 }
+
+// Origin: scheme + host of the request. Dev listener (host:port, plain HTTP) -> http; prod sits behind TLS on the bare domain.
+func Origin(r *http.Request) string {
+	if r.TLS == nil && strings.Contains(r.Host, ":") {
+		return "http://" + r.Host
+	}
+	return "https://" + r.Host
+}
+
+// IsRoute: app route destination ("/product/42?x=1"), not a URL. "//host" is protocol-relative, not a route.
+func IsRoute(s string) bool {
+	return strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//")
+}

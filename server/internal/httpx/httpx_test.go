@@ -136,3 +136,14 @@ func TestSetTrustedProxies(t *testing.T) {
 		t.Errorf("After SetTrustedProxies re-baseline: XFFIgnored=%d LastXFFPeer=%q; want 0 and empty", XFFIgnored(), LastXFFPeer())
 	}
 }
+
+func TestIsRoute(t *testing.T) {
+	for in, want := range map[string]bool{
+		"/product/42": true, "/": true, "/?x=1": true,
+		"//evil.example/x": false, "product/42": false, "https://example.com/p": false, "": false,
+	} {
+		if got := IsRoute(in); got != want {
+			t.Errorf("IsRoute(%q) = %v; want %v", in, got, want)
+		}
+	}
+}

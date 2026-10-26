@@ -54,10 +54,11 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | R3 | Other targets + app destination: all non-empty params, add-only, URL not re-encoded. | Detour + ours | Add-only is ours: operator keys win. Dub overwrites. | 008 |
 | R4 | Store/fallback targets per link. | Dub | Detour: per app. Per link is more flexible. | — |
 | R5 | Links: one path segment. | Ours (divergence) | Detour allows more. See CAVEATS. | — |
-| R6 | Targets absolute. `javascript:`, `data:`, `vbscript:`, `file:` rejected. App schemes + `market:` OK. | Ours | Typos became relative redirects. | 003 |
+| R6 | Store/fallback targets absolute; destination = app route only (R10). `javascript:`, `data:`, `vbscript:`, `file:` rejected. App schemes + `market:` OK. | Ours | Typos became relative redirects. | 003 |
 | R7 | Expired → `expiredUrl`, else 410. | Dub | Dub expiry. | — |
 | R8 | Desktop (not bot) + non-http(s) target → 200 QR page: short link, copy button, store buttons when set. Click still recorded (`web`). QR: `rsc.io/qr`, only dep besides sqlite. | DeepLinkNow + ours | 302 to `myapp://` opened nothing. | link-page-gaps |
 | R9 | Per-link `og_title` (≤100), `og_description` (≤300), `og_image` (https). Set + GET + bot (C3) → OG page, canonical = short link, script redirect + Continue link. Unset → 302. Base link only; rules pick the onward target. | DeepLinkNow + ours | Store/scheme targets had no chat preview. Redirect: humans misread as bots still get through. | link-page-gaps |
+| R10 | Destination = app route only (`/product/42?x=1`; link, rule, variant). SDK gets path `/<first 3 of appID>/product/42?x=1` (match-link, resolve-short). Browsers never redirect to it: no store target → app page (store buttons on a phone, QR on desktop); OG page preview only. Web visitors → fallback URL. | Detour + ours | SDK drops the first path segment (Detour's app hash) and drops non-web URLs in deferred-only mode: full URLs lost a segment, `myapp://` never arrived. Path branch does neither, skips resolve-short. Relative 302 hit another short link or 404. | route-destinations |
 
 ## Link rules & A/B testing
 

@@ -9,6 +9,6 @@ export default defineConfig({
   oxc: { jsx },
   optimizeDeps: { rolldownOptions: { transform: { jsx } } }, // dep scan reads its own JSX setting
   build: { outDir: 'dist' },
-  // dev: proxy API calls to portal listener
-  server: { proxy: { '/api': 'http://127.0.0.1:8081' } },
+  // dev: proxy API calls to portal listener. Keep Host: the portal guard needs Origin == Host (else every write is 403).
+  server: { proxy: { '/api': { target: 'http://127.0.0.1:8081', changeOrigin: false } } },
 });

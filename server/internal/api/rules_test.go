@@ -11,7 +11,7 @@ import (
 // One case per validateLinkRules reject branch + valid controls. Full input per case.
 func TestValidateLinkRules(t *testing.T) {
 	direct := func(name string) store.LinkRule {
-		return store.LinkRule{Name: name, Action: store.RuleAction{Targets: &store.RuleTargets{Destination: "myapp://x"}}}
+		return store.LinkRule{Name: name, Action: store.RuleAction{Targets: &store.RuleTargets{Destination: "/x"}}}
 	}
 	split := func(name string, variants ...store.SplitVariant) store.LinkRule {
 		return store.LinkRule{Name: name, Action: store.RuleAction{Split: variants}}
@@ -37,6 +37,9 @@ func TestValidateLinkRules(t *testing.T) {
 		{"window reversed", []store.LinkRule{{Name: "r", Cond: store.RuleCond{From: &from, Until: &until}, Action: direct("").Action}}, `until must be after from`},
 		{"no action", []store.LinkRule{{Name: "r"}}, `must specify direct targets or split variants`},
 		{"unsafe direct target", []store.LinkRule{{Name: "r", Action: store.RuleAction{Targets: &store.RuleTargets{FallbackURL: "javascript:alert(1)"}}}}, `fallback_url scheme "javascript" not allowed`},
+		{"route destination", []store.LinkRule{{Name: "r", Action: store.RuleAction{Targets: &store.RuleTargets{Destination: "/product/42"}}}}, ""},
+		{"bare path destination", []store.LinkRule{{Name: "r", Action: store.RuleAction{Targets: &store.RuleTargets{Destination: "product/42"}}}}, `destination must be an app route`},
+		{"route variant destination", []store.LinkRule{split("r", v("A", 50), store.SplitVariant{Name: "B", Weight: 50, Targets: store.RuleTargets{Destination: "/sale"}})}, ""},
 		{"one variant", []store.LinkRule{split("r", v("A", 100))}, `requires at least 2 variants`},
 		{"blank variant name", []store.LinkRule{split("r", v("A", 50), v(" ", 50))}, `variant #2: name is required`},
 		{"weight zero", []store.LinkRule{split("r", v("A", 100), v("B", 0))}, `weight must be between 1 and 100`},

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 )
 
@@ -13,6 +14,9 @@ func serveOG(w http.ResponseWriter, r *http.Request, link store.Link, dest strin
 	card := "summary"
 	if link.OGImage != "" {
 		card = "summary_large_image"
+	}
+	if httpx.IsRoute(dest) { // app route: nothing a browser can follow -> preview only
+		dest = ""
 	}
 	htmlNoStore(w)
 	_ = ogTmpl.Execute(w, struct {
@@ -32,5 +36,5 @@ var ogTmpl = template.Must(template.New("og").Parse(`<!doctype html>
 {{if .Desc}}<meta name="description" content="{{.Desc}}"><meta property="og:description" content="{{.Desc}}"><meta name="twitter:description" content="{{.Desc}}">{{end}}
 {{if .Image}}<meta property="og:image" content="{{.Image}}"><meta name="twitter:image" content="{{.Image}}">{{end}}
 <meta name="twitter:card" content="{{.Card}}">
-<p><a href="{{.Href}}">Continue</a></p>
-<script>location.replace({{.Dest}});</script>`))
+{{if .Href}}<p><a href="{{.Href}}">Continue</a></p>
+<script>location.replace({{.Dest}});</script>{{end}}`))

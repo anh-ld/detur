@@ -19,11 +19,11 @@ func TestPortalLinkOG(t *testing.T) {
 		body string
 		want int
 	}{
-		{`{"key":"o1","url":"https://example.com","ogImage":"http://cdn.example/a.png"}`, http.StatusBadRequest},
-		{`{"key":"o2","url":"https://example.com","ogImage":"javascript:alert(1)"}`, http.StatusBadRequest},
-		{`{"key":"o3","url":"https://example.com","ogTitle":"` + strings.Repeat("é", 101) + `"}`, http.StatusBadRequest},
-		{`{"key":"o4","url":"https://example.com","ogDescription":"` + strings.Repeat("x", 301) + `"}`, http.StatusBadRequest},
-		{`{"key":"o5","url":"https://example.com","ogTitle":" Hi ","ogDescription":"d","ogImage":"https://cdn.example/a.png"}`, http.StatusCreated},
+		{`{"key":"o1","url":"/home","ogImage":"http://cdn.example/a.png"}`, http.StatusBadRequest},
+		{`{"key":"o2","url":"/home","ogImage":"javascript:alert(1)"}`, http.StatusBadRequest},
+		{`{"key":"o3","url":"/home","ogTitle":"` + strings.Repeat("é", 101) + `"}`, http.StatusBadRequest},
+		{`{"key":"o4","url":"/home","ogDescription":"` + strings.Repeat("x", 301) + `"}`, http.StatusBadRequest},
+		{`{"key":"o5","url":"/home","ogTitle":" Hi ","ogDescription":"d","ogImage":"https://cdn.example/a.png"}`, http.StatusCreated},
 	} {
 		if resp, rb := portalReq(t, portal, "POST", path, c.body, nil); resp.StatusCode != c.want {
 			t.Errorf("case %d: %d %s; want %d", i, resp.StatusCode, rb, c.want)

@@ -104,6 +104,9 @@ func clickPlatform(agent string) string {
 }
 
 func clickKind(dest string) string {
+	if httpx.IsRoute(dest) { // app route: visitor gets the app page (store buttons), not a web page
+		return store.KindApp
+	}
 	if u, err := url.Parse(dest); err == nil && (isAppStore(u) || isPlayStore(u)) {
 		return store.KindApp
 	}

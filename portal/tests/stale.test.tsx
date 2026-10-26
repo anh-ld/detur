@@ -141,7 +141,7 @@ it('switching apps: the old app, its links and its numbers never show under the 
     if (url.endsWith('/apps/appB/links')) return hold('links');
     if (url.endsWith('/apps/appB')) return hold('app');
     if (url.includes('/analytics?')) return json({ ...stats(7), links: [{ linkId: 'l1', key: 'old-link', clicks: 7, matches: 0 }] });
-    if (url.endsWith('/links')) return json([{ id: 'l1', appId: 'app1', key: 'old-link', url: 'https://example.com', ios: '', android: '', fallbackUrl: '' }]);
+    if (url.endsWith('/links')) return json([{ id: 'l1', appId: 'app1', key: 'old-link', url: '/home', ios: '', android: '', fallbackUrl: '' }]);
     return json(app);
   });
 
