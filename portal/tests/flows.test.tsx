@@ -144,14 +144,14 @@ describe('portal client flows', () => {
     await screen.findByRole('heading', { name: app.name });
 
     fireEvent.click(screen.getByRole('button', { name: 'New link' }));
-    fireEvent.input(within(openDialog()).getByLabelText('Key'), { target: { value: 'summer-sale' } });
-    fireEvent.input(within(openDialog()).getByLabelText('Destination URL'), {
-      target: { value: 'https://example.com/promo' },
+    fireEvent.input(within(openDialog()).getByLabelText('Short link'), { target: { value: 'summer-sale' } });
+    fireEvent.input(within(openDialog()).getByLabelText('Destination'), {
+      target: { value: '/promo' },
     });
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
 
     const row = (await screen.findByText('summer-sale')).closest('tr')!;
-    expect(row.innerText).toContain('https://example.com/promo');
+    expect(row.innerText).toContain('/promo');
     expect((await api.listLinks(app.id)).length).toBe(1);
 
     fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
@@ -166,7 +166,7 @@ describe('portal client flows', () => {
     const key = uniq('promo');
     await api.createLink(app.id, {
       key,
-      url: 'https://example.com/promo',
+      url: '/promo',
       ios: 'https://apps.apple.com/app/id123',
       android: '',
       fallbackUrl: 'https://example.com',
@@ -221,7 +221,7 @@ describe('portal client flows', () => {
     const key = uniq('social');
     await api.createLink(app.id, {
       key,
-      url: 'https://example.com/social',
+      url: '/social',
       ios: 'https://apps.apple.com/app/id123',
       android: '',
       fallbackUrl: '',
@@ -240,7 +240,7 @@ describe('portal client flows', () => {
   it('link analytics flow: events from a tagged device reach Conversions by link; Retention by link counts the device, unreached marks show –', async () => {
     const app = await api.createApp(uniq('tag-app'));
     const key = uniq('tag');
-    await api.createLink(app.id, { key, url: 'https://example.com/t', ios: '', android: '', fallbackUrl: '' });
+    await api.createLink(app.id, { key, url: '/t', ios: '', android: '', fallbackUrl: '' });
     const sdk = (path: string, body: object) =>
       fetch(`${SDK}/api/analytics/${path}`, {
         method: 'POST',
@@ -266,7 +266,7 @@ describe('portal client flows', () => {
   it('tag links flow: the switch saves on press with a toast; match-link then hands the app detur_link=<key>', async () => {
     const app = await api.createApp(uniq('tagset-app'));
     const key = uniq('tagset');
-    await api.createLink(app.id, { key, url: 'https://example.com/d', ios: 'https://apps.apple.com/app/id123', android: '', fallbackUrl: '' });
+    await api.createLink(app.id, { key, url: '/d', ios: 'https://apps.apple.com/app/id123', android: '', fallbackUrl: '' });
     location.hash = `#/apps/${app.id}/settings`;
     render(<App />);
     const sw = (await screen.findByLabelText('Tag deferred links')) as HTMLInputElement;
@@ -278,7 +278,7 @@ describe('portal client flows', () => {
     await click(key, IPHONE, true);
     const res = await matchLink(app);
     expect(res.status).toBe(200);
-    expect((await res.json()).link).toBe(`https://example.com/d?detur_link=${key}`);
+    expect((await res.json()).link).toBe(`/${app.id.slice(0, 3)}/d?detur_link=${key}`);
     await api.deleteApp(app.id);
   });
 
@@ -426,7 +426,7 @@ describe('portal client flows', () => {
     fireEvent.click(within(keyCard).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
 
-    await screen.findByText(/revoked — SDK calls rejected/);
+    await screen.findByText(/Revoked. SDK calls are rejected./);
     expect((await api.getApp(app.id)).apiKeyHash).toBe('');
     await api.deleteApp(app.id);
   });
@@ -435,7 +435,7 @@ describe('portal client flows', () => {
     const app = await api.createApp(uniq('edit-link-app'));
     await api.createLink(app.id, {
       key: 'summer-sale',
-      url: 'https://example.com/promo',
+      url: '/promo',
       ios: '',
       android: '',
       fallbackUrl: '',
@@ -444,13 +444,13 @@ describe('portal client flows', () => {
     const row = (await screen.findByText('summer-sale')).closest('tr')!;
 
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
-    fireEvent.input(within(openDialog()).getByLabelText('Destination URL'), {
-      target: { value: 'https://example.com/v2' },
+    fireEvent.input(within(openDialog()).getByLabelText('Destination'), {
+      target: { value: '/v2' },
     });
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Save', exact: true }));
 
-    await waitFor(() => screen.getByText('https://example.com/v2'));
-    expect((await api.listLinks(app.id))[0].url).toBe('https://example.com/v2');
+    await waitFor(() => screen.getByText('/v2'));
+    expect((await api.listLinks(app.id))[0].url).toBe('/v2');
     await api.deleteApp(app.id);
   });
 
@@ -458,7 +458,7 @@ describe('portal client flows', () => {
     const app = await api.createApp(uniq('rules-app'));
     const link = await api.createLink(app.id, {
       key: 'split-link',
-      url: 'https://example.com/base',
+      url: '/base',
       ios: '',
       android: '',
       fallbackUrl: '',
@@ -466,22 +466,22 @@ describe('portal client flows', () => {
     render(<AppPage id={app.id} tab="links" />);
     const row = (await screen.findByText('split-link')).closest('tr')!;
 
-    fireEvent.click(within(row).getByRole('button', { name: 'Rules & Splits' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
     const dlg = openDialog();
-    await within(dlg).findByText('No rules configured');
+    await within(dlg).findByText('No rules yet');
 
-    fireEvent.click(within(dlg).getByRole('button', { name: '+ Add First Rule' }));
-    fireEvent.input(within(dlg).getByLabelText('Rule Name'), {
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Add rule' }));
+    fireEvent.input(within(dlg).getByLabelText('Rule name'), {
       target: { value: 'Split Test 1' },
     });
 
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Weighted A/B Split Test' }));
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Done Editing' }));
+    fireEvent.click(within(dlg).getByRole('button', { name: 'A/B split' }));
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
 
     await within(dlg).findByText('Split Test 1');
 
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Save Rule Order & Changes' }));
-    await within(dlg).findByText('Rules saved successfully');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save rules' }));
+    await within(dlg).findByText('Rules saved');
 
     const storedRules = await api.getLinkRules(app.id, link.id);
     expect(storedRules).toHaveLength(1);
@@ -490,9 +490,9 @@ describe('portal client flows', () => {
 
     // deleting the last rule still saves
     fireEvent.click(within(dlg).getByRole('button', { name: 'Delete' }));
-    await within(dlg).findByText('No rules configured');
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Save Rule Order & Changes' }));
-    await within(dlg).findByText('Rules saved successfully');
+    await within(dlg).findByText('No rules yet');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save rules' }));
+    await within(dlg).findByText('Rules saved');
     expect(await api.getLinkRules(app.id, link.id)).toHaveLength(0);
 
     fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
@@ -687,7 +687,7 @@ describe('portal client flows', () => {
   it('flagged installs flow: a real fast install is tagged and listed; after turning timing active in the UI the next one is kept organic', async () => {
     const app = await api.createApp(uniq('fraud-view'));
     const key = uniq('fast');
-    await api.createLink(app.id, { key, url: 'https://example.com/p', ios: 'https://apps.apple.com/app/id123', android: '', fallbackUrl: '' });
+    await api.createLink(app.id, { key, url: '/p', ios: 'https://apps.apple.com/app/id123', android: '', fallbackUrl: '' });
     location.hash = `#/apps/${app.id}/fraud`;
     render(<App />);
     const section = await screen.findByRole('region', { name: 'Flagged installs' });

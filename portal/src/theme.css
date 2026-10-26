@@ -816,3 +816,533 @@ button.nav-link {
   }
 }
 
+
+/* disabled buttons read as disabled (ghost arrows looked live) */
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Icon-only buttons: 32px square, quiet until hover */
+[k="button"].icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: none;
+  color: hsl(var(--k-muted-foreground));
+}
+
+[k="button"].icon-btn:hover:not(:disabled) {
+  color: hsl(var(--k-foreground));
+}
+
+[k="button"].icon-btn.danger:hover:not(:disabled) {
+  color: hsl(var(--k-destructive));
+  background: hsl(var(--k-destructive) / 0.08);
+}
+
+/* Short link: host muted, key strong, actions tight */
+.short-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.short-link-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  margin-right: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.short-link-host {
+  color: hsl(var(--k-muted-foreground));
+}
+
+.short-link-text strong {
+  font-weight: 600;
+}
+
+.link-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.link-dest {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: hsl(var(--k-muted-foreground));
+}
+
+/* Edit dialog: read-only short link on a quiet well */
+.short-link-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 8px 8px 14px;
+  background: hsl(var(--k-muted));
+  border-radius: 8px;
+}
+
+/* Prefix inputs (short-link host): match the 6px input radius */
+.prefix-group > legend {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  height: 2.5rem;
+  box-sizing: border-box;
+  border-radius: 6px 0 0 6px !important;
+}
+
+.prefix-group > [k="input"] {
+  border-radius: 0 6px 6px 0 !important;
+}
+
+.prefix-group > [k="input"]:only-child {
+  border-radius: 6px !important;
+}
+
+/* Form sections + optional disclosures */
+.form-section {
+  display: grid;
+  gap: 8px;
+}
+
+.form-section h3,
+.form-section h4,
+.rule-editor h3 {
+  margin: 0;
+  font-size: 15px !important;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+details > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  font-weight: 500;
+  padding: 4px 0;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin: 0 4px 0 2px;
+  border-right: 1.5px solid hsl(var(--k-muted-foreground));
+  border-bottom: 1.5px solid hsl(var(--k-muted-foreground));
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
+}
+
+details[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+/* Selects inside forms look like inputs (the filled pill style is for page filters) */
+[k="field"] [k="select"] {
+  height: 2.5rem;
+  border: 1px solid hsl(var(--k-input));
+  border-radius: 6px;
+  background-color: hsl(var(--k-card));
+}
+
+[k="field"] [k="select"]:hover {
+  background-color: hsl(var(--k-card));
+  border-color: hsl(var(--k-muted-foreground) / 0.5);
+}
+
+/* Social preview card, like a chat unfurl */
+.og-card {
+  display: grid;
+  overflow: hidden;
+  max-width: 360px;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: 10px;
+  background: hsl(var(--k-card));
+}
+
+.og-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1200 / 630;
+  object-fit: cover;
+  background: hsl(var(--k-muted));
+}
+
+.og-card > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+}
+
+.og-card small {
+  font-size: 12px;
+  color: hsl(var(--k-muted-foreground));
+}
+
+.og-card strong {
+  font-weight: 500;
+}
+
+.og-card p {
+  margin: 0;
+  font-size: 13px;
+  color: hsl(var(--k-muted-foreground));
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Dialogs: thin scrollbar (default track squared off the rounded corners);
+   actions pinned to the bottom edge while the body scrolls */
+[k="dialog-content"] {
+  --dlg-pad: 2rem;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--k-input)) transparent;
+}
+
+.dialog-actions {
+  position: sticky;
+  bottom: calc(-1 * var(--dlg-pad));
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 calc(-1 * var(--dlg-pad)) calc(-1 * var(--dlg-pad));
+  padding: 14px var(--dlg-pad) var(--dlg-pad);
+  background: hsl(var(--k-card));
+  border-top: 1px solid hsl(var(--k-border));
+}
+
+/* Segmented control (rule action) */
+.seg {
+  padding: 3px;
+  gap: 2px !important;
+  background: hsl(var(--k-muted));
+  border-radius: 9999px;
+}
+
+.seg > [k="toggle"] {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9999px !important;
+  margin: 0 !important;
+  background: transparent;
+  color: hsl(var(--k-muted-foreground));
+  font-weight: 500;
+}
+
+.seg > [k="toggle"][aria-pressed="true"] {
+  background: hsl(var(--k-card));
+  color: hsl(var(--k-foreground));
+  box-shadow: rgba(0, 0, 0, 0.08) 0 1px 3px;
+}
+
+/* Rules list: numbered steps, If / Then lines, final Else */
+.rule-editor {
+  display: grid;
+  gap: 20px;
+}
+
+.rule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: var(--k-radius);
+  background: hsl(var(--k-card));
+}
+
+.rule-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 12px 14px 16px;
+}
+
+.rule-row + .rule-row {
+  border-top: 1px solid hsl(var(--k-border));
+}
+
+.rule-num {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: hsl(var(--k-accent));
+  color: hsl(var(--k-accent-foreground));
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.rule-body {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.rule-kw {
+  width: 34px;
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(var(--k-muted-foreground));
+}
+
+.cond {
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: hsl(var(--k-muted));
+  border: 1px solid hsl(var(--k-border));
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+code.target {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.rule-actions {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+.rule-default {
+  background: hsl(var(--k-muted) / 0.5);
+  border-radius: 0 0 var(--k-radius) var(--k-radius);
+}
+
+.rule-default .rule-num {
+  background: transparent;
+  color: hsl(var(--k-muted-foreground));
+}
+
+/* Split: stacked weight bar + legend */
+.split {
+  display: grid;
+  gap: 8px;
+}
+
+.split-compact {
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  max-width: 420px;
+}
+
+.split-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: hsl(var(--k-muted));
+}
+
+.split-compact .split-bar {
+  height: 6px;
+}
+
+.split-bar > span {
+  flex-basis: 0;
+  min-width: 0;
+  transition: flex-grow 200ms ease;
+}
+
+.split-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: hsl(var(--k-muted-foreground));
+}
+
+.split-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.split-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.split-legend b {
+  font-weight: 500;
+  color: hsl(var(--k-foreground));
+  font-variant-numeric: tabular-nums;
+}
+
+.weight-ok,
+.weight-bad {
+  font-size: 13px;
+}
+
+.weight-ok {
+  color: hsl(152 60% 32%);
+}
+
+.weight-bad {
+  color: hsl(var(--k-destructive));
+}
+
+.variant {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: var(--k-radius);
+}
+
+.variant-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.variant-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-bottom: 15px;
+  border-radius: 3px;
+}
+
+.variant-head .icon-btn {
+  margin-bottom: 4px;
+}
+
+/* number input with a trailing unit */
+.suffix-input {
+  position: relative;
+}
+
+.suffix-input > [k="input"] {
+  padding-right: 28px;
+  text-align: right;
+}
+
+.suffix-input > span {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: hsl(var(--k-muted-foreground));
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  [k="dialog-content"] {
+    --dlg-pad: 1.25rem;
+  }
+
+  .dialog-actions {
+    padding-bottom: calc(var(--dlg-pad) + env(safe-area-inset-bottom));
+  }
+
+  .link-dest {
+    max-width: none;
+    white-space: normal;
+  }
+
+  .rule-row {
+    flex-wrap: wrap;
+  }
+
+  .rule-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+.og-preview {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.short-link [k="button"].icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+/* rule targets: placeholder = inherited link value, fainter than a typed value */
+.inherit-fields [k="input"]::placeholder {
+  color: hsl(var(--k-muted-foreground) / 0.55);
+}
+
+/* inline code in prose */
+main p code,
+[k="dialog-content"] p code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: hsl(var(--k-muted));
+  font-size: 0.92em;
+}
+
+/* copyable one-line snippet */
+.code-snippet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: 8px;
+  background: hsl(var(--k-muted) / 0.6);
+}
+
+.code-snippet code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
