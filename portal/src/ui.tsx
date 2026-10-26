@@ -12,25 +12,74 @@ export const copyText = async (v: string) => {
   await navigator.clipboard.writeText(v);
 };
 
-// ghost copy button: "Copied" for 1.5s
-export function CopyButton({ value, label }: { value: string; label: string }) {
+// 1.5px outline icon paths (24px grid); decorative, the button label carries the name
+export const ICONS = {
+  copy: 'M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1zM16 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3',
+  check: 'M20 6 9 17l-5-5',
+  open: 'M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6',
+  up: 'M12 19V5M5 12l7-7 7 7',
+  down: 'M12 5v14M19 12l-7 7-7-7',
+  edit: 'M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z',
+  trash: 'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6',
+  close: 'M18 6 6 18M6 6l12 12',
+  plus: 'M12 5v14M5 12h14',
+};
+
+export const Icon = ({ d, spin, size = 16 }: { d: string; spin?: boolean; size?: number }) => (
+  <svg class={spin ? 'spin' : undefined} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+
+// square ghost button, icon only: label -> aria-label + hover tooltip
+export function IconButton({ icon, label, ...rest }: { icon: string; label: string } & Record<string, unknown>) {
+  return (
+    <Button type="button" size="sm" variant="ghost" class="icon-btn" aria-label={label} title={label} {...rest}>
+      <Icon d={icon} />
+    </Button>
+  );
+}
+
+// copy button: "Copied" (or a check) for 1.5s. icon = compact ghost version for inline values
+export function CopyButton({ value, label, icon }: { value: string; label: string; icon?: boolean }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
   }, [copied]);
+  const onClick = async () => {
+    await copyText(value);
+    setCopied(true);
+  };
+  if (icon) return <IconButton icon={copied ? ICONS.check : ICONS.copy} label={copied ? 'Copied' : label} onClick={onClick} />;
   return (
-    <Button
-      size="sm"
-      variant="outline"
-      onClick={async () => {
-        await copyText(value);
-        setCopied(true);
-      }}
-    >
+    <Button size="sm" variant="outline" onClick={onClick}>
       {copied ? 'Copied' : label}
     </Button>
+  );
+}
+
+// no-track flag (server paramNoTrack): portal previews never count as clicks
+export const previewUrl = (url: string) => `${url}?detur-no-track=1`;
+
+// full short link: host muted, key strong; copy + open (untracked) beside it
+export function ShortLink({ base, linkKey }: { base: string; linkKey: string }) {
+  const url = `${base}/${linkKey}`;
+  return (
+    <span class="short-link">
+      <span class="short-link-text" title={url}>
+        <span class="short-link-host">{base.replace(/^https?:\/\//, '')}/</span>
+        <strong>{linkKey}</strong>
+      </span>
+      {base && (
+        <>
+          <CopyButton icon value={url} label="Copy link" />
+          <IconButton icon={ICONS.open} label="Open link (not counted as a click)" href={previewUrl(url)} target="_blank" rel="noreferrer" />
+        </>
+      )}
+    </span>
   );
 }
 

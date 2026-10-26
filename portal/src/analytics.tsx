@@ -334,7 +334,7 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
               <tbody>
                 {data.events.map((e) => (
                   <tr key={e.event}>
-                    <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.event}</td>
+                    <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.event || <span style={muted}>(no name)</span>}</td>
                     <td data-label="Count" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {fmt(e.count)}
                     </td>

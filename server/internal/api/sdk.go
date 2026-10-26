@@ -141,13 +141,26 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.st.RecordInstall(inst); err != nil {
 		s.log.Printf("match-link install record failed (link still returned): %v", err)
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{"link": s.withLinkTag(appID, res.Destination, func() string {
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"link": s.withLinkTag(appID, appDestination(appID, res.Destination), func() string {
 		link, err := s.st.GetLink(res.Click.LinkID)
 		if err != nil {
 			return ""
 		}
 		return link.Key
 	})})
+}
+
+// appDestination: app route -> /<first 3 of appID><route>. SDK drops the first path segment (Detour's app hash), so a bare route
+// would lose one. Path, not URL: the SDK's path branch never re-calls resolve-short and skips the deferred-only web check. URLs unchanged.
+func appDestination(appID, dest string) string {
+	if !httpx.IsRoute(dest) {
+		return dest
+	}
+	seg := appID
+	if len(seg) > 3 {
+		seg = seg[:3]
+	}
+	return "/" + url.PathEscape(seg) + dest
 }
 
 // withLinkTag: dest + detur_link=<key> (add-only) when app tags links, so app learns its link key (SDK only hands destination). Key read only then; lookup failure or "" key -> dest unchanged.
@@ -202,7 +215,7 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 		dest = link.ExpiredURL
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{
-		"link":       s.withLinkTag(appID, dest, func() string { return link.Key }),
+		"link":       s.withLinkTag(appID, appDestination(appID, dest), func() string { return link.Key }),
 		"route":      u.Path,
 		"parameters": u.RawQuery,
 	})

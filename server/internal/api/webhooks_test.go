@@ -23,7 +23,7 @@ func newPortalWithAdmin(t *testing.T, adminPassword string) (string, *store.Stor
 	t.Cleanup(func() { st.Close() })
 
 	portalAddr := "127.0.0.1:0"
-	h := api.RegisterPortal(st, filepath.Join(t.TempDir(), "static"), []string{portalAddr}, "", adminPassword, 12)
+	h := api.RegisterPortal(st, filepath.Join(t.TempDir(), "static"), []string{portalAddr}, "", adminPassword, 12, "")
 	srv := httptest.NewServer(h)
 	t.Cleanup(func() { srv.Close() })
 	return srv.URL, st

@@ -56,8 +56,15 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
           </tr>
           <tr>
             <td>API key</td>
-            <td style={mono}>
-              {app.apiKeyHash ? app.apiKeyHash.slice(0, 12) + '…' : 'revoked — SDK calls rejected'}
+            <td>
+              {app.apiKeyHash ? (
+                <span style={row}>
+                  <span style={{ ...mono, letterSpacing: 2 }} aria-label="Hidden">••••••••••••</span>
+                  <span style={{ ...muted, fontSize: 13 }}>Shown once when created or rotated.</span>
+                </span>
+              ) : (
+                <span style={{ ...muted, color: 'hsl(var(--k-destructive))' }}>Revoked. SDK calls are rejected.</span>
+              )}
             </td>
             <td>
               <div style={{ ...row, justifyContent: 'flex-end' }}>
@@ -271,6 +278,8 @@ export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) =>
 }
 
 // saves on press (Fraud tab pattern): toast; rejected -> revert + toast why
+const TAG_SNIPPET = "DetourAnalytics.logEvent('detur_link', { link: link.params.detur_link })";
+
 function TagLinksRow({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
   const [on, setOn] = useState(app.tagLinks);
   const save = async (next: boolean) => {
@@ -292,8 +301,12 @@ function TagLinksRow({ app, onSaved }: { app: App; onSaved: (a: App) => void }) 
         <Label htmlFor="set-tag">Tag deferred links</Label>
         <p style={muted}>
           Adds <code>detur_link=&lt;key&gt;</code> to links the SDK hands your app. Send it back once for per-link
-          conversions and retention: <code>DetourAnalytics.logEvent('detur_link', {'{'} link: link.params.detur_link {'}'})</code>
+          conversions and retention:
         </p>
+        <div class="code-snippet">
+          <code>{TAG_SNIPPET}</code>
+          <CopyButton icon value={TAG_SNIPPET} label="Copy snippet" />
+        </div>
       </div>
       <Switch id="set-tag" checked={on} onChange={(e) => save(e.currentTarget.checked)} />
     </div>
@@ -352,6 +365,12 @@ export function MatchQualityView({ app }: { app: App }) {
   useEffect(() => setAt(app.matchThreshold), [app.matchThreshold]);
   if (!q) return <Loading />;
 
+  // every 50-point bucket across the threshold range + seen scores; empty ones as zero (one bucket alone filled the card)
+  const seen = new Map(q.buckets.map((b) => [b.from, b]));
+  const lo = Math.min(THRESHOLD.min, ...q.buckets.map((b) => b.from));
+  const hi = Math.max(THRESHOLD.max, ...q.buckets.map((b) => b.from));
+  const bars: typeof q.buckets = [];
+  for (let f = lo; f <= hi; f += 50) bars.push(seen.get(f) ?? { from: f, matched: 0, organic: 0 });
   const top = Math.max(1, ...q.buckets.map((b) => b.matched + b.organic));
   const lose = q.buckets.filter((b) => b.from < at).reduce((n, b) => n + b.matched, 0);
   const gain = q.buckets.filter((b) => b.from >= at).reduce((n, b) => n + b.organic, 0);
@@ -368,7 +387,7 @@ export function MatchQualityView({ app }: { app: App }) {
       {q.buckets.length > 0 && (
         <>
           <div class="score-bars" role="img" aria-label="Installs per fingerprint score">
-            {q.buckets.map((b) => (
+            {bars.map((b) => (
               <div key={b.from} title={`${b.from}–${b.from + 49}: ${b.matched} matched, ${b.organic} organic`}>
                 <span class="score-bar organic" style={{ height: `${(b.organic / top) * 100}%` }} />
                 <span class="score-bar matched" style={{ height: `${(b.matched / top) * 100}%`, opacity: b.from < at ? 0.35 : 1 }} />

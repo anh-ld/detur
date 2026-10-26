@@ -13,6 +13,7 @@ import {
   Empty,
   Field,
   Input,
+  InputGroup,
   Label,
   Separator,
   Tab,
@@ -21,7 +22,7 @@ import {
   Textarea,
 } from 'kinu';
 import { Analytics, api, App, DateRangeFilter, Link, Platform } from './api';
-import { closeDialog, ConfirmDelete, Loading, mono, muted, PageHeader, row } from './ui';
+import { closeDialog, ConfirmDelete, Icon, Loading, mono, muted, PageHeader, row, ShortLink } from './ui';
 import { AnalyticsView, Filters, fmt } from './analytics';
 import { FraudPanel } from './fraud';
 import { SettingsPanel } from './settings';
@@ -37,7 +38,14 @@ interface LinkDraft {
   ogTitle: string;
   ogDescription: string;
   ogImage: string;
+  expiresAt: string; // datetime-local value, read as UTC
+  expiredUrl: string;
 }
+
+// RFC3339 UTC <-> datetime-local (UTC wall time, no zone shift)
+const toLocalInput = (iso: string) => (iso ? iso.slice(0, 16) : '');
+const fromLocalInput = (v: string) => (v ? `${v}:00Z` : '');
+const isExpired = (l: Link) => !!l.expiresAt && new Date(l.expiresAt).getTime() < Date.now();
 
 // social preview limits: match the server's
 const OG_TITLE_MAX = 100;
@@ -53,6 +61,8 @@ const emptyDraft = (): LinkDraft => ({
   ogTitle: '',
   ogDescription: '',
   ogImage: '',
+  expiresAt: '',
+  expiredUrl: '',
 });
 
 const draftFrom = (l: Link): LinkDraft => ({
@@ -64,15 +74,9 @@ const draftFrom = (l: Link): LinkDraft => ({
   ogTitle: l.ogTitle ?? '',
   ogDescription: l.ogDescription ?? '',
   ogImage: l.ogImage ?? '',
+  expiresAt: toLocalInput(l.expiresAt ?? ''),
+  expiredUrl: l.expiredUrl ?? '',
 });
-
-// decorative 1.5px outline icon; button label carries the name
-const Icon = ({ d, spin }: { d: string; spin?: boolean }) => (
-  <svg class={spin ? 'spin' : undefined} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d={d} />
-  </svg>
-);
 
 export type AppTab = 'links' | 'analytics' | 'fraud' | 'settings' | 'webhooks';
 
@@ -94,6 +98,10 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
   const [platform, setPlatform] = useState<Platform>('');
   const [error, setError] = useState('');
+  const [linkBase, setLinkBase] = useState('');
+  useEffect(() => {
+    api.getConfig().then((c) => setLinkBase(c.linkBase ?? ''), () => {});
+  }, []);
 
   // drop responses for an app already left
   const current = useRef(id);
@@ -205,7 +213,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
         <section aria-label="Links" style={{ display: 'grid', gap: 16 }}>
           <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <p style={muted}>Clicks and matches follow the filters above.</p>
-            <LinkDialog appId={app.id} link={null} onSaved={refresh} trigger={<Button>New link</Button>} />
+            <LinkDialog appId={app.id} link={null} linkBase={linkBase} onSaved={refresh} trigger={<Button>New link</Button>} />
           </div>
           {links === null ? (
             <Loading />
@@ -231,11 +239,14 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
                 {links.map((l) => (
                   <tr key={l.id}>
                     <td>
-                      <div style={{ display: 'grid', gap: 2 }}>
-                        <strong style={mono}>{l.key}</strong>
-                        <a href={l.url} target="_blank" rel="noreferrer" style={{ ...muted, textDecoration: 'none' }}>
+                      <div class="link-cell">
+                        <div style={row}>
+                          <ShortLink base={linkBase} linkKey={l.key} />
+                          {isExpired(l) && <Badge variant="outline">Expired</Badge>}
+                        </div>
+                        <span class="link-dest" title={l.url}>
                           {l.url}
-                        </a>
+                        </span>
                       </div>
                     </td>
                     <td>
@@ -243,7 +254,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
                         {l.ios && <Badge variant="secondary">iOS</Badge>}
                         {l.android && <Badge variant="secondary">Android</Badge>}
                         {l.fallbackUrl && <Badge variant="secondary">Web</Badge>}
-                        {!l.ios && !l.android && !l.fallbackUrl && <Badge variant="outline">URL only</Badge>}
+                        {!l.ios && !l.android && !l.fallbackUrl && <Badge variant="outline">Route only</Badge>}
                       </div>
                     </td>
                     <td data-label="Clicks" className="num">
@@ -257,16 +268,19 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
                         <RulesDialog
                           appId={app.id}
                           link={l}
+                          linkBase={linkBase}
+                          days={range.days ?? 30}
                           onSaved={refresh}
                           trigger={
                             <Button size="sm" variant="outline">
-                              Rules & Splits
+                              Rules & splits
                             </Button>
                           }
                         />
                         <LinkDialog
                           appId={app.id}
                           link={l}
+                          linkBase={linkBase}
                           onSaved={refresh}
                           trigger={
                             <Button size="sm" variant="outline">
@@ -300,11 +314,13 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
 function LinkDialog({
   appId,
   link,
+  linkBase,
   onSaved,
   trigger,
 }: {
   appId: string;
   link: Link | null;
+  linkBase: string;
   onSaved: () => void;
   trigger: JSX.Element;
 }) {
@@ -316,7 +332,7 @@ function LinkDialog({
   const save = async () => {
     setErr('');
     if (!draft.key.trim() || !draft.url.trim()) {
-      setErr('key and url are required');
+      setErr('Key and destination are required');
       return;
     }
     if (ogImageBad) {
@@ -331,6 +347,8 @@ function LinkDialog({
       ogTitle: draft.ogTitle,
       ogDescription: draft.ogDescription,
       ogImage: draft.ogImage,
+      expiresAt: fromLocalInput(draft.expiresAt),
+      expiredUrl: draft.expiredUrl,
     };
     try {
       if (link) {
@@ -364,31 +382,43 @@ function LinkDialog({
           }}
         >
           <h2 style={{ margin: 0 }}>{link ? 'Edit link' : 'Create link'}</h2>
+          {link ? (
+            <div class="short-link-box">
+              <span style={muted}>Short link</span>
+              <ShortLink base={linkBase} linkKey={link.key} />
+            </div>
+          ) : (
+            <Field>
+              <Label htmlFor={`${id}-key`}>Short link</Label>
+              <InputGroup class="prefix-group">
+                {linkBase && <legend>{linkBase.replace(/^https?:\/\//, '')}/</legend>}
+                <Input
+                  id={`${id}-key`}
+                  style={mono}
+                  value={draft.key}
+                  onInput={(e) => setDraft({ ...draft, key: e.currentTarget.value })}
+                  placeholder="summer-sale"
+                />
+              </InputGroup>
+              <Field.Description>The path people tap. Can't be changed later.</Field.Description>
+            </Field>
+          )}
           <Field>
-            <Label htmlFor={`${id}-key`}>Key</Label>
-            <Input
-              id={`${id}-key`}
-              style={mono}
-              value={draft.key}
-              onInput={(e) => setDraft({ ...draft, key: e.currentTarget.value })}
-              placeholder="summer-sale"
-              disabled={!!link}
-            />
-            <Field.Description>The short link path. Can't be changed later.</Field.Description>
-          </Field>
-          <Field>
-            <Label htmlFor={`${id}-url`}>Destination URL</Label>
+            <Label htmlFor={`${id}-url`}>Destination</Label>
             <Input
               id={`${id}-url`}
               value={draft.url}
               onInput={(e) => setDraft({ ...draft, url: e.currentTarget.value })}
-              placeholder="https://example.com/product"
+              placeholder="/product/42?ref=promo"
             />
-            <Field.Description>Handed to the app after install.</Field.Description>
+            <Field.Description>App route the app opens, e.g. /product/42. Web visitors use the desktop fallback.</Field.Description>
           </Field>
 
           <Separator />
-          <p style={muted}>Redirects (optional)</p>
+          <div class="form-section">
+            <h3>Store and web redirects</h3>
+            <p style={muted}>Optional. Where people without the app land.</p>
+          </div>
           <Field>
             <Label htmlFor={`${id}-ios`}>iOS store page</Label>
             <Input
@@ -417,8 +447,37 @@ function LinkDialog({
             />
           </Field>
 
+          <details open={!!(draft.expiresAt || draft.expiredUrl)}>
+            <summary>
+              Expiry <span style={muted}>optional</span>
+            </summary>
+            <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
+              <Field>
+                <Label htmlFor={`${id}-exp`}>Expires at (UTC)</Label>
+                <Input
+                  id={`${id}-exp`}
+                  type="datetime-local"
+                  value={draft.expiresAt}
+                  onInput={(e) => setDraft({ ...draft, expiresAt: e.currentTarget.value })}
+                />
+                <Field.Description>After this, the link goes to the expired URL, or shows "link expired".</Field.Description>
+              </Field>
+              <Field>
+                <Label htmlFor={`${id}-expurl`}>Expired URL</Label>
+                <Input
+                  id={`${id}-expurl`}
+                  value={draft.expiredUrl}
+                  onInput={(e) => setDraft({ ...draft, expiredUrl: e.currentTarget.value })}
+                  placeholder="https://example.com/offer-ended"
+                />
+              </Field>
+            </div>
+          </details>
+
           <details open={!!(draft.ogTitle || draft.ogDescription || draft.ogImage)}>
-            <summary style={muted}>Social preview (optional)</summary>
+            <summary>
+              Social preview <span style={muted}>optional</span>
+            </summary>
             <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
               <Field>
                 <Label htmlFor={`${id}-ogt`}>Title</Label>
@@ -457,11 +516,24 @@ function LinkDialog({
                     : 'Shown when the link is shared in chats and social apps. 1200×630 works best.'}
                 </Field.Description>
               </Field>
+              {(draft.ogTitle || draft.ogDescription || draft.ogImage) && (
+                <figure class="og-preview">
+                  <figcaption style={muted}>Preview</figcaption>
+                  <div class="og-card">
+                    {httpsUrl(draft.ogImage.trim()) && <img src={draft.ogImage.trim()} alt="" />}
+                    <div>
+                      <small>{linkBase.replace(/^https?:\/\//, '') || 'detur'}</small>
+                      <strong>{draft.ogTitle || draft.key || 'Untitled'}</strong>
+                      {draft.ogDescription && <p>{draft.ogDescription}</p>}
+                    </div>
+                  </div>
+                </figure>
+              )}
             </div>
           </details>
 
           {err && <Alert variant="destructive">{err}</Alert>}
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
+          <div class="dialog-actions">
             <Dialog.Close>
               <Button variant="outline">Cancel</Button>
             </Dialog.Close>

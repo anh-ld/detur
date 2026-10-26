@@ -61,7 +61,7 @@ func main() {
 
 	// Portal: own listener; static UI from ./portal/dist (missing = API only).
 	go func() {
-		portal := api.RegisterPortal(st, "portal/dist", append([]string{*portalAddr}, cfg.PortalHosts...), cfg.LogoutURL, cfg.AdminPassword, cfg.AdminSessionHours)
+		portal := api.RegisterPortal(st, "portal/dist", append([]string{*portalAddr}, cfg.PortalHosts...), cfg.LogoutURL, cfg.AdminPassword, cfg.AdminSessionHours, linkBase(cfg.Domain))
 		if cfg.AdminPassword != "" {
 			log.Printf("portal admin gating: ON")
 		} else {
@@ -102,4 +102,12 @@ func purgeLoop(st *store.Store, retentionHours int) {
 			}
 		}
 	}()
+}
+
+// linkBase: short-link origin for the portal. Dev (localhost) = public listener.
+func linkBase(domain string) string {
+	if domain == "localhost" {
+		return "http://localhost:8080"
+	}
+	return "https://" + domain
 }

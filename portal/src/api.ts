@@ -24,6 +24,8 @@ export interface Link {
   ogTitle: string;
   ogDescription: string;
   ogImage: string;
+  expiresAt: string; // RFC3339 UTC; "" = never
+  expiredUrl: string;
 }
 
 // one UTC day. clicks = browser clicks; webFallbacks ⊂ clicks; opens = SDK opens of installed app
@@ -120,12 +122,18 @@ export function setApiBase(url: string) {
   apiBase = url;
 }
 
-// carries status: UI tells 401 (wrong password) from 403 (no/expired admin session) without parsing
+// carries status: UI tells 401 (wrong password) from 403 (no/expired admin session) without parsing.
+// message = server's text (user-facing); method + path kept for debugging. String(err) = message only.
 export class HttpError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  request: string;
+  constructor(message: string, status: number, request: string) {
     super(message);
     this.status = status;
+    this.request = request;
+  }
+  toString() {
+    return this.message;
   }
 }
 
@@ -137,7 +145,8 @@ export async function req<T>(method: string, path: string, body?: unknown): Prom
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new HttpError(`${method} ${path}: ${res.status} ${text.trim() || res.statusText}`, res.status);
+    const msg = text.trim() || res.statusText || `Request failed (${res.status})`;
+    throw new HttpError(msg.charAt(0).toUpperCase() + msg.slice(1), res.status, `${method} ${path}`);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
@@ -170,7 +179,7 @@ export const dateRangeQuery = (r: DateRangeFilter | number): string => {
 export const api = {
   getMatchQuality: (id: string) => req<MatchQuality>('GET', `/api/apps/${id}/match-quality?days=30`),
   getHealth: (id: string) => req<HealthCheck[]>('GET', `/api/apps/${id}/health`),
-  getConfig: () => req<{ logoutUrl: string; adminSet: boolean }>('GET', '/api/config'),
+  getConfig: () => req<{ logoutUrl: string; adminSet: boolean; linkBase: string }>('GET', '/api/config'),
   getAdminSession: () => req<AdminSession>('GET', '/api/admin/session'),
   enterAdminMode: (password: string) => req<{ expiresAt: string }>('POST', '/api/admin/session', { password }),
   exitAdminMode: () => req<AdminSession>('DELETE', '/api/admin/session'),

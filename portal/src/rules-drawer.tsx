@@ -1,22 +1,8 @@
 import { cloneElement, JSX } from 'preact';
 import { useRef, useState } from 'preact/hooks';
-import {
-  Alert,
-  Badge,
-  Button,
-  Dialog,
-  Empty,
-  Field,
-  Input,
-  Label,
-  Select,
-  Separator,
-  Tab,
-  Table,
-  TabList,
-} from 'kinu';
+import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Tab, Table, TabList, Toggle, ToggleGroup } from 'kinu';
 import { api, Link, LinkRule, Platform, RuleTargets, SplitVariant, VariantStat } from './api';
-import { adminCall, closeDialog, Loading, mono, muted, row } from './ui';
+import { adminCall, closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
 
 const cleanTargets = (t?: RuleTargets): RuleTargets => ({
   destination: t?.destination?.trim() || undefined,
@@ -32,13 +18,17 @@ const fromLocalInput = (v: string) => (v ? new Date(v + 'Z').toISOString() : und
 export function RulesDialog({
   appId,
   link,
+  linkBase = '',
   trigger,
   onSaved,
+  days = 30,
 }: {
   appId: string;
   link: Link;
+  linkBase?: string;
   trigger: JSX.Element;
   onSaved?: () => void;
+  days?: number; // page date filter: Performance follows it
 }) {
   const dialogId = `dlg-rules-${link.id}`;
   const [tab, setTab] = useState<'rules' | 'perf'>('rules');
@@ -48,7 +38,7 @@ export function RulesDialog({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState('');
-  const [perfDays, setPerfDays] = useState(30);
+  const perfDays = days;
   const [dirty, setDirty] = useState(false);
   const reqSeq = useRef(0); // latest load wins, stale dropped
 
@@ -251,7 +241,7 @@ export function RulesDialog({
       const updated = await adminCall(() => api.setLinkRules(appId, link.id, rules));
       setRules(updated);
       setDirty(false);
-      setSuccess('Rules saved successfully');
+      setSuccess('Rules saved');
       onSaved?.();
       setTimeout(() => setSuccess(''), 2500);
     } catch (e) {
@@ -261,6 +251,12 @@ export function RulesDialog({
     }
   };
 
+  const setCond = (patch: Partial<LinkRule['cond']>) => setDraftRule({ ...draftRule!, cond: { ...draftRule!.cond, ...patch } });
+  const setTarget = (patch: RuleTargets) =>
+    setDraftRule({ ...draftRule!, action: { ...draftRule!.action, targets: { ...draftRule!.action.targets, ...patch } } });
+  const editing = tab === 'rules' && editingIndex !== null && !!draftRule;
+  const fid = (s: string) => `${dialogId}-${s}`;
+
   return (
     <Dialog id={dialogId}>
       <Dialog.Trigger>
@@ -268,26 +264,23 @@ export function RulesDialog({
           onClick: openModal,
         })}
       </Dialog.Trigger>
-      <Dialog.Content style={{ width: 'min(780px, 95vw)', maxHeight: '88vh', overflowY: 'auto' }}>
-        <div style={{ display: 'grid', gap: 16 }}>
-          <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <Dialog.Content style={{ width: 'min(760px, 95vw)', maxHeight: '88vh', overflowY: 'auto' }}>
+        <div style={{ display: 'grid', gap: 20 }}>
+          <div style={{ ...row, justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'grid', gap: 4 }}>
-              <div style={row}>
-                <h2 style={{ margin: 0 }}>Rules & Splits</h2>
-                <Badge variant="secondary" style={mono}>
-                  /{link.key}
-                </Badge>
-              </div>
-              <p style={muted}>Dynamic routing rules & visitor A/B split testing</p>
+              <h2 style={{ margin: 0 }}>Rules & splits</h2>
+              <ShortLink base={linkBase} linkKey={link.key} />
             </div>
-            <TabList>
-              <Tab active={tab === 'rules'} onClick={() => setTab('rules')}>
-                Rules ({rules.length})
-              </Tab>
-              <Tab active={tab === 'perf'} onClick={() => setTab('perf')}>
-                Performance
-              </Tab>
-            </TabList>
+            {!editing && (
+              <TabList>
+                <Tab role="tab" aria-selected={tab === 'rules'} onClick={() => setTab('rules')}>
+                  Rules ({rules.length})
+                </Tab>
+                <Tab role="tab" aria-selected={tab === 'perf'} onClick={() => setTab('perf')}>
+                  Performance
+                </Tab>
+              </TabList>
+            )}
           </div>
 
           {err && (
@@ -296,37 +289,12 @@ export function RulesDialog({
             </Alert>
           )}
           {success && <Alert variant="default">{success}</Alert>}
-          {dirty && !saving && (
-            <Alert variant="default" style={{ ...row, justifyContent: 'space-between' }}>
-              <span>Unsaved changes. Save to apply them.</span>
-              <Button type="button" size="sm" variant="outline" onClick={discardChanges}>
-                Discard
-              </Button>
-            </Alert>
-          )}
 
           {loading && <Loading />}
 
           {!loading && tab === 'perf' && (
-            <div style={{ display: 'grid', gap: 16 }}>
-              <div style={{ ...row, justifyContent: 'space-between' }}>
-                <span style={muted}>Showing aggregated variant conversions</span>
-                <Select
-                  value={String(perfDays)}
-                  onChange={(e) => {
-                    const d = parseInt(e.currentTarget.value) || 30;
-                    setPerfDays(d);
-                    loadStats(d);
-                  }}
-                  style={{ width: 140 }}
-                >
-                  <option value="7">Last 7 days</option>
-                  <option value="14">Last 14 days</option>
-                  <option value="30">Last 30 days</option>
-                  <option value="90">Last 90 days</option>
-                </Select>
-              </div>
-
+            <div style={{ display: 'grid', gap: 12 }}>
+              <span style={muted}>Clicks and installs per rule and variant, last {perfDays} days.</span>
               {stats.length === 0 ? (
                 <Empty>
                   <h3>No variant stats yet</h3>
@@ -339,7 +307,7 @@ export function RulesDialog({
                       <th>Variant</th>
                       <th style={{ textAlign: 'right' }}>Clicks</th>
                       <th style={{ textAlign: 'right' }}>Installs</th>
-                      <th style={{ textAlign: 'right' }}>Conversion Rate</th>
+                      <th style={{ textAlign: 'right' }}>Conversion</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -348,13 +316,9 @@ export function RulesDialog({
                         <td>
                           <strong>{s.variant}</strong>
                         </td>
-                        <td style={{ textAlign: 'right' }}>{s.clicks.toLocaleString()}</td>
-                        <td style={{ textAlign: 'right' }}>{s.installs.toLocaleString()}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          <Badge variant={s.conversion_rate > 0 ? 'default' : 'secondary'}>
-                            {(s.conversion_rate * 100).toFixed(1)}%
-                          </Badge>
-                        </td>
+                        <td data-label="Clicks" className="num">{s.clicks.toLocaleString()}</td>
+                        <td data-label="Installs" className="num">{s.installs.toLocaleString()}</td>
+                        <td data-label="Conversion" className="num">{(s.conversion_rate * 100).toFixed(1)}%</td>
                       </tr>
                     ))}
                   </tbody>
@@ -363,454 +327,393 @@ export function RulesDialog({
             </div>
           )}
 
-          {!loading && tab === 'rules' && editingIndex !== null && draftRule && (
-            <div
-              style={{
-                display: 'grid',
-                gap: 16,
-                padding: 16,
-                border: '1px solid hsl(var(--k-border))',
-                borderRadius: 'var(--k-radius)',
-                background: 'hsl(var(--k-card))',
-              }}
-            >
-              <div style={{ ...row, justifyContent: 'space-between' }}>
-                <h3 style={{ margin: 0 }}>{editingIndex === -1 ? 'Add New Rule' : `Edit Rule #${editingIndex + 1}`}</h3>
-                <Button size="sm" variant="ghost" onClick={() => setEditingIndex(null)}>
-                  Cancel
-                </Button>
-              </div>
-
+          {!loading && editing && draftRule && (
+            <div class="rule-editor">
+              <h3>{editingIndex === -1 ? 'New rule' : `Edit rule ${editingIndex! + 1}`}</h3>
               <Field>
-                <Label htmlFor={`${dialogId}-rule-name`}>Rule Name</Label>
+                <Label htmlFor={fid('rule-name')}>Rule name</Label>
                 <Input
-                  id={`${dialogId}-rule-name`}
-                  placeholder="e.g. German iOS Campaign"
+                  id={fid('rule-name')}
+                  placeholder="e.g. German iOS campaign"
                   value={draftRule.name}
                   onInput={(e) => setDraftRule({ ...draftRule, name: e.currentTarget.value })}
                 />
               </Field>
 
-              <Separator />
-              <strong style={{ fontSize: 14 }}>Matching Criteria (AND)</strong>
-              <p style={{ ...muted, marginTop: -8 }}>Matches visitor traffic meeting all specified criteria.</p>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                <Field>
-                  <Label htmlFor={`${dialogId}-platform`}>Platform</Label>
-                  <Select
-                    id={`${dialogId}-platform`}
-                    value={draftRule.cond.platform || ''}
-                    onChange={(e) =>
-                      setDraftRule({
-                        ...draftRule,
-                        cond: { ...draftRule.cond, platform: (e.currentTarget.value as Platform) || undefined },
-                      })
-                    }
-                  >
-                    <option value="">All Platforms</option>
-                    <option value="ios">iOS only</option>
-                    <option value="android">Android only</option>
-                    <option value="desktop">Desktop only</option>
-                  </Select>
-                </Field>
-
-                <Field>
-                  <Label htmlFor={`${dialogId}-lang`}>Language Prefix</Label>
-                  <Input
-                    id={`${dialogId}-lang`}
-                    placeholder="e.g. de, fr, en-US"
-                    value={draftRule.cond.lang || ''}
-                    onInput={(e) =>
-                      setDraftRule({
-                        ...draftRule,
-                        cond: { ...draftRule.cond, lang: e.currentTarget.value || undefined },
-                      })
-                    }
-                  />
-                </Field>
-
-                <Field>
-                  <Label htmlFor={`${dialogId}-param-key`}>Query Param Key</Label>
-                  <Input
-                    id={`${dialogId}-param-key`}
-                    placeholder="e.g. utm_campaign"
-                    value={draftRule.cond.param_key || ''}
-                    onInput={(e) =>
-                      setDraftRule({
-                        ...draftRule,
-                        cond: { ...draftRule.cond, param_key: e.currentTarget.value || undefined },
-                      })
-                    }
-                  />
-                </Field>
-
-                <Field>
-                  <Label htmlFor={`${dialogId}-param-val`}>Param Value (optional)</Label>
-                  <Input
-                    id={`${dialogId}-param-val`}
-                    placeholder="e.g. summer"
-                    value={draftRule.cond.param_val || ''}
-                    onInput={(e) =>
-                      setDraftRule({
-                        ...draftRule,
-                        cond: { ...draftRule.cond, param_val: e.currentTarget.value || undefined },
-                      })
-                    }
-                  />
-                </Field>
-
-                <Field>
-                  <Label htmlFor={`${dialogId}-from`}>Active From (UTC, optional)</Label>
-                  <Input
-                    id={`${dialogId}-from`}
-                    type="datetime-local"
-                    value={toLocalInput(draftRule.cond.from)}
-                    onInput={(e) =>
-                      setDraftRule({ ...draftRule, cond: { ...draftRule.cond, from: fromLocalInput(e.currentTarget.value) } })
-                    }
-                  />
-                </Field>
-
-                <Field>
-                  <Label htmlFor={`${dialogId}-until`}>Active Until (UTC, optional)</Label>
-                  <Input
-                    id={`${dialogId}-until`}
-                    type="datetime-local"
-                    value={toLocalInput(draftRule.cond.until)}
-                    onInput={(e) =>
-                      setDraftRule({ ...draftRule, cond: { ...draftRule.cond, until: fromLocalInput(e.currentTarget.value) } })
-                    }
-                  />
-                </Field>
-              </div>
-
-              <Separator />
-              <strong style={{ fontSize: 14 }}>Routing Action</strong>
-
-              <div style={row}>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={actionType === 'direct' ? 'default' : 'outline'}
-                  onClick={() => setActionType('direct')}
-                >
-                  Direct Redirect Overrides
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={actionType === 'split' ? 'default' : 'outline'}
-                  onClick={() => {
-                    setActionType('split');
-                    if (!draftRule.action.split || draftRule.action.split.length === 0) {
-                      setDraftRule({
-                        ...draftRule,
-                        action: {
-                          ...draftRule.action,
-                          split: [
-                            { name: 'Variant A', weight: 50, targets: {} },
-                            { name: 'Variant B', weight: 50, targets: {} },
-                          ],
-                        },
-                      });
-                    }
-                  }}
-                >
-                  Weighted A/B Split Test
-                </Button>
-              </div>
-
-              {actionType === 'direct' ? (
-                <div style={{ display: 'grid', gap: 12 }}>
-                  <p style={muted}>Leave fields empty to inherit defaults from the parent link.</p>
+              <section class="form-section">
+                <h4>When</h4>
+                <p style={muted}>Every filled condition must match. Leave all empty to match everyone.</p>
+                <div class="form-grid">
                   <Field>
-                    <Label htmlFor={`${dialogId}-direct-dest`}>In-App Destination Deep Link</Label>
+                    <Label htmlFor={fid('platform')}>Platform</Label>
+                    <Select
+                      id={fid('platform')}
+                      value={draftRule.cond.platform || ''}
+                      onChange={(e) => setCond({ platform: (e.currentTarget.value as Platform) || undefined })}
+                    >
+                      <option value="">Any platform</option>
+                      <option value="ios">iOS</option>
+                      <option value="android">Android</option>
+                      <option value="desktop">Desktop</option>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <Label htmlFor={fid('lang')}>Language starts with</Label>
                     <Input
-                      id={`${dialogId}-direct-dest`}
-                      placeholder="e.g. myapp://promo/special"
-                      value={draftRule.action.targets?.destination || ''}
-                      onInput={(e) =>
-                        setDraftRule({
-                          ...draftRule,
-                          action: {
-                            ...draftRule.action,
-                            targets: { ...draftRule.action.targets, destination: e.currentTarget.value },
-                          },
-                        })
-                      }
+                      id={fid('lang')}
+                      placeholder="e.g. de, fr, en-US"
+                      value={draftRule.cond.lang || ''}
+                      onInput={(e) => setCond({ lang: e.currentTarget.value || undefined })}
                     />
                   </Field>
                   <Field>
-                    <Label htmlFor={`${dialogId}-direct-ios`}>iOS App Store Target</Label>
+                    <Label htmlFor={fid('param-key')}>Query param</Label>
                     <Input
-                      id={`${dialogId}-direct-ios`}
-                      placeholder="e.g. https://apps.apple.com/de/app/id123"
-                      value={draftRule.action.targets?.ios || ''}
-                      onInput={(e) =>
-                        setDraftRule({
-                          ...draftRule,
-                          action: {
-                            ...draftRule.action,
-                            targets: { ...draftRule.action.targets, ios: e.currentTarget.value },
-                          },
-                        })
-                      }
+                      id={fid('param-key')}
+                      placeholder="e.g. utm_campaign"
+                      value={draftRule.cond.param_key || ''}
+                      onInput={(e) => setCond({ param_key: e.currentTarget.value || undefined })}
                     />
                   </Field>
                   <Field>
-                    <Label htmlFor={`${dialogId}-direct-android`}>Android Play Store Target</Label>
+                    <Label htmlFor={fid('param-val')}>Equals</Label>
                     <Input
-                      id={`${dialogId}-direct-android`}
-                      placeholder="e.g. https://play.google.com/store/apps/details?id=com.example"
-                      value={draftRule.action.targets?.android || ''}
-                      onInput={(e) =>
-                        setDraftRule({
-                          ...draftRule,
-                          action: {
-                            ...draftRule.action,
-                            targets: { ...draftRule.action.targets, android: e.currentTarget.value },
-                          },
-                        })
-                      }
+                      id={fid('param-val')}
+                      placeholder="Any value"
+                      disabled={!draftRule.cond.param_key}
+                      value={draftRule.cond.param_val || ''}
+                      onInput={(e) => setCond({ param_val: e.currentTarget.value || undefined })}
                     />
                   </Field>
                   <Field>
-                    <Label htmlFor={`${dialogId}-direct-fallback`}>Desktop / Web Fallback URL</Label>
+                    <Label htmlFor={fid('from')}>Active from (UTC)</Label>
                     <Input
-                      id={`${dialogId}-direct-fallback`}
-                      placeholder="e.g. https://example.com/de/landing"
-                      value={draftRule.action.targets?.fallback_url || ''}
-                      onInput={(e) =>
-                        setDraftRule({
-                          ...draftRule,
-                          action: {
-                            ...draftRule.action,
-                            targets: { ...draftRule.action.targets, fallback_url: e.currentTarget.value },
-                          },
-                        })
-                      }
+                      id={fid('from')}
+                      type="datetime-local"
+                      value={toLocalInput(draftRule.cond.from)}
+                      onInput={(e) => setCond({ from: fromLocalInput(e.currentTarget.value) })}
+                    />
+                  </Field>
+                  <Field>
+                    <Label htmlFor={fid('until')}>Active until (UTC)</Label>
+                    <Input
+                      id={fid('until')}
+                      type="datetime-local"
+                      value={toLocalInput(draftRule.cond.until)}
+                      onInput={(e) => setCond({ until: fromLocalInput(e.currentTarget.value) })}
                     />
                   </Field>
                 </div>
-              ) : (
-                <div style={{ display: 'grid', gap: 16 }}>
-                  <div style={{ ...row, justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13, color: isValidWeightSum ? 'hsl(var(--k-primary))' : 'hsl(var(--k-destructive))' }}>
-                      Total Weight: <strong>{totalWeight}%</strong> {isValidWeightSum ? '✓' : '(Must equal 100%)'}
-                    </span>
-                    <Button
+              </section>
+
+              <section class="form-section">
+                <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                  <h4>Then</h4>
+                  <ToggleGroup role="group" aria-label="Action" class="seg">
+                    <Toggle type="button" size="sm" pressed={actionType === 'direct'} onClickCapture={() => {}} onClick={() => setActionType('direct')}>
+                      Send to
+                    </Toggle>
+                    <Toggle
                       type="button"
                       size="sm"
-                      variant="outline"
+                      pressed={actionType === 'split'}
+                      onClickCapture={() => {}}
                       onClick={() => {
-                        const newName = `Variant ${String.fromCharCode(65 + splitVariants.length)}`;
-                        setDraftRule({
-                          ...draftRule,
-                          action: {
-                            ...draftRule.action,
-                            split: [...splitVariants, { name: newName, weight: Math.max(0, 100 - totalWeight), targets: {} }],
-                          },
-                        });
+                        setActionType('split');
+                        if (!draftRule.action.split?.length) {
+                          setDraftRule({
+                            ...draftRule,
+                            action: {
+                              ...draftRule.action,
+                              split: [
+                                { name: 'Variant A', weight: 50, targets: {} },
+                                { name: 'Variant B', weight: 50, targets: {} },
+                              ],
+                            },
+                          });
+                        }
                       }}
                     >
-                      + Add Variant
-                    </Button>
-                  </div>
+                      A/B split
+                    </Toggle>
+                  </ToggleGroup>
+                </div>
 
-                  {splitVariants.map((v, vIdx) => (
-                    <div
-                      key={vIdx}
-                      style={{
-                        display: 'grid',
-                        gap: 8,
-                        padding: 12,
-                        background: 'hsl(var(--k-muted) / 0.3)',
-                        border: '1px solid hsl(var(--k-border))',
-                        borderRadius: 'var(--k-radius)',
-                      }}
-                    >
-                      <div style={{ ...row, justifyContent: 'space-between' }}>
-                        <div style={{ ...row, flex: 1, gap: 12 }}>
-                          <Field style={{ flex: 2 }}>
-                            <Label htmlFor={`${dialogId}-v-${vIdx}-name`}>Variant Name</Label>
+                {actionType === 'direct' ? (
+                  <>
+                    <p style={muted}>Empty fields keep the link's own value, shown faded.</p>
+                    <TargetFields
+                      idp={fid('direct')}
+                      t={draftRule.action.targets}
+                      link={link}
+                      onChange={setTarget}
+                    />
+                  </>
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <SplitBar variants={splitVariants} />
+                    <span class={isValidWeightSum ? 'weight-ok' : 'weight-bad'} role="status">
+                      {isValidWeightSum
+                        ? 'Weights add up to 100%'
+                        : totalWeight < 100
+                          ? `${100 - totalWeight}% unassigned, weights must add up to 100%`
+                          : `${totalWeight - 100}% over, weights must add up to 100%`}
+                    </span>
+                    <p style={muted}>Each variant's empty fields keep the link's own value, shown faded.</p>
+                    {splitVariants.map((v, vIdx) => (
+                      <div key={vIdx} class="variant">
+                        <div class="variant-head">
+                          <span class="variant-dot" style={{ background: variantColor(vIdx) }} aria-hidden="true" />
+                          <Field style={{ flex: 1 }}>
+                            <Label htmlFor={fid(`v-${vIdx}-name`)}>Variant name</Label>
                             <Input
-                              id={`${dialogId}-v-${vIdx}-name`}
+                              id={fid(`v-${vIdx}-name`)}
                               value={v.name}
                               onInput={(e) => updateVariant(vIdx, { name: e.currentTarget.value })}
                             />
                           </Field>
-                          <Field style={{ width: 100 }}>
-                            <Label htmlFor={`${dialogId}-v-${vIdx}-weight`}>Weight %</Label>
-                            <Input
-                              id={`${dialogId}-v-${vIdx}-weight`}
-                              type="number"
-                              min="1"
-                              max="100"
-                              value={v.weight}
-                              onInput={(e) => updateVariant(vIdx, { weight: parseInt(e.currentTarget.value) || 0 })}
-                            />
+                          <Field style={{ width: 110 }}>
+                            <Label htmlFor={fid(`v-${vIdx}-weight`)}>Weight</Label>
+                            <div class="suffix-input">
+                              <Input
+                                id={fid(`v-${vIdx}-weight`)}
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={v.weight}
+                                onInput={(e) => updateVariant(vIdx, { weight: parseInt(e.currentTarget.value) || 0 })}
+                              />
+                              <span aria-hidden="true">%</span>
+                            </div>
                           </Field>
+                          {splitVariants.length > 2 && (
+                            <IconButton
+                              icon={ICONS.close}
+                              label={`Remove ${v.name || 'variant'}`}
+                              onClick={() =>
+                                setDraftRule({
+                                  ...draftRule,
+                                  action: { ...draftRule.action, split: splitVariants.filter((_, i) => i !== vIdx) },
+                                })
+                              }
+                            />
+                          )}
                         </div>
-                        {splitVariants.length > 2 && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            style={{ color: 'hsl(var(--k-destructive))', marginTop: 18 }}
-                            onClick={() => {
-                              const next = splitVariants.filter((_, idx) => idx !== vIdx);
-                              setDraftRule({ ...draftRule, action: { ...draftRule.action, split: next } });
-                            }}
-                          >
-                            Remove
-                          </Button>
-                        )}
+                        <TargetFields
+                          idp={fid(`v-${vIdx}`)}
+                          t={v.targets}
+                          link={link}
+                          onChange={(patch) => updateVariant(vIdx, { targets: { ...v.targets, ...patch } })}
+                        />
                       </div>
+                    ))}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      style={{ justifySelf: 'start' }}
+                      onClick={() =>
+                        setDraftRule({
+                          ...draftRule,
+                          action: {
+                            ...draftRule.action,
+                            split: [
+                              ...splitVariants,
+                              {
+                                name: `Variant ${String.fromCharCode(65 + splitVariants.length)}`,
+                                weight: Math.max(0, 100 - totalWeight),
+                                targets: {},
+                              },
+                            ],
+                          },
+                        })
+                      }
+                    >
+                      <Icon d={ICONS.plus} />
+                      Add variant
+                    </Button>
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
-                        <Input
-                          placeholder="In-App Deep Link Override"
-                          value={v.targets?.destination || ''}
-                          onInput={(e) => updateVariant(vIdx, { targets: { ...v.targets, destination: e.currentTarget.value } })}
-                        />
-                        <Input
-                          placeholder="Desktop Fallback Override"
-                          value={v.targets?.fallback_url || ''}
-                          onInput={(e) => updateVariant(vIdx, { targets: { ...v.targets, fallback_url: e.currentTarget.value } })}
-                        />
+          {!loading && tab === 'rules' && !editing && (
+            rules.length === 0 ? (
+              <Empty>
+                <h3>No rules yet</h3>
+                <p style={muted}>Every visitor gets the link's own targets. Add a rule to route by platform, language, query or date, or to run an A/B split.</p>
+                <Button disabled={saving} onClick={startAddRule}>
+                  Add rule
+                </Button>
+              </Empty>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <span style={muted}>Checked top to bottom. The first rule that matches wins.</span>
+                <ol class="rule-list">
+                  {rules.map((r, idx) => {
+                    const conds = condLabels(r.cond);
+                    return (
+                      <li key={r.id || idx} class="rule-row">
+                        <span class="rule-num">{idx + 1}</span>
+                        <div class="rule-body">
+                          <strong>{r.name}</strong>
+                          <div class="rule-line">
+                            <span class="rule-kw">If</span>
+                            {conds.length ? conds.map((c) => <span key={c} class="cond">{c}</span>) : <span style={muted}>any visitor</span>}
+                          </div>
+                          <div class="rule-line">
+                            <span class="rule-kw">Then</span>
+                            {r.action.split?.length ? (
+                              <SplitBar variants={r.action.split} compact />
+                            ) : (
+                              <TargetSummary t={r.action.targets} />
+                            )}
+                          </div>
+                        </div>
+                        <div class="rule-actions">
+                          <IconButton icon={ICONS.up} label="Move up" disabled={saving || idx === 0} onClick={() => moveRule(idx, -1)} />
+                          <IconButton icon={ICONS.down} label="Move down" disabled={saving || idx === rules.length - 1} onClick={() => moveRule(idx, 1)} />
+                          <IconButton icon={ICONS.edit} label="Edit" disabled={saving} onClick={() => startEditRule(idx)} />
+                          <IconButton icon={ICONS.trash} label="Delete" class="icon-btn danger" disabled={saving} onClick={() => deleteRule(idx)} />
+                        </div>
+                      </li>
+                    );
+                  })}
+                  <li class="rule-row rule-default">
+                    <span class="rule-num" aria-hidden="true" />
+                    <div class="rule-body">
+                      <div class="rule-line">
+                        <span class="rule-kw">Else</span>
+                        <span style={muted}>link default</span>
+                        <code class="target">{link.url}</code>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                  </li>
+                </ol>
+              </div>
+            )
+          )}
 
-              <div style={{ ...row, justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+          <div class="dialog-actions">
+            {editing ? (
+              <>
                 <Button variant="outline" onClick={() => setEditingIndex(null)}>
                   Cancel
                 </Button>
-                <Button onClick={saveDraftRule}>Done Editing</Button>
-              </div>
-            </div>
-          )}
-
-          {!loading && tab === 'rules' && (editingIndex === null || !draftRule) && (
-            <div style={{ display: 'grid', gap: 16 }}>
-              {rules.length === 0 ? (
-                <Empty>
-                  <h3>No rules configured</h3>
-                  <p style={muted}>This link routes directly to its base targets without rules or split testing.</p>
-                  <Button disabled={saving} onClick={startAddRule}>
-                    + Add First Rule
+                <Button onClick={saveDraftRule}>Done</Button>
+              </>
+            ) : (
+              <>
+                {tab === 'rules' && rules.length > 0 && !loading && (
+                  <Button variant="outline" disabled={saving} onClick={startAddRule} style={{ marginInlineEnd: 'auto' }}>
+                    <Icon d={ICONS.plus} />
+                    Add rule
                   </Button>
-                </Empty>
-              ) : (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {rules.map((r, idx) => {
-                    const isSplit = r.action.split && r.action.split.length > 0;
-                    return (
-                      <div
-                        key={r.id || idx}
-                        style={{
-                          ...row,
-                          justifyContent: 'space-between',
-                          padding: '12px 16px',
-                          border: '1px solid hsl(var(--k-border))',
-                          borderRadius: 'var(--k-radius)',
-                          background: 'hsl(var(--k-card))',
-                        }}
-                      >
-                        <div style={{ display: 'grid', gap: 4 }}>
-                          <div style={row}>
-                            <Badge variant="outline">#{idx + 1}</Badge>
-                            <strong>{r.name}</strong>
-                            {isSplit ? (
-                              <Badge variant="default">A/B Split ({r.action.split?.length} variants)</Badge>
-                            ) : (
-                              <Badge variant="secondary">Direct Target</Badge>
-                            )}
-                          </div>
-                          <div style={{ ...row, flexWrap: 'wrap', gap: 6, fontSize: 13 }}>
-                            {r.cond.platform && <Badge variant="outline">{r.cond.platform}</Badge>}
-                            {r.cond.lang && <Badge variant="outline">Lang: {r.cond.lang}</Badge>}
-                            {r.cond.param_key && (
-                              <Badge variant="outline">
-                                ?{r.cond.param_key}
-                                {r.cond.param_val ? `=${r.cond.param_val}` : ''}
-                              </Badge>
-                            )}
-                            {(r.cond.from || r.cond.until) && (
-                              <Badge variant="outline">
-                                {toLocalInput(r.cond.from) || '…'} → {toLocalInput(r.cond.until) || '…'} UTC
-                              </Badge>
-                            )}
-                            {!r.cond.platform && !r.cond.lang && !r.cond.param_key && !r.cond.from && !r.cond.until && (
-                              <span style={muted}>Always matches (Fallback)</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div style={row}>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={saving || idx === 0}
-                            onClick={() => moveRule(idx, -1)}
-                            title="Move Up"
-                          >
-                            ↑
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={saving || idx === rules.length - 1}
-                            onClick={() => moveRule(idx, 1)}
-                            title="Move Down"
-                          >
-                            ↓
-                          </Button>
-                          <Button size="sm" variant="outline" disabled={saving} onClick={() => startEditRule(idx)}>
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            style={{ color: 'hsl(var(--k-destructive))' }}
-                            disabled={saving}
-                            onClick={() => deleteRule(idx)}
-                          >
-                            Delete
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {(rules.length > 0 || dirty) && (
-                <div style={{ ...row, justifyContent: 'space-between', marginTop: 8 }}>
-                  {rules.length > 0 ? (
-                    <Button variant="outline" disabled={saving} onClick={startAddRule}>
-                      + Add Rule
-                    </Button>
-                  ) : (
-                    <span />
-                  )}
-                  <Button disabled={saving} aria-busy={saving} onClick={saveAllToBackend}>
-                    {saving ? 'Saving...' : 'Save Rule Order & Changes'}
+                )}
+                {dirty && !saving && (
+                  <Button variant="ghost" onClick={discardChanges}>
+                    Discard
                   </Button>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div style={{ ...row, justifyContent: 'flex-end', marginTop: 8 }}>
-            <Button variant="outline" disabled={saving} onClick={() => closeDialog(dialogId)}>
-              Close
-            </Button>
+                )}
+                <Button variant="outline" disabled={saving} onClick={() => closeDialog(dialogId)}>
+                  Close
+                </Button>
+                {tab === 'rules' && (rules.length > 0 || dirty) && (
+                  <Button disabled={saving || !dirty} aria-busy={saving} onClick={saveAllToBackend}>
+                    {saving ? 'Saving…' : 'Save rules'}
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         </div>
       </Dialog.Content>
     </Dialog>
+  );
+}
+
+const VARIANT_COLORS = ['205 87% 59%', '205 90% 34%', '187 72% 42%', '35 92% 55%', '262 55% 62%', '340 70% 60%'];
+const variantColor = (i: number) => `hsl(${VARIANT_COLORS[i % VARIANT_COLORS.length]})`;
+
+const PLATFORM_LABEL: Record<string, string> = { ios: 'iOS', android: 'Android', desktop: 'Desktop' };
+const fmtUtc = (iso: string) => toLocalInput(iso).replace('T', ' ');
+
+// rule conditions as short chips
+function condLabels(c: LinkRule['cond']): string[] {
+  const out: string[] = [];
+  if (c.platform) out.push(PLATFORM_LABEL[c.platform] ?? c.platform);
+  if (c.lang) out.push(`language ${c.lang}*`);
+  if (c.param_key) out.push(c.param_val ? `?${c.param_key}=${c.param_val}` : `has ?${c.param_key}`);
+  if (c.from && c.until) out.push(`${fmtUtc(c.from)} → ${fmtUtc(c.until)} UTC`);
+  else if (c.from) out.push(`from ${fmtUtc(c.from)} UTC`);
+  else if (c.until) out.push(`until ${fmtUtc(c.until)} UTC`);
+  return out;
+}
+
+// what a direct rule overrides; nothing set = link default
+function TargetSummary({ t }: { t?: RuleTargets }) {
+  const parts = [
+    t?.destination && <code class="target">{t.destination}</code>,
+    t?.ios && <span class="cond">iOS store</span>,
+    t?.android && <span class="cond">Android store</span>,
+    t?.fallback_url && <span class="cond">desktop page</span>,
+  ].filter(Boolean);
+  return parts.length ? <>{parts}</> : <span style={muted}>link default</span>;
+}
+
+// stacked weight bar + legend. compact = list row (name + % only)
+function SplitBar({ variants, compact }: { variants: SplitVariant[]; compact?: boolean }) {
+  return (
+    <div class={compact ? 'split split-compact' : 'split'}>
+      <div class="split-bar" aria-hidden="true">
+        {variants.map((v, i) => (
+          <span key={i} style={{ flexGrow: Math.max(0, Number(v.weight) || 0), background: variantColor(i) }} />
+        ))}
+      </div>
+      <div class="split-legend">
+        {variants.map((v, i) => (
+          <span key={i}>
+            <i style={{ background: variantColor(i) }} />
+            {v.name || 'Unnamed'} <b>{Number(v.weight) || 0}%</b>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// 4 override fields; placeholders show what an empty field falls back to
+function TargetFields({
+  idp,
+  t,
+  link,
+  onChange,
+}: {
+  idp: string;
+  t?: RuleTargets;
+  link: Link;
+  onChange: (patch: RuleTargets) => void;
+}) {
+  const fields: { k: keyof RuleTargets; label: string; base: string; hint: string }[] = [
+    { k: 'destination', label: 'App route', base: link.url, hint: '/promo/special' },
+    { k: 'fallback_url', label: 'Desktop fallback', base: link.fallbackUrl, hint: 'https://example.com/landing' },
+    { k: 'ios', label: 'iOS store page', base: link.ios, hint: 'https://apps.apple.com/app/id123' },
+    { k: 'android', label: 'Android store page', base: link.android, hint: 'https://play.google.com/store/apps/details?id=…' },
+  ];
+  return (
+    <div class="form-grid inherit-fields">
+      {fields.map((f) => (
+        <Field key={f.k}>
+          <Label htmlFor={`${idp}-${f.k}`}>{f.label}</Label>
+          <Input
+            id={`${idp}-${f.k}`}
+            placeholder={f.base || f.hint}
+            value={t?.[f.k] || ''}
+            onInput={(e) => onChange({ [f.k]: e.currentTarget.value })}
+          />
+        </Field>
+      ))}
+    </div>
   );
 }

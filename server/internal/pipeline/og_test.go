@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"detur.dev/server/internal/store"
 )
 
 // Crawler + preview set: 200 OG page, escaped, still pointing on to the 302 target.
@@ -42,5 +44,19 @@ func TestOGPageOnlyWhenSet(t *testing.T) {
 	}
 	if resp, _ := doGET(t, ts, "/"+link.Key, map[string]string{"User-Agent": desktopUA}); resp.StatusCode != http.StatusFound {
 		t.Errorf("person: status = %d; want 302", resp.StatusCode)
+	}
+}
+
+// OG page for a route destination: preview only, no Continue/redirect to a relative path.
+func TestOGPageRouteDestination(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, _ := setupPipeline(t, s)
+	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "ogr", URL: "/product/42", OGTitle: "Hi"}); err != nil {
+		t.Fatal(err)
+	}
+	_, body := doGET(t, ts, "/ogr", map[string]string{"User-Agent": "facebookexternalhit/1.1"})
+	page := string(body)
+	if !strings.Contains(page, `og:title" content="Hi"`) || strings.Contains(page, "Continue") || strings.Contains(page, "location.replace") {
+		t.Errorf("route OG page: want preview without redirect:\n%s", page)
 	}
 }

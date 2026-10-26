@@ -135,9 +135,10 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 		p.serveTap(w, r, effectiveLink, dest, source, q)
 		return
 	}
-	// desktop + app-scheme target: a 302 opens nothing -> "open on your phone" page
-	if !mobile && !bot && !isWebURL(dest) {
-		p.serveDesktop(w, r, effectiveLink, q)
+	// never 302 to an app route (relative: lands on another short link or 404s); desktop + app-scheme target: a 302 opens nothing.
+	// Both -> app page: QR on desktop, store buttons on a phone.
+	if httpx.IsRoute(dest) || (!mobile && !bot && !isWebURL(dest)) {
+		p.serveDesktop(w, r, effectiveLink, q, mobile)
 		return
 	}
 	http.Redirect(w, r, dest, http.StatusFound)

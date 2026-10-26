@@ -87,6 +87,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 ## Compatibility
 
 - **Desktop page**: App-scheme target, no web fallback → QR page. QR uses `https://<host>`; `host:port` without TLS (dev) → `http`.
+- **Link destination**: App route only (`/product/42`). Web visitors (desktop, no store target) need the fallback URL, else they get the app page.
 - **Single-segment link paths**: Only single-segment slugs (e.g., `links.example.com/promo`) are supported. Multi-segment paths like `/app/promo` will return 404 without recording clicks.
 - **No billing or platform API**: Detur is purely self-hosted. There is no billing engine, tier enforcement, or upstream godetour platform API.
 - **SDK limits response**: Returns `effectiveLimit: -1` to signal unlimited clicks to `@swmansion/react-native-detour` (compatible with SDK 2.3.x).

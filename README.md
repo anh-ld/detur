@@ -80,7 +80,7 @@ See [.env.example](.env.example) for detailed explanations.
 Portal: `:8081`.
 
 - Create app. API key shown once: copy.
-- Add links: `/key` → URL, optional iOS / Android / fallback.
+- Add links: `/key` → app route (`/product/42`), optional iOS / Android / fallback.
 - App details: iOS app ID, Android package, cert fingerprint → well-known
   files.
 - `ADMIN_PASSWORD` set → app changes need admin (top bar).

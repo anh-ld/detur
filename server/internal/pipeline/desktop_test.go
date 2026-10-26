@@ -55,3 +55,25 @@ func TestDesktopPageOnlyForSchemeTargets(t *testing.T) {
 		t.Errorf("bot: status = %d; want 302", resp.StatusCode)
 	}
 }
+
+// Route destination is never a redirect target: phones without a store target, bots and desktop get the app page, no relative Location.
+func TestRouteDestinationNeverRedirects(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, _ := setupPipeline(t, s)
+	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "rt", URL: "/product/42", IOS: "https://apps.apple.com/app/id123"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, ua, want string }{
+		{"android, no Play target", androidUA, "Get pipeline test app"},
+		{"bot", "Googlebot/2.1", "Open pipeline test app on your phone"},
+		{"desktop", desktopUA, "Open pipeline test app on your phone"},
+	} {
+		resp, body := doGET(t, ts, "/rt?_dt=1", map[string]string{"User-Agent": c.ua})
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("Location") != "" || !strings.Contains(string(body), c.want) {
+			t.Errorf("%s: %d Location %q; want 200 page with %q", c.name, resp.StatusCode, resp.Header.Get("Location"), c.want)
+		}
+	}
+	if resp, _ := doGET(t, ts, "/rt?_dt=1", map[string]string{"User-Agent": iosUA}); resp.StatusCode != http.StatusFound || !strings.HasPrefix(resp.Header.Get("Location"), "https://apps.apple.com/") {
+		t.Errorf("iOS with store target: %d %q; want 302 to App Store", resp.StatusCode, resp.Header.Get("Location"))
+	}
+}

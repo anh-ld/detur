@@ -53,7 +53,7 @@ func newPortalEnvWith(t *testing.T, path, adminPassword string, adminHours int) 
 		[]byte("<!doctype html><title>detur portal</title>"), 0o644); err != nil {
 		t.Fatalf("write index.html: %v", err)
 	}
-	portal = httptest.NewServer(RegisterPortal(st, staticDir, []string{portalAddr}, "/cdn-cgi/access/logout", adminPassword, adminHours))
+	portal = httptest.NewServer(RegisterPortal(st, staticDir, []string{portalAddr}, "/cdn-cgi/access/logout", adminPassword, adminHours, "https://lnk.example"))
 	t.Cleanup(portal.Close)
 
 	sdkMux := http.NewServeMux()
@@ -130,7 +130,7 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 	}
 
 	resp, b = portalReq(t, portal, "POST", "/api/apps/"+created.ID+"/links",
-		`{"key":"c1","url":"https://example.com/p","ios":"https://apps.apple.com/app/id1",`+
+		`{"key":"c1","url":"/p","ios":"https://apps.apple.com/app/id1",`+
 			`"android":"https://play.google.com/store/apps/details?id=com.example","fallbackUrl":"https://example.com/fb0"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create link: %d %s", resp.StatusCode, b)
@@ -148,7 +148,7 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 
 	// omitted destinations stay unchanged, explicit empty clears
 	resp, b = portalReq(t, portal, "PATCH", "/api/links/"+link.ID,
-		`{"url":"https://example.com/p2","ios":""}`, nil)
+		`{"url":"/p2","ios":""}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update link: %d %s", resp.StatusCode, b)
 	}
@@ -159,7 +159,7 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 		FallbackURL string `json:"fallbackUrl"`
 	}
 	mustJSON(t, b, &updated)
-	if updated.URL != "https://example.com/p2" || updated.IOS != "" ||
+	if updated.URL != "/p2" || updated.IOS != "" ||
 		updated.Android != "https://play.google.com/store/apps/details?id=com.example" ||
 		updated.FallbackURL != "https://example.com/fb0" {
 		t.Fatalf("link update not applied as expected: %+v", updated)
@@ -376,7 +376,7 @@ func TestPortalGatewayHost(t *testing.T) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	ts := httptest.NewServer(RegisterPortal(st, t.TempDir(), []string{portalAddr, "portal.example.com"}, "", "", 12))
+	ts := httptest.NewServer(RegisterPortal(st, t.TempDir(), []string{portalAddr, "portal.example.com"}, "", "", 12, ""))
 	t.Cleanup(ts.Close)
 	for _, tc := range []struct {
 		host, origin string
@@ -441,7 +441,7 @@ func TestPortalStaticMissingDirKeepsAPIAlive(t *testing.T) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), []string{portalAddr}, "", "", 12))
+	ts := httptest.NewServer(RegisterPortal(st, filepath.Join(t.TempDir(), "no-such-dir"), []string{portalAddr}, "", "", 12, ""))
 	t.Cleanup(ts.Close)
 
 	resp, b := portalReq(t, ts, "POST", "/api/apps", `{"name":"still-works"}`, nil)
@@ -534,7 +534,7 @@ func TestPortalCreateLinkDuplicateKey409(t *testing.T) {
 	}
 	mustJSON(t, b, &app)
 	for i, want := range []int{http.StatusCreated, http.StatusConflict} {
-		resp, b = portalReq(t, portal, "POST", "/api/apps/"+app.ID+"/links", `{"key":"same","url":"https://example.com/p"}`, nil)
+		resp, b = portalReq(t, portal, "POST", "/api/apps/"+app.ID+"/links", `{"key":"same","url":"/p"}`, nil)
 		if resp.StatusCode != want {
 			t.Fatalf("create link #%d: %d %s; want %d", i+1, resp.StatusCode, b, want)
 		}
@@ -544,7 +544,7 @@ func TestPortalCreateLinkDuplicateKey409(t *testing.T) {
 // unknown app on link create is 404, not 500
 func TestPortalCreateLinkUnknownApp404(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
-	resp, b := portalReq(t, portal, "POST", "/api/apps/nope/links", `{"key":"k1","url":"https://example.com"}`, nil)
+	resp, b := portalReq(t, portal, "POST", "/api/apps/nope/links", `{"key":"k1","url":"/home"}`, nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown app: %d %s; want 404", resp.StatusCode, b)
 	}
@@ -565,8 +565,10 @@ func TestPortalLinkURLValidation(t *testing.T) {
 		{`{"key":"v1","url":"example.com/x"}`, http.StatusBadRequest},
 		{`{"key":"v2","url":"javascript:alert(1)"}`, http.StatusBadRequest},
 		{`{"key":"v3","url":"https://"}`, http.StatusBadRequest},
-		{`{"key":"v4","url":"https://example.com","ios":"myapp://open"}`, http.StatusCreated},
-		{`{"key":"v5","url":"https://example.com","android":"market://details?id=x"}`, http.StatusCreated},
+		{`{"key":"v6","url":"https://example.com/p"}`, http.StatusBadRequest},
+		{`{"key":"v7","url":"myapp://p"}`, http.StatusBadRequest},
+		{`{"key":"v4","url":"/home","ios":"myapp://open"}`, http.StatusCreated},
+		{`{"key":"v5","url":"/home","android":"market://details?id=x"}`, http.StatusCreated},
 	} {
 		if resp, b = portalReq(t, portal, "POST", path, c.body, nil); resp.StatusCode != c.want {
 			t.Errorf("case %d %s: %d %s; want %d", i, c.body, resp.StatusCode, b, c.want)
@@ -1017,7 +1019,7 @@ func TestPortalAdminGateViewerRoutesOpen(t *testing.T) {
 		ID string `json:"id"`
 	}
 	mustJSON(t, b, &app)
-	resp, b = portalReq(t, portal, "POST", "/api/apps/"+app.ID+"/links", `{"key":"v1","url":"https://example.com"}`, nil)
+	resp, b = portalReq(t, portal, "POST", "/api/apps/"+app.ID+"/links", `{"key":"v1","url":"/home"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create link as viewer: %d %s", resp.StatusCode, b)
 	}
@@ -1034,8 +1036,8 @@ func TestPortalAdminGateViewerRoutesOpen(t *testing.T) {
 		{"GET", "/api/apps", "", http.StatusOK},
 		{"GET", "/api/apps/" + app.ID, "", http.StatusOK},
 		{"GET", "/api/apps/" + app.ID + "/links", "", http.StatusOK},
-		{"POST", "/api/apps/" + app.ID + "/links", `{"key":"v2","url":"https://example.com/x"}`, http.StatusCreated},
-		{"PATCH", "/api/links/" + link.ID, `{"url":"https://example.com/y"}`, http.StatusOK},
+		{"POST", "/api/apps/" + app.ID + "/links", `{"key":"v2","url":"/x"}`, http.StatusCreated},
+		{"PATCH", "/api/links/" + link.ID, `{"url":"/y"}`, http.StatusOK},
 		{"DELETE", "/api/links/" + link.ID, "", http.StatusNoContent},
 		{"GET", "/api/apps/" + app.ID + "/analytics", "", http.StatusOK},
 		{"GET", "/api/apps/" + app.ID + "/match-quality", "", http.StatusOK},
@@ -1151,7 +1153,7 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 			"action": {
 				"targets": {
 					"ios": "https://apps.apple.com/de/app/id999",
-					"destination": "myapp://de-promo"
+					"destination": "/de-promo"
 				}
 			}
 		},

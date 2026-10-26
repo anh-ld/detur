@@ -26,10 +26,11 @@ import (
 
 // matching defaults from store's exported defaults; settings table overrides at runtime.
 type portalServer struct {
-	st     *store.Store
-	log    *log.Logger
-	dir    string // portal static dir (built UI)
-	logout string // LOGOUT_URL, served to the UI via /api/config
+	linkBase string // short-link origin shown in the portal (https://DOMAIN)
+	st       *store.Store
+	log      *log.Logger
+	dir      string // portal static dir (built UI)
+	logout   string // LOGOUT_URL, served to the UI via /api/config
 	// adminPassword "" = no gating.
 	adminPassword string
 	adminHours    int
@@ -41,8 +42,8 @@ type portalServer struct {
 // = plain 404, never crash). Origin/host guard on mux; allowedHosts = listener address + PORTAL_HOSTS, loopback
 // always ok, others 403. Viewer routes open to anyone the gateway admits; app management behind requireAdmin.
 // adminPassword "" = no gating; adminSessionHours = elevated session TTL (1-72).
-func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, logoutURL string, adminPassword string, adminSessionHours int) http.Handler {
-	p := &portalServer{st: st, log: log.Default(), dir: staticDir, logout: logoutURL,
+func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, logoutURL string, adminPassword string, adminSessionHours int, linkBase string) http.Handler {
+	p := &portalServer{st: st, log: log.Default(), dir: staticDir, logout: logoutURL, linkBase: linkBase,
 		adminPassword: adminPassword, adminHours: adminSessionHours, adminLocks: map[string]*peerLock{}}
 	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
 		p.log.Printf("portal static dir %q missing: portal API only, UI will 404", staticDir)
@@ -243,7 +244,7 @@ func parseExpiry(v *string) (*time.Time, error) {
 
 // config: UI settings from env. logoutUrl "" = no Log out link; adminSet = ADMIN_PASSWORD configured.
 func (p *portalServer) config(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"logoutUrl": p.logout, "adminSet": p.adminPassword != ""})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"logoutUrl": p.logout, "adminSet": p.adminPassword != "", "linkBase": p.linkBase})
 }
 
 func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {
@@ -394,16 +395,24 @@ func validTarget(field, v string) error {
 	return nil
 }
 
+// validDestination: app route only ("/product/42"). Full URLs lose their first segment in the SDK, app schemes get dropped (R10).
+func validDestination(field, v string) error {
+	if !httpx.IsRoute(v) {
+		return fmt.Errorf("%s must be an app route starting with /, e.g. /product/42", field)
+	}
+	return nil
+}
+
 // validTargets: first bad destination field wins.
 func validTargets(l store.Link) error {
 	for _, f := range []struct{ name, v string }{
-		{"url", l.URL}, {"ios", l.IOS}, {"android", l.Android}, {"fallbackUrl", l.FallbackURL}, {"expiredUrl", l.ExpiredURL},
+		{"ios", l.IOS}, {"android", l.Android}, {"fallbackUrl", l.FallbackURL}, {"expiredUrl", l.ExpiredURL},
 	} {
 		if err := validTarget(f.name, f.v); err != nil {
 			return err
 		}
 	}
-	return nil
+	return validDestination("destination", l.URL)
 }
 
 func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {

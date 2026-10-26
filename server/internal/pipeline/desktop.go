@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"rsc.io/qr"
 
@@ -21,25 +20,22 @@ func isWebURL(s string) bool {
 
 // shortURL: the visited short link, forwarded params kept, internal ones dropped.
 func shortURL(r *http.Request, key string, q url.Values) string {
-	scheme := "https"
-	if r.TLS == nil && strings.Contains(r.Host, ":") { // dev listener (host:port, plain HTTP); prod sits behind TLS on the bare domain
-		scheme = "http"
-	}
-	return httpx.AddParams(scheme+"://"+r.Host+"/"+key, q, func(k, v string) bool { return v != "" && !internalParams[k] })
+	return httpx.AddParams(httpx.Origin(r)+"/"+key, q, func(k, v string) bool { return v != "" && !internalParams[k] })
 }
 
-// serveDesktop: desktop visitor whose target is an app scheme (myapp://): a 302 there opens nothing. Page = QR + short link to open on a phone, store buttons when the link has them.
-func (p *pipelineServer) serveDesktop(w http.ResponseWriter, r *http.Request, link store.Link, q url.Values) {
+// serveDesktop: target a browser can't follow (myapp://, app route). Desktop: QR + short link to open on a phone. Phone: just the store buttons. Store buttons when the link has them.
+func (p *pipelineServer) serveDesktop(w http.ResponseWriter, r *http.Request, link store.Link, q url.Values, phone bool) {
 	short := shortURL(r, link.Key, q)
 	data := struct {
 		Name, Short string
+		Phone       bool
 		QR          template.URL
 		IOS, Play   template.URL
-	}{Name: "the app", Short: short}
+	}{Name: "the app", Short: short, Phone: phone}
 	if app, err := p.st.GetApp(link.AppID); err == nil && app.Name != "" {
 		data.Name = app.Name
 	}
-	if code, err := qr.Encode(short, qr.M); err == nil {
+	if code, err := qr.Encode(short, qr.M); err == nil && !phone {
 		code.Scale = 6
 		data.QR = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()))
 	}
@@ -56,7 +52,7 @@ func (p *pipelineServer) serveDesktop(w http.ResponseWriter, r *http.Request, li
 // desktopTmpl: same look as the tap page. QR + selectable link are the minimum; store buttons only when set.
 var desktopTmpl = template.Must(template.New("desktop").Parse(`<!doctype html>
 <meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Open {{.Name}} on your phone</title>
+<title>{{if .Phone}}Get {{.Name}}{{else}}Open {{.Name}} on your phone{{end}}</title>
 <style>
 :root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#555;--btn:#0a66ff;--btn-fg:#fff;--line:#ddd}
 @media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#f2f2f2;--muted:#b5b5b5;--btn:#3d8bff;--line:#333}}
@@ -71,10 +67,12 @@ button,.go{font:inherit;font-weight:600;border:0;border-radius:10px;padding:10px
 .stores{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 </style>
 <main>
-<h1>Open {{.Name}} on your phone</h1>
+{{if .Phone}}<h1>Get {{.Name}}</h1>
+<p>Install the app to open this link.</p>
+{{else}}<h1>Open {{.Name}} on your phone</h1>
 <p>Scan the code with your phone camera, or send yourself the link.</p>
 {{if .QR}}<img src="{{.QR}}" width="240" height="240" alt="QR code for {{.Short}}">{{end}}
-<div class="link"><code id="short">{{.Short}}</code><button id="copy" type="button">Copy</button></div>
+<div class="link"><code id="short">{{.Short}}</code><button id="copy" type="button">Copy</button></div>{{end}}
 {{if or .IOS .Play}}<div class="stores">{{if .IOS}}<a class="go" href="{{.IOS}}">App Store</a>{{end}}{{if .Play}}<a class="go" href="{{.Play}}">Google Play</a>{{end}}</div>{{end}}
 </main>
 <script>
