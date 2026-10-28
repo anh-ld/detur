@@ -123,7 +123,7 @@ func major(v string) int {
 	return n
 }
 
-// AndroidModel: device model token from Android browser UA: modern "(Linux; Android 14; Pixel 7 Build/...)" -> "Pixel 7"; legacy "(Linux; U; Android 4.4; en-us; GT-I9300 Build/...)" -> "GT-I9300"; WebView "(Linux; Android 14; Pixel 7 Build/UP1A; wv)" -> "Pixel 7"; reduced UA "(Linux; Android 10; K)" carries no model -> "".
+// AndroidModel: device model token from Android browser UA: modern "(Linux; Android 14; Pixel 7 Build/...)" -> "Pixel 7"; legacy "(Linux; U; Android 4.4; en-us; GT-I9300 Build/...)" -> "GT-I9300"; WebView "(Linux; Android 14; Pixel 7 Build/UP1A; wv)" -> "Pixel 7"; reduced UA "(Linux; Android 10; K)" carries no model -> ""; Samsung Internet "SAMSUNG SM-S918B" -> "SM-S918B".
 func AndroidModel(ua string) string {
 	i := strings.Index(ua, "Android ")
 	if i < 0 {
@@ -146,6 +146,10 @@ func AndroidModel(ua string) string {
 		switch {
 		case p == "", p == "K", p == "U", p == "wv", reLocale.MatchString(p):
 			continue
+		}
+		// Samsung Internet: "SAMSUNG SM-S918B"; Build.MODEL (what the SDK sends) is "SM-S918B"
+		if len(p) > 8 && strings.EqualFold(p[:8], "samsung ") {
+			p = p[8:]
 		}
 		return p
 	}

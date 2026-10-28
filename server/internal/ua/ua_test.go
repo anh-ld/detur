@@ -25,6 +25,7 @@ func TestAndroidModelRealUAs(t *testing.T) {
 		{legacyAndroid, "GT-I9300"},
 		{webviewAndroid, "Pixel 7"},
 		{iphoneSafari, ""},
+		{"Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36", "SM-S918B"},
 	}
 	for _, c := range cases {
 		if got := AndroidModel(c.ua); got != c.want {
