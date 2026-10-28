@@ -169,3 +169,41 @@ func TestAnalyticsLinkRetentionAndConversions(t *testing.T) {
 		t.Errorf("quiet app = %#v / %#v; want empty slices", q.Retention, q.Conversions)
 	}
 }
+
+// install date filters: [from, to] both ends inclusive by UTC day; later installs never leak into an earlier range
+func TestInstallDateRangeBounds(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	at := func(dev, ts string) {
+		in, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: dev, Attribution: AttributionOrganic, Method: MethodOrganic})
+		if err != nil {
+			t.Fatalf("RecordInstall: %v", err)
+		}
+		if _, err := s.db.Exec(`UPDATE installs SET created_at = ? WHERE id = ?`, ts, in.ID); err != nil {
+			t.Fatalf("backdate: %v", err)
+		}
+	}
+	at("d0", "2026-01-09T23:59:59Z") // before
+	at("d1", "2026-01-10T00:00:00Z")
+	at("d2", "2026-01-15T23:59:59Z")
+	at("d3", "2026-01-16T00:00:00Z") // after
+	to := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	q, err := s.MatchQuality(app.ID, 6, to)
+	if err != nil {
+		t.Fatalf("MatchQuality: %v", err)
+	}
+	if n := q.Methods[MethodOrganic]; n != 2 {
+		t.Errorf("MatchQuality organic = %d; want 2 (Jan 10–15 only)", n)
+	}
+	a, err := s.AnalyticsRange(app.ID, time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC), to, "")
+	if err != nil {
+		t.Fatalf("AnalyticsRange: %v", err)
+	}
+	var organic int64
+	for _, d := range a.Days {
+		organic += d.Organic
+	}
+	if organic != 2 {
+		t.Errorf("AnalyticsRange organic = %d; want 2", organic)
+	}
+}
