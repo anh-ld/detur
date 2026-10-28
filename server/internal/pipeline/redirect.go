@@ -12,11 +12,14 @@ import (
 // internalParams: detur's own query params; consumed here, never forwarded.
 var internalParams = store.InternalParams
 
-// redirectTarget: 302 destination by platform, fallback link.URL: iOS -> link.IOS,
-// Android -> link.Android, desktop -> link.FallbackURL. Query params forwarded
+// redirectTarget: 302 destination by platform: iOS -> link.IOS, Android -> link.Android, else link.FallbackURL, else link.URL (app page). Query params forwarded
 // per target type (withParams); Play Store: clickId merged into install referrer.
+// Phone with no target of its own (iPhone on an Android-only link) -> fallback too: the app page would offer the other platform's store.
 func redirectTarget(link store.Link, agent string, clickID string, q url.Values) string {
 	target := link.URL
+	if link.FallbackURL != "" {
+		target = link.FallbackURL
+	}
 	switch {
 	case ua.IsIOS(agent):
 		if link.IOS != "" {
@@ -25,10 +28,6 @@ func redirectTarget(link store.Link, agent string, clickID string, q url.Values)
 	case ua.IsAndroid(agent):
 		if link.Android != "" {
 			target = link.Android
-		}
-	default:
-		if link.FallbackURL != "" {
-			target = link.FallbackURL
 		}
 	}
 	return withParams(target, clickID, q)
