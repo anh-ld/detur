@@ -68,7 +68,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | LR2 | Partial target inheritance: empty destination, iOS, Android, or fallback URL in rule actions or split variants inherit directly from the parent link. | Ours | Operators configure only what deviates; zero duplication of store URLs. | feat-rules-ab |
 | LR3 | Sticky deterministic A/B split engine: 64-bit FNV-1a hash over `link_id\|ip\|ua` modulo 100 maps visitors to cumulative weight thresholds without cookies or client-side storage. | Ours | Stateless consistency across repeat clicks on the same device. | feat-rules-ab |
 | LR4 | Variant attribution: click records the matched label in `clicks.variant` (split variant name, or the rule name for a direct rule; labels unique per link), inherited by attributed install upon `matchLink`, aggregated daily in `variant_days`, delivered in webhook payloads, and displayed with live conversion rates in portal. | Ours | Direct attribution loop from click split to installed app without SDK modification. | feat-rules-ab |
-| LR5 | Gating: viewing rules and variant metrics is public to portal viewers; saving rule changes requires admin session when `ADMIN_PASSWORD` is set. | Ours | Consistent with P1 portal access model. | feat-rules-ab |
+| LR5 | Gating: rules and variant metrics open to portal viewers, view and save (P1). | Ours | Rules route traffic like link targets, which viewers already edit; an admin gate on rules alone protected nothing. | feat-rules-ab |
 
 ## Analytics
 
@@ -114,7 +114,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
-| P1 | Gateway lets everyone in as viewer (links + monitoring). Admin actions need `ADMIN_PASSWORD` → 12h signed session per browser. No user table, no RBAC. | Ours | One operator, self-hosted, team brings its own auth. One password beats roles at this scale. | 009 |
+| P1 | Gateway lets everyone in as viewer (internal team). Rule: day-to-day marketing actions (links, rules, A/B splits, link delete) open; important actions (apps, keys, matching, tagging, fraud, webhooks) admin. Admin actions need `ADMIN_PASSWORD` → 12h signed session per browser. No user table, no RBAC. | Ours | One operator, self-hosted, team brings its own auth. One password beats roles at this scale. | 009 |
 | P2 | Portal guard: Host = loopback, listener, or `PORTAL_HOSTS`. Origin = same origin (port included), or a `PORTAL_HOSTS` name. Other localhost ports rejected. | Ours | DNS rebinding + CSRF. Cookies ignore ports: any localhost page rode the admin cookie. Gateway names were 403. | — |
 
 ## Webhooks

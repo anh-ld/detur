@@ -1191,10 +1191,10 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		}
 	]`
 
-	// 2. PUT without elevation -> 403
-	resp, _ = portalReq(t, portal, "PUT", base+"/rules", validRulesBody, nil)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("PUT rules without admin elevation: want 403, got %d", resp.StatusCode)
+	// 2. PUT without elevation -> 200: rules are a viewer (marketing) action like link edits (P1)
+	resp, b = portalReq(t, portal, "PUT", base+"/rules", validRulesBody, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT rules without admin elevation: want 200, got %d: %s", resp.StatusCode, b)
 	}
 
 	// elevate

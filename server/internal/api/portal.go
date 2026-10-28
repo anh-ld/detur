@@ -64,7 +64,7 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	mux.HandleFunc("PATCH /api/links/{id}", p.updateLink)
 	mux.HandleFunc("DELETE /api/links/{id}", p.deleteLink)
 	mux.HandleFunc("GET /api/apps/{app_id}/links/{link_id}/rules", p.getLinkRules)
-	mux.HandleFunc("PUT /api/apps/{app_id}/links/{link_id}/rules", p.requireAdmin(p.setLinkRules))
+	mux.HandleFunc("PUT /api/apps/{app_id}/links/{link_id}/rules", p.setLinkRules)
 	mux.HandleFunc("GET /api/apps/{app_id}/links/{link_id}/variants", p.getLinkVariants)
 	mux.HandleFunc("GET /api/apps/{id}/analytics", p.analytics)
 	mux.HandleFunc("GET /api/apps/{id}/match-quality", p.matchQuality)

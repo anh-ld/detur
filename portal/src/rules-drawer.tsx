@@ -2,7 +2,7 @@ import { cloneElement, JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Tab, Table, TabList, Toggle, ToggleGroup } from 'kinu';
 import { api, Link, LinkRule, Platform, RuleTargets, SplitVariant, VariantStat } from './api';
-import { adminCall, closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
+import { closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
 
 const cleanTargets = (t?: RuleTargets): RuleTargets => ({
   destination: t?.destination?.trim() || undefined,
@@ -238,7 +238,7 @@ export function RulesDialog({
     setSaving(true);
     setSuccess('');
     try {
-      const updated = await adminCall(() => api.setLinkRules(appId, link.id, rules));
+      const updated = await api.setLinkRules(appId, link.id, rules);
       setRules(updated);
       setDirty(false);
       setSuccess('Rules saved');
