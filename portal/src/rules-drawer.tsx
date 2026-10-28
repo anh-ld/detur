@@ -76,14 +76,6 @@ export function RulesDialog({
     }
   };
 
-  const loadStats = (days: number) => {
-    const seq = ++reqSeq.current;
-    api
-      .getLinkVariantStats(appId, link.id, days)
-      .then((s) => seq === reqSeq.current && setStats(s))
-      .catch((e) => seq === reqSeq.current && setErr(String(e)));
-  };
-
   // close (Escape/backdrop/button) keeps unsaved edits; reopen shows them until Save/Discard
   const discardChanges = () => {
     setEditingIndex(null);
@@ -609,7 +601,13 @@ export function RulesDialog({
           <div class="dialog-actions">
             {editing ? (
               <>
-                <Button variant="outline" onClick={() => setEditingIndex(null)}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditingIndex(null);
+                    setDraftRule(null); // left set, reopening skipped loadData forever
+                  }}
+                >
                   Cancel
                 </Button>
                 <Button onClick={saveDraftRule}>Done</Button>

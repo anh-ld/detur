@@ -34,8 +34,8 @@ import {
 
 const EVENT_OPTIONS: { type: WebhookEventType; desc: string }[] = [
   { type: 'installs', desc: 'Deferred installs attributed from links · permanent retention' },
-  { type: 'events', desc: 'Custom SDK in-app analytics events · 24h retention' },
-  { type: 'clicks', desc: 'Raw incoming link visits · high volume, 24h retention' },
+  { type: 'events', desc: 'Custom SDK in-app analytics events · kept RETENTION_HOURS (default 24h)' },
+  { type: 'clicks', desc: 'Raw incoming link visits · high volume, kept RETENTION_HOURS (default 24h)' },
 ];
 
 const surface = {
@@ -342,7 +342,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
               Rewind cursors for <strong>{replayTarget?.url}</strong> to re-deliver past events. Requests sent during replay include the <code>Detur-Replay: true</code> header.
             </p>
             <p style={{ ...muted, fontSize: 13, ...surface, padding: 10 }}>
-              <strong>Note:</strong> Raw clicks and custom events older than 24 hours are purged by retention and cannot be replayed. Installs are preserved permanently.
+              <strong>Note:</strong> Raw clicks and custom events older than <code>RETENTION_HOURS</code> (default 24h) are purged and cannot be replayed. Installs are kept permanently.
             </p>
             <Field>
               <Label htmlFor="replay-preset">Replay from</Label>
@@ -354,7 +354,10 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
                 <option value="1">1 hour ago</option>
                 <option value="6">6 hours ago</option>
                 <option value="12">12 hours ago</option>
-                <option value="24">24 hours ago (retention window)</option>
+                <option value="24">24 hours ago</option>
+                <option value="72">3 days ago</option>
+                <option value="168">7 days ago</option>
+                <option value="720">30 days ago</option>
               </Select>
             </Field>
             <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
