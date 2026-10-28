@@ -89,7 +89,7 @@ func infraDesktopTap(t *testing.T, e *env, key string, hdr map[string]string) re
 // infraClickIPs: IPs on the app's recorded clicks.
 func infraClickIPs(t *testing.T, e *env, appID string) []string {
 	t.Helper()
-	cs, err := e.St.ClicksSince(appID, time.Now().Add(-time.Hour))
+	cs, err := e.St.ClicksSince(appID, "", time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("ClicksSince: %v", err)
 	}
@@ -591,7 +591,7 @@ func TestS_INFRA_29_RetentionPurgeScrubsClicks(t *testing.T) {
 	must(t, len(ips) == 1 && ips[0] == clientIP, "live click scrubbed early: %v", ips)
 	_, err = e.St.PurgeExpired(time.Now().Add(25*time.Hour), 24)
 	must(t, err == nil, "purge: %v", err)
-	cs, err := e.St.ClicksSince(a.ID, time.Now().Add(-time.Hour))
+	cs, err := e.St.ClicksSince(a.ID, "", time.Now().Add(-time.Hour))
 	must(t, err == nil, "ClicksSince: %v", err)
 	for _, c := range cs {
 		must(t, c.Fingerprint.IP == "" && c.Fingerprint.UserAgent == "", "fingerprint kept past retention: %+v", c.Fingerprint)
@@ -610,7 +610,7 @@ func TestS_INFRA_30_PurgeKeepsLateClickID(t *testing.T) {
 	h := map[string]string{"User-Agent": uaAndroidChrome, "X-Forwarded-For": clientIP}
 	must(t, do(t, "GET", srv.URL+"/late", "", h).Code == 200, "hop 1")
 	do(t, "GET", srv.URL+"/late?_dt=1&screen=393x852%403&tz=Asia%2FHo_Chi_Minh", "", h)
-	cs, err := e.St.ClicksSince(a.ID, time.Now().Add(-time.Hour))
+	cs, err := e.St.ClicksSince(a.ID, "", time.Now().Add(-time.Hour))
 	must(t, err == nil && len(cs) == 1 && cs[0].ClickID != "", "clicks = %+v (%v)", cs, err)
 	_, err = e.St.PurgeExpired(time.Now().Add(48*time.Hour), 24)
 	must(t, err == nil, "purge: %v", err)

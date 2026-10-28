@@ -26,7 +26,7 @@ const (
 // clickList: recorded (non-bot, unmatched) clicks of the app in the last hour.
 func clickList(e *env, a store.App) []store.Click {
 	e.t.Helper()
-	cs, err := e.St.ClicksSince(a.ID, time.Now().Add(-time.Hour))
+	cs, err := e.St.ClicksSince(a.ID, "", time.Now().Add(-time.Hour))
 	if err != nil {
 		e.t.Fatalf("ClicksSince: %v", err)
 	}
