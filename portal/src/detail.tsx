@@ -411,7 +411,7 @@ function LinkDialog({
               onInput={(e) => setDraft({ ...draft, url: e.currentTarget.value })}
               placeholder="/product/42?ref=promo"
             />
-            <Field.Description>App route the app opens, e.g. /product/42. Web visitors use the desktop fallback.</Field.Description>
+            <Field.Description>App route the app opens, e.g. /product/42. Web visitors use the web fallback.</Field.Description>
           </Field>
 
           <Separator />
@@ -438,13 +438,14 @@ function LinkDialog({
             />
           </Field>
           <Field>
-            <Label htmlFor={`${id}-fb`}>Desktop fallback</Label>
+            <Label htmlFor={`${id}-fb`}>Web fallback</Label>
             <Input
               id={`${id}-fb`}
               value={draft.fallbackUrl}
               onInput={(e) => setDraft({ ...draft, fallbackUrl: e.currentTarget.value })}
               placeholder="https://example.com"
             />
+            <Field.Description>Desktop visitors, and phones with no store page above for their platform.</Field.Description>
           </Field>
 
           <details open={!!(draft.expiresAt || draft.expiredUrl)}>

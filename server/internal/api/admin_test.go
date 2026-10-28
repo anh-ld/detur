@@ -3,6 +3,7 @@ package api
 // Token primitive tests (mintToken/verifyToken). Endpoint wire behavior + route gating: portal_test.go.
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -115,5 +116,35 @@ func TestElevateLockPerPeer(t *testing.T) {
 	}
 	if n := len(p.adminLocks); n != 0 {
 		t.Errorf("adminLocks holds %d idle entries; want 0", n)
+	}
+}
+
+// Admin cookie Secure only when the browser came over HTTPS (TLS here or at the gateway); plain-HTTP loopback stays usable.
+func TestSessionCookieSecure(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tls   bool
+		proto string
+		want  bool
+	}{
+		{"plain http loopback", false, "", false},
+		{"gateway https", false, "https", true},
+		{"gateway HTTPS uppercase", false, "HTTPS", true},
+		{"gateway http", false, "http", false},
+		{"tls here", true, "", true},
+	} {
+		r := httptest.NewRequest("POST", "/api/admin/session", nil)
+		if tc.tls {
+			r.TLS = &tls.ConnectionState{}
+		}
+		if tc.proto != "" {
+			r.Header.Set("X-Forwarded-Proto", tc.proto)
+		}
+		if got := sessionCookie(r, "v", 60).Secure; got != tc.want {
+			t.Errorf("%s: Secure = %v; want %v", tc.name, got, tc.want)
+		}
+		if got := sessionCookie(r, "", -1).Secure; got != tc.want {
+			t.Errorf("%s (clear): Secure = %v; want %v", tc.name, got, tc.want)
+		}
 	}
 }

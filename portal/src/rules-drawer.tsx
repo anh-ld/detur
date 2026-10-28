@@ -708,7 +708,7 @@ function TargetFields({
 }) {
   const fields: { k: keyof RuleTargets; label: string; base: string; hint: string }[] = [
     { k: 'destination', label: 'App route', base: link.url, hint: '/promo/special' },
-    { k: 'fallback_url', label: 'Desktop fallback', base: link.fallbackUrl, hint: 'https://example.com/landing' },
+    { k: 'fallback_url', label: 'Web fallback', base: link.fallbackUrl, hint: 'https://example.com/landing' },
     { k: 'ios', label: 'iOS store page', base: link.ios, hint: 'https://apps.apple.com/app/id123' },
     { k: 'android', label: 'Android store page', base: link.android, hint: 'https://play.google.com/store/apps/details?id=…' },
   ];

@@ -78,3 +78,29 @@ func TestClickLabels(t *testing.T) {
 		}
 	}
 }
+
+// redirectTarget: own store target wins; else fallback; else link.URL (app page). Desktop never gets a store page.
+func TestRedirectTargetMatrix(t *testing.T) {
+	const ios, android, fb, route = "https://apps.apple.com/app/id1", "https://play.google.com/store/apps/details?id=x", "https://example.com/web", "/p"
+	iphone := "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+	pixel := "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+	desktop := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+	tests := []struct {
+		name       string
+		link       store.Link
+		agent, out string
+	}{
+		{"iphone own target", store.Link{URL: route, IOS: ios, Android: android, FallbackURL: fb}, iphone, ios},
+		{"iphone android-only with fallback", store.Link{URL: route, Android: android, FallbackURL: fb}, iphone, fb},
+		{"iphone android-only no fallback", store.Link{URL: route, Android: android}, iphone, route},
+		{"android ios-only with fallback", store.Link{URL: route, IOS: ios, FallbackURL: fb}, pixel, fb},
+		{"android own target", store.Link{URL: route, IOS: ios, Android: android, FallbackURL: fb}, pixel, android},
+		{"desktop with fallback", store.Link{URL: route, IOS: ios, Android: android, FallbackURL: fb}, desktop, fb},
+		{"desktop no fallback", store.Link{URL: route, IOS: ios, Android: android}, desktop, route},
+	}
+	for _, tc := range tests {
+		if got := redirectTarget(tc.link, tc.agent, "", url.Values{}); got != tc.out {
+			t.Errorf("%s: redirectTarget = %q; want %q", tc.name, got, tc.out)
+		}
+	}
+}
