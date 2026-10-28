@@ -21,12 +21,14 @@ import (
 // adminCookie: elevation cookie (HttpOnly, SameSite=Lax; origin/host guard covers CSRF).
 const adminCookie = "detur_admin"
 
-// sessionCookie: elevation cookie with value; maxAge -1 clears (wire: Max-Age=0).
-func sessionCookie(value string, maxAge int) *http.Cookie {
+// sessionCookie: elevation cookie with value; maxAge -1 clears (wire: Max-Age=0). Secure when the browser reached us over HTTPS
+// (TLS here or at the gateway: X-Forwarded-Proto). A spoofed header only makes the cookie stricter; plain-HTTP loopback keeps working.
+func sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
 	return &http.Cookie{
 		Name: adminCookie, Value: value, HttpOnly: true,
 		SameSite: http.SameSiteLaxMode, Path: "/",
 		MaxAge: maxAge,
+		Secure: r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
 	}
 }
 
@@ -116,7 +118,7 @@ func (p *portalServer) elevate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, expiresAt := mintToken(p.adminPassword, p.adminHours, time.Now())
-	http.SetCookie(w, sessionCookie(token, p.adminHours*3600))
+	http.SetCookie(w, sessionCookie(r, token, p.adminHours*3600))
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"admin": true, "expiresAt": expiresAt.UTC().Format(time.RFC3339)})
 }
 
@@ -142,7 +144,7 @@ func (p *portalServer) session(r *http.Request) (expiresAt time.Time, ok bool) {
 
 // clearSession: DELETE /api/admin/session. Clears cookie (Max-Age=0); stateless token itself dies at embedded expiry.
 func (p *portalServer) clearSession(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, sessionCookie("", -1))
+	http.SetCookie(w, sessionCookie(r, "", -1))
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"admin": false})
 }
 
