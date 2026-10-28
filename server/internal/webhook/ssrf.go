@@ -36,6 +36,8 @@ var prohibitedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("2002::/16"),
 	netip.MustParsePrefix("2001::/32"),
+	netip.MustParsePrefix("::/96"),     // IPv4-compatible (deprecated): ::a9fe:a9fe -> 169.254.169.254
+	netip.MustParsePrefix("fec0::/10"), // site-local (deprecated)
 }
 
 // isProhibitedIP: private, link-local, CGNAT, cloud metadata (169.254.169.254, 100.100.100.200, 192.0.0.192),

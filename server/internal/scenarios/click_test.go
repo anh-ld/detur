@@ -718,6 +718,7 @@ func TestS_CLICK_56_Hop1KeepsQueryThroughReload(t *testing.T) {
 	e.link(a, "h1", "/p")
 	r := e.tap("/h1?utm_source=ig", uaAndroidChrome)
 	must(t, r.Code == 200 && r.H.Get("Cache-Control") == "no-store", "hop 1 %d cache %q", r.Code, r.H.Get("Cache-Control"))
+	must(t, r.H.Get("X-Frame-Options") == "DENY" && r.H.Get("X-Content-Type-Options") == "nosniff", "hop 1 frame %q sniff %q", r.H.Get("X-Frame-Options"), r.H.Get("X-Content-Type-Options"))
 	must(t, strings.Contains(r.Body, "_dt=1") && strings.Contains(r.Body, "utm_source=ig"), "noscript reload lost params:\n%s", r.Body)
 	must(t, strings.Contains(r.H.Get("Accept-CH"), "Sec-CH-UA-Model"), "Accept-CH = %q", r.H.Get("Accept-CH"))
 	clickNone(e, a)

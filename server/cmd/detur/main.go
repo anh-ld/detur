@@ -84,6 +84,7 @@ func serve(addr string, h http.Handler) error {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10, // UA/hints/query land in click rows: bounds each row, not just the request
 	}
 	return srv.ListenAndServe()
 }

@@ -387,9 +387,15 @@ func (p *portalServer) listLinks(w http.ResponseWriter, r *http.Request) {
 }
 
 // validTarget: absolute URL with scheme; http(s) needs host. Empty ok (optional fields). Scripting schemes rejected.
+// maxTargetLen: per link target; values land in every redirect Location and click row.
+const maxTargetLen = 2048
+
 func validTarget(field, v string) error {
 	if v == "" {
 		return nil
+	}
+	if len(v) > maxTargetLen {
+		return fmt.Errorf("%s longer than %d bytes", field, maxTargetLen)
 	}
 	u, err := url.Parse(v)
 	if err != nil || u.Scheme == "" {
@@ -408,6 +414,9 @@ func validTarget(field, v string) error {
 
 // validDestination: app route only ("/product/42"). Full URLs lose their first segment in the SDK, app schemes get dropped (R10).
 func validDestination(field, v string) error {
+	if len(v) > maxTargetLen {
+		return fmt.Errorf("%s longer than %d bytes", field, maxTargetLen)
+	}
 	if !httpx.IsRoute(v) {
 		return fmt.Errorf("%s must be an app route starting with /, e.g. /product/42", field)
 	}

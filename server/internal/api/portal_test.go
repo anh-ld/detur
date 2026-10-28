@@ -577,6 +577,7 @@ func TestPortalLinkURLValidation(t *testing.T) {
 		{`{"key":"v3","url":"https://"}`, http.StatusBadRequest},
 		{`{"key":"v6","url":"https://example.com/p"}`, http.StatusBadRequest},
 		{`{"key":"v7","url":"myapp://p"}`, http.StatusBadRequest},
+		{`{"key":"v8","url":"/` + strings.Repeat("a", 2048) + `"}`, http.StatusBadRequest},
 		{`{"key":"v4","url":"/home","ios":"myapp://open"}`, http.StatusCreated},
 		{`{"key":"v5","url":"/home","android":"market://details?id=x"}`, http.StatusCreated},
 	} {

@@ -866,11 +866,15 @@ func (s *Store) PriorMatch(appID, deviceHash string) (Click, error) {
 		appID, deviceHash, AttributionNonOrganic, rfc3339(time.Now())))
 }
 
-// ClicksSince: non-bot clicks created at or after since (window scan).
+// maxWindowClicks: newest unmatched clicks a match scan loads. Bounds memory when the window is flooded.
+// ponytail: older clicks past the cap can't match; raise it (or prefilter by IP in SQL) for apps above ~5k clicks per window.
+const maxWindowClicks = 5000
+
+// ClicksSince: newest non-bot clicks created at or after since (window scan), capped at maxWindowClicks.
 func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
 	rows, err := s.db.Query(
-		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND is_bot = 0 AND matched_at IS NULL AND created_at >= ? ORDER BY created_at DESC`,
-		appID, rfc3339(since),
+		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND is_bot = 0 AND matched_at IS NULL AND created_at >= ? ORDER BY created_at DESC LIMIT ?`,
+		appID, rfc3339(since), maxWindowClicks,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("clicks since: %w", err)
