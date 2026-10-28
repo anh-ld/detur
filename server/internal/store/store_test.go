@@ -161,7 +161,6 @@ func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	}
 }
 
-// Re-tap within dedup hour refreshes click: same id, created_at = now, new signals kept (Dub rewrites deepLinkClickCache per tap).
 // re-tap after the first click was matched: new click, never the consumed one
 func TestRecordClickDedupSkipsMatched(t *testing.T) {
 	s := newTestStore(t)
@@ -183,6 +182,7 @@ func TestRecordClickDedupSkipsMatched(t *testing.T) {
 	}
 }
 
+// Re-tap within dedup hour refreshes click: same id, created_at = now, new signals kept (Dub rewrites deepLinkClickCache per tap).
 func TestRecordClickDedupRefreshesClick(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1420,6 +1420,7 @@ func TestRecordClickInAppReopenMerge(t *testing.T) {
 		firstSrc  string
 		second    Click
 		otherLink bool
+		matched   bool
 		age       time.Duration
 		wantRows  int
 	}{
@@ -1431,6 +1432,7 @@ func TestRecordClickInAppReopenMerge(t *testing.T) {
 		{name: "different ip", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: "198.51.100.1", UserAgent: chrome}, Kind: KindApp}, wantRows: 2},
 		{name: "different link", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: chrome}, Kind: KindApp}, otherLink: true, wantRows: 2},
 		{name: "outside window", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: chrome}, Kind: KindApp}, age: 2 * time.Hour, wantRows: 2},
+		{name: "matched in-app click never merges", firstSrc: "messenger", second: Click{Fingerprint: Fingerprint{IP: ip, UserAgent: chrome}, Kind: KindApp}, matched: true, wantRows: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newTestStore(t)
@@ -1443,6 +1445,11 @@ func TestRecordClickInAppReopenMerge(t *testing.T) {
 			if tc.age > 0 {
 				if _, err := s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(time.Now().Add(-tc.age)), first.ID); err != nil {
 					t.Fatal(err)
+				}
+			}
+			if tc.matched {
+				if ok, err := s.MarkClickMatched(first.ID, "d1"); err != nil || !ok {
+					t.Fatalf("MarkClickMatched = %v, %v", ok, err)
 				}
 			}
 			lid := link.ID
