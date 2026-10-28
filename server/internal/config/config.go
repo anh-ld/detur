@@ -27,7 +27,7 @@ type Config struct {
 // Load: config from env, with defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Domain:            envOr("DOMAIN", "localhost"),
+		Domain:            normalizeDomain(envOr("DOMAIN", "localhost")),
 		DBPath:            envOr("DB_PATH", "detur.db"),
 		RetentionHours:    24,
 		ClickIDDays:       30,
@@ -92,6 +92,18 @@ func checkLogoutURL(v string) error {
 		return fmt.Errorf("LOGOUT_URL: must be an http(s) URL or a path starting with /, got %q", v)
 	}
 	return nil
+}
+
+// normalizeDomain: bare lowercase host. "https://Lnk.Example/" or "lnk.example." would never equal a request Host -> every AASA/assetlinks fetch 404s.
+func normalizeDomain(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if i := strings.Index(v, "://"); i >= 0 {
+		v = v[i+3:]
+	}
+	if i := strings.IndexAny(v, "/?#"); i >= 0 {
+		v = v[:i]
+	}
+	return strings.TrimSuffix(v, ".")
 }
 
 func envOr(key, def string) string {
