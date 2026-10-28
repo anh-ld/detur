@@ -116,3 +116,32 @@ func TestLoadLogoutURL(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadTrustProxyValues(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "0": false, "false": false, "No": false, "off": false, "1": true, "true": true, "TRUE": true, " yes ": true, "on": true} {
+		clearEnv(t)
+		t.Setenv("TRUST_PROXY", v)
+		cfg, err := Load()
+		if err != nil || cfg.TrustProxy != want {
+			t.Errorf("TRUST_PROXY=%q: TrustProxy=%v err=%v; want %v", v, cfg != nil && cfg.TrustProxy, err, want)
+		}
+	}
+	for _, v := range []string{"2", "maybe", "enabled"} {
+		clearEnv(t)
+		t.Setenv("TRUST_PROXY", v)
+		if _, err := Load(); err == nil {
+			t.Errorf("TRUST_PROXY=%q: want startup error", v)
+		}
+	}
+}
+
+func TestNormalizeDomain(t *testing.T) {
+	for in, want := range map[string]string{
+		"lnk.example": "lnk.example", "https://lnk.example/": "lnk.example", "HTTP://Lnk.Example/path?q=1": "lnk.example",
+		" lnk.example. ": "lnk.example", "lnk.example:8443": "lnk.example:8443", "localhost": "localhost",
+	} {
+		if got := normalizeDomain(in); got != want {
+			t.Errorf("normalizeDomain(%q) = %q; want %q", in, got, want)
+		}
+	}
+}

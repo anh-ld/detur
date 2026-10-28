@@ -89,7 +89,7 @@ func RemoteIP(r *http.Request) string {
 			if ip := forwardedClient(r.Header.Values("X-Forwarded-For")); ip != "" {
 				return ip
 			}
-			if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+			if ip := hostOnly(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ip != "" {
 				return ip
 			}
 		} else if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Real-IP") != "" {
@@ -107,7 +107,7 @@ func forwardedClient(xff []string) string {
 	entries := strings.Split(strings.Join(xff, ","), ",")
 	ip := ""
 	for i := len(entries) - 1; i >= 0; i-- {
-		e := strings.TrimSpace(entries[i])
+		e := hostOnly(strings.TrimSpace(entries[i]))
 		if e == "" {
 			continue
 		}
@@ -117,6 +117,17 @@ func forwardedClient(xff []string) string {
 		}
 	}
 	return ip
+}
+
+// hostOnly: forwarded entry without a port (Azure gateways send "ip:port", IPv6 as "[v6]:port"); bare IPs unchanged.
+func hostOnly(e string) string {
+	if net.ParseIP(e) != nil {
+		return e
+	}
+	if h, _, err := net.SplitHostPort(e); err == nil {
+		return h
+	}
+	return strings.Trim(e, "[]")
 }
 
 // Socket peers, TRUST_PROXY off. Mostly private = proxy in front, one shared IP.

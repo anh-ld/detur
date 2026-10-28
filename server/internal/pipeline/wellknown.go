@@ -170,10 +170,10 @@ func (w *wellKnownServer) allowedHost(r *http.Request) bool {
 	return false
 }
 
-// hostnameOnly: Host minus port (and IPv6 brackets).
+// hostnameOnly: Host minus port (and IPv6 brackets) and the root dot ("lnk.example." = same DNS name).
 func hostnameOnly(h string) string {
 	if host, _, err := net.SplitHostPort(h); err == nil {
-		return host
+		h = host
 	}
-	return h
+	return strings.TrimSuffix(h, ".")
 }
