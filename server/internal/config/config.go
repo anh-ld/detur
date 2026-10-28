@@ -31,7 +31,6 @@ func Load() (*Config, error) {
 		DBPath:            envOr("DB_PATH", "detur.db"),
 		RetentionHours:    24,
 		ClickIDDays:       30,
-		TrustProxy:        os.Getenv("TRUST_PROXY") == "1",
 		LogoutURL:         os.Getenv("LOGOUT_URL"),
 		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
 		AdminSessionHours: 12,
@@ -50,6 +49,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if cfg.AdminSessionHours, err = envIntRange("ADMIN_SESSION_HOURS", cfg.AdminSessionHours, 1, 72); err != nil {
+		return nil, err
+	}
+	if cfg.TrustProxy, err = envBool("TRUST_PROXY"); err != nil {
 		return nil, err
 	}
 	if err := checkLogoutURL(cfg.LogoutURL); err != nil {
@@ -97,6 +99,18 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envBool: 1/true/yes/on or 0/false/no/off (any case), unset = false. Anything else fails fast: "true" read as off would silently share one proxy IP.
+func envBool(key string) (bool, error) {
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv(key))); v {
+	case "", "0", "false", "no", "off":
+		return false, nil
+	case "1", "true", "yes", "on":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s: must be 1/true/yes/on or 0/false/no/off, got %q", key, v)
+	}
 }
 
 // envIntRange: int env var; malformed/out-of-range = fail fast, no silent misconfig.
