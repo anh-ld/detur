@@ -29,6 +29,11 @@ func intentURL(host, key string, q url.Values, pkg, fallback string) string {
 		"#Intent;scheme=https;package=" + pkg + ";S.browser_fallback_url=" + url.QueryEscape(fallback) + ";end"
 }
 
+// schemeURL: app route -> <scheme>://<route> (SDK custom-scheme branch reads host+path+query back as the route).
+func schemeURL(scheme, route string) string {
+	return scheme + "://" + strings.TrimPrefix(route, "/")
+}
+
 // inAppMenu: per-app "Open in browser" menu label; unlisted -> platform default.
 var inAppMenu = map[string]string{
 	"instagram": "Open in external browser",
@@ -66,7 +71,7 @@ func menuLabel(source string, ios bool) string {
 	return "Open in Chrome"
 }
 
-// serveTap: tap page, plain link to tap (in-app browsers block auto store hand-off). iOS copies short link first (pasteboard signal), reports it like copy page.
+// serveTap: tap page, plain link to tap (in-app browsers block auto store hand-off). iOS copies short link first (pasteboard signal), reports it like copy page; app scheme set -> tries the installed app before the App Store.
 func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link store.Link, dest, source string, q url.Values) {
 	ios := ua.IsIOS(r.UserAgent())
 	data := struct {
@@ -75,9 +80,16 @@ func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link s
 		IOS   bool
 		Steps []string
 		Paste string
+		Open  template.URL // iOS: app scheme URL tried before Href (App Store)
 	}{Href: template.URL(dest), IOS: ios, Steps: tapSteps(source, ios)}
 	if ios {
 		data.Paste = store.PasteQuery() // reported with pasted_link (pasteToken)
+		// app scheme set -> button opens the installed app at the route first, App Store after a timeout
+		if app, err := p.st.GetApp(link.AppID); err != nil {
+			p.log.Printf("tap page app lookup failed (App Store button only): %v", err)
+		} else if app.IOSScheme != "" && httpx.IsRoute(link.URL) {
+			data.Open = template.URL(schemeURL(app.IOSScheme, deepLinkURL(link, q)))
+		}
 	}
 	if !ios {
 		// app package -> button = intent opening installed app at link
@@ -109,7 +121,7 @@ ol{padding-left:1.4em;display:grid;gap:6px}
 </style>
 <main>
 <h1>Continue to the app</h1>
-<a class="go" id="go" href="{{.Href}}">Get the app</a>
+<a class="go" id="go" href="{{.Href}}"{{if .Open}} data-open="{{.Open}}"{{end}}>Get the app</a>
 {{if .Play}}<a class="alt" href="{{.Play}}">Open Play Store</a>{{end}}
 <p>Nothing happens? Open this page in your browser:</p>
 <ol>{{range .Steps}}<li>{{.}}</li>{{end}}</ol>
@@ -126,12 +138,26 @@ ol{padding-left:1.4em;display:grid;gap:6px}
 {{if .IOS}}<script>
 // copy synchronously inside the tap, report pasted_link before the navigation can unload the page
 ` + copyJS + `
-document.getElementById("go").addEventListener("click", function () {
+var go = document.getElementById("go");
+go.addEventListener("click", function (e) {
   var link = location.origin + location.pathname + {{.Paste}};
-  if (!copy(link)) return;
-  var q = new URLSearchParams(location.search);
-  q.set("pasted_link", link);
-  try { fetch(location.pathname + "?" + q.toString(), { keepalive: true, credentials: "omit" }).catch(function () {}); } catch (e) {}
+  if (copy(link)) {
+    var q = new URLSearchParams(location.search);
+    q.set("pasted_link", link);
+    try { fetch(location.pathname + "?" + q.toString(), { keepalive: true, credentials: "omit" }).catch(function () {}); } catch (e) {}
+  }
+  // app scheme first; still visible after 1.5s = app missing -> App Store (href). Hidden/pagehide or late timer (frozen while the app was up) cancels
+  var open = go.getAttribute("data-open");
+  if (!open) return;
+  e.preventDefault();
+  var left = false, t0 = Date.now();
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") left = true; });
+  window.addEventListener("pagehide", function () { left = true; });
+  setTimeout(function () {
+    if (left || document.visibilityState !== "visible" || Date.now() - t0 > 2500) return;
+    location.href = go.href;
+  }, 1500);
+  location.href = open;
 });
 </script>{{end}}`))
 

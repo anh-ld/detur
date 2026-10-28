@@ -12,7 +12,7 @@ const stats = (clicks: number) => ({
 });
 const app = {
   id: 'app1', name: 'Stale App', apiKeyHash: 'h', iosAppId: '', androidPackage: '',
-  androidCertFingerprint: '', matchThreshold: 850, matchWindowMinutes: 15,
+  androidCertFingerprint: '', iosScheme: '', matchThreshold: 850, matchWindowMinutes: 15,
 };
 
 // Clicks tile value ('' while skeleton up)

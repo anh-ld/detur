@@ -58,14 +58,26 @@ async function scripts(query: string, ua: string): Promise<string[]> {
 function browser(search = '', copyWorks = true) {
   const handlers: Record<string, (() => void)[]> = {};
   const on = (t: string, f: () => void) => (handlers[t] ??= []).push(f);
-  const button: { onclick: null | (() => void); click?: () => void; addEventListener: (t: string, f: () => void) => void } = {
+  type Click = (e?: { preventDefault: () => void }) => void;
+  const button: {
+    onclick: null | (() => void);
+    click?: Click;
+    open: string | null; // data-open (app scheme URL)
+    href: string;
+    getAttribute: () => string | null;
+    addEventListener: (t: string, f: Click) => void;
+  } = {
     onclick: null,
+    open: null,
+    href: 'https://apps.apple.com/app/id123',
+    getAttribute: () => button.open,
     addEventListener: (_t, f) => (button.click = f),
   };
   const b = {
     replaced: [] as string[],
     states: [] as string[],
     fetched: [] as string[],
+    navigated: [] as string[],
     doc: {
       visibilityState: 'visible',
       addEventListener: on,
@@ -77,7 +89,15 @@ function browser(search = '', copyWorks = true) {
     button,
     fire: (t: string) => (handlers[t] ?? []).forEach((f) => f()),
     run(src: string) {
-      const location = { search, pathname: `/${key}`, origin: 'https://links.example', replace: (u: string) => b.replaced.push(u) };
+      const location = {
+        search,
+        pathname: `/${key}`,
+        origin: 'https://links.example',
+        replace: (u: string) => b.replaced.push(u),
+        set href(u: string) {
+          b.navigated.push(u);
+        },
+      };
       const window = { addEventListener: on, devicePixelRatio: 3 };
       const history = { replaceState: (_s: unknown, _t: string, u: string) => b.states.push(u) };
       const navigator = { clipboard: { writeText: () => Promise.reject(new Error('denied')) } };
@@ -189,5 +209,27 @@ describe('tap page', () => {
       if (copyWorks) expect(pasted).toEqual([expect.stringMatching(new RegExp(`^https://links\\.example/${key}\\?_dc=[0-9A-Za-z]{16}$`))]);
       else expect(pasted).toEqual([]);
     }
+  });
+
+  it('iOS app scheme: opens the app first, App Store only if the page is still up after 1.5s', async () => {
+    const [, ios] = await scripts('?_dt=1', MESSENGER_IOS);
+    const tap = (stay: boolean) => {
+      vi.useFakeTimers();
+      const b = browser('?_dt=1');
+      b.button.open = 'myapp://p?x=1';
+      b.run(ios);
+      let prevented = false;
+      b.button.click!({ preventDefault: () => (prevented = true) });
+      expect(prevented).toBe(true);
+      if (!stay) {
+        b.doc.visibilityState = 'hidden';
+        b.fire('visibilitychange');
+      }
+      vi.advanceTimersByTime(1500);
+      vi.useRealTimers();
+      return b.navigated;
+    };
+    expect(tap(true)).toEqual(['myapp://p?x=1', 'https://apps.apple.com/app/id123']);
+    expect(tap(false)).toEqual(['myapp://p?x=1']);
   });
 });

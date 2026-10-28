@@ -63,6 +63,20 @@ func TestRemoteIP(t *testing.T) {
 			want:       "8.8.8.8",
 		},
 		{
+			name:       "trusted chain skips private hops right to left",
+			trust:      true,
+			remoteAddr: "10.0.0.1:1234",
+			hdr:        map[string][]string{"X-Forwarded-For": {"1.2.3.4, 9.9.9.9, 10.0.0.7"}},
+			want:       "9.9.9.9",
+		},
+		{
+			name:       "all XFF entries trusted -> leftmost",
+			trust:      true,
+			remoteAddr: "10.0.0.1:1234",
+			hdr:        map[string][]string{"X-Forwarded-For": {"192.168.0.9, 10.0.0.7"}},
+			want:       "192.168.0.9",
+		},
+		{
 			name:       "no headers falls back to peer",
 			trust:      true,
 			remoteAddr: "10.0.0.1:1234",
@@ -111,6 +125,17 @@ func TestSetTrustedProxies(t *testing.T) {
 
 	if got := RemoteIP(r); got != "198.51.100.1" {
 		t.Errorf("Custom CIDR: RemoteIP = %q, want 198.51.100.1", got)
+	}
+
+	// CDN -> ingress -> detur: CDN range trusted -> client, not the CDN edge
+	if err := SetTrustedProxies([]string{"10.0.0.0/8", "173.245.48.0/20"}); err != nil {
+		t.Fatalf("SetTrustedProxies: %v", err)
+	}
+	r2 := httptest.NewRequest("GET", "/", nil)
+	r2.RemoteAddr = "10.0.0.3:1234"
+	r2.Header.Set("X-Forwarded-For", "6.6.6.6, 198.51.100.7, 173.245.48.10")
+	if got := RemoteIP(r2); got != "198.51.100.7" {
+		t.Errorf("CDN chain: RemoteIP = %q, want 198.51.100.7", got)
 	}
 
 	// Malformed CIDR fails

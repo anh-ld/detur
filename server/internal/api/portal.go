@@ -157,6 +157,7 @@ type appJSON struct {
 	IOSAppID               string `json:"iosAppId"`
 	AndroidPackage         string `json:"androidPackage"`
 	AndroidCertFingerprint string `json:"androidCertFingerprint"`
+	IOSScheme              string `json:"iosScheme"`
 	MatchThreshold         int    `json:"matchThreshold"`
 	MatchWindowMinutes     int    `json:"matchWindowMinutes"`
 	TagLinks               bool   `json:"tagLinks"`
@@ -164,7 +165,7 @@ type appJSON struct {
 
 func toAppJSON(a store.App) appJSON {
 	return appJSON{ID: a.ID, Name: a.Name, APIKeyHash: a.APIKeyHash,
-		IOSAppID: a.IOSAppID, AndroidPackage: a.AndroidPackage, AndroidCertFingerprint: a.AndroidCertFingerprint,
+		IOSAppID: a.IOSAppID, AndroidPackage: a.AndroidPackage, AndroidCertFingerprint: a.AndroidCertFingerprint, IOSScheme: a.IOSScheme,
 		MatchThreshold: a.MatchThreshold, MatchWindowMinutes: a.MatchWindowMinutes, TagLinks: a.TagLinks}
 }
 
@@ -336,13 +337,19 @@ func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 		IOSAppID               string `json:"iosAppId"`
 		AndroidPackage         string `json:"androidPackage"`
 		AndroidCertFingerprint string `json:"androidCertFingerprint"`
+		IOSScheme              string `json:"iosScheme"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	body.IOSScheme = strings.TrimSuffix(strings.TrimSpace(body.IOSScheme), "://")
+	if body.IOSScheme != "" && !validScheme(body.IOSScheme) {
+		http.Error(w, "iosScheme must be an app URL scheme like myapp (not http, https, javascript, data, file)", http.StatusBadRequest)
+		return
+	}
 	id := r.PathValue("id")
-	if err := p.st.UpdateAppDetails(id, body.IOSAppID, body.AndroidPackage, body.AndroidCertFingerprint); err != nil {
+	if err := p.st.UpdateAppDetails(id, body.IOSAppID, body.AndroidPackage, body.AndroidCertFingerprint, body.IOSScheme); err != nil {
 		p.storeErr(w, err)
 		return
 	}
@@ -836,6 +843,18 @@ func (p *portalServer) internal(w http.ResponseWriter, err error) {
 
 // linkKeyRe: short-link key charset (URL-path-safe, single segment).
 var linkKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// schemeRe: RFC 3986 scheme. Ends up in the tap page href, so browser-handled schemes are refused (validScheme).
+var schemeRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]{0,63}$`)
+
+// validScheme: app URL scheme only; web and script schemes would turn the tap button into a web page or script.
+func validScheme(v string) bool {
+	switch strings.ToLower(v) {
+	case "http", "https", "javascript", "data", "file", "vbscript", "blob", "about", "ftp", "ws", "wss", "intent":
+		return false
+	}
+	return schemeRe.MatchString(v)
+}
 
 // isReservedKey: keys shadowing registered routes (case-insensitive) or "_" prefix Dub reserves (_root).
 func isReservedKey(key string) bool {

@@ -346,8 +346,31 @@ func TestResolveShortValid(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatalf("body %s: %v", b, err)
 	}
-	if out.Link != link.URL || out.Route != "/abc" || out.Parameters != "x=1&y=2" {
-		t.Fatalf("body = %s; want link %s route /abc parameters x=1&y=2", b, link.URL)
+	if out.Link != link.URL+"?x=1&y=2" || out.Route != "/abc" || out.Parameters != "x=1&y=2" {
+		t.Fatalf("body = %s; want link %s?x=1&y=2 route /abc parameters x=1&y=2", b, link.URL)
+	}
+}
+
+// Installed-app tap keeps the tapped query like a browser click: add-only, internal params dropped, route prefixed.
+func TestResolveShortForwardsQuery(t *testing.T) {
+	ts, s, _ := newTestServer(t)
+	app, _ := setup(t, s)
+	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "invite", URL: "/invite?src=share"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	resp, b := doPost(t, ts, "/api/link/resolve-short",
+		`{"url":"https://lnk.example/invite?userId=1&src=evil&_dt=1&_tap=1&_dc=abc"}`, authHeaders(app.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body %s; want 200", resp.StatusCode, b)
+	}
+	var out struct {
+		Link string `json:"link"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("body %s: %v", b, err)
+	}
+	if want := "/" + app.ID[:3] + "/invite?src=share&userId=1"; out.Link != want {
+		t.Fatalf("link = %q; want %q", out.Link, want)
 	}
 }
 

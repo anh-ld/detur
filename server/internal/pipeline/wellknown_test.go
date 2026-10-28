@@ -92,7 +92,7 @@ func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	if err != nil {
 		t.Fatalf("CreateApp: %v", err)
 	}
-	if err := s.UpdateAppDetails(app.ID, "TEAM123.com.example.app", "com.example.app", "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"); err != nil {
+	if err := s.UpdateAppDetails(app.ID, "TEAM123.com.example.app", "com.example.app", "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99", ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 	return app
@@ -105,7 +105,7 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateApp: %v", err)
 	}
-	if err := st.UpdateAppDetails(iosOnly.ID, "TEAM1.com.example.ios", "", ""); err != nil {
+	if err := st.UpdateAppDetails(iosOnly.ID, "TEAM1.com.example.ios", "", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 	if _, err := st.CreateLink(store.Link{AppID: iosOnly.ID, Key: "abc", URL: "https://example.com/abc"}); err != nil {
@@ -119,7 +119,7 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateApp: %v", err)
 	}
-	if err := st.UpdateAppDetails(zeroLink.ID, "TEAM9.com.example.zero", "", ""); err != nil {
+	if err := st.UpdateAppDetails(zeroLink.ID, "TEAM9.com.example.zero", "", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 
@@ -196,7 +196,7 @@ func TestAASAEnumerationKeepsNewestKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateApp: %v", err)
 	}
-	if err := st.UpdateAppDetails(app.ID, "TEAM77.com.example.cap", "", ""); err != nil {
+	if err := st.UpdateAppDetails(app.ID, "TEAM77.com.example.cap", "", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 	if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: "first", URL: "https://example.com/first"}); err != nil {
@@ -248,7 +248,7 @@ func TestAASASingleAppWildcard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateApp: %v", err)
 	}
-	if err := st.UpdateAppDetails(app.ID, "TEAM1.com.example.single", "", ""); err != nil {
+	if err := st.UpdateAppDetails(app.ID, "TEAM1.com.example.single", "", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 
@@ -302,7 +302,7 @@ func TestAssetlinksValidJSONPerApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateApp: %v", err)
 	}
-	if err := st.UpdateAppDetails(iosOnly.ID, "TEAM1.com.example.ios", "", ""); err != nil {
+	if err := st.UpdateAppDetails(iosOnly.ID, "TEAM1.com.example.ios", "", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 	setupWellKnownApp(t, st)
@@ -399,7 +399,7 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 	iosID := "TEAM9.com.example.ios"
 	pkg := "com.example.android"
 	fp := "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
-	if err := st.UpdateAppDetails(app.ID, iosID, pkg, fp); err != nil {
+	if err := st.UpdateAppDetails(app.ID, iosID, pkg, fp, ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 	got, err := st.GetApp(app.ID)
@@ -419,7 +419,7 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 	}
 
 	// unknown app -> ErrNotFound, both methods
-	if err := st.UpdateAppDetails("nope", "x", "", ""); !errors.Is(err, store.ErrNotFound) {
+	if err := st.UpdateAppDetails("nope", "x", "", "", ""); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("UpdateAppDetails(unknown) err = %v; want ErrNotFound", err)
 	}
 	if _, err := st.GetApp("nope"); !errors.Is(err, store.ErrNotFound) {
@@ -427,7 +427,7 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 	}
 
 	// empty strings clear (nullable columns read back "")
-	if err := st.UpdateAppDetails(app.ID, "", "", ""); err != nil {
+	if err := st.UpdateAppDetails(app.ID, "", "", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails(clear): %v", err)
 	}
 	got, err = st.GetApp(app.ID)

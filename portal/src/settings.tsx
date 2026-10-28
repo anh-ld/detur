@@ -108,6 +108,7 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
     iosAppId: app.iosAppId,
     androidPackage: app.androidPackage,
     androidCertFingerprint: app.androidCertFingerprint,
+    iosScheme: app.iosScheme,
   });
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
@@ -158,6 +159,15 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
             <td>{field('cfg-ios', 'iosAppId', 'ABCDE12345.com.example.app')}</td>
             <td data-label="Format" style={muted}>
               TEAMID.BUNDLEID
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <Label htmlFor="cfg-scheme">iOS URL scheme</Label>
+            </td>
+            <td>{field('cfg-scheme', 'iosScheme', 'myapp')}</td>
+            <td data-label="Format" style={muted}>
+              Optional. In-app browsers open the installed app first
             </td>
           </tr>
           <tr>

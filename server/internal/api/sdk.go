@@ -176,7 +176,7 @@ func (s *sdkServer) withLinkTag(appID, dest string, key func() string) string {
 	return httpx.AddParams(dest, url.Values{store.LinkTag: {k}}, func(string, string) bool { return true })
 }
 
-// resolveShort: POST /api/link/resolve-short. Short URL -> destination. SDK casts body to {link, route, parameters}, reads only link; 404 -> null (client falls back to original URL).
+// resolveShort: POST /api/link/resolve-short. Short URL -> destination. SDK casts body to {link, route, parameters}, reads only link (so link carries the tapped query); 404 -> null (client falls back to original URL).
 func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 	appID := r.Header.Get("X-App-ID")
 	var body struct {
@@ -214,6 +214,8 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 		}
 		dest = link.ExpiredURL
 	}
+	// tapped link's query, add-only, internal params dropped: same as a browser click's deferred destination (deepLinkURL)
+	dest = httpx.AddParams(dest, u.Query(), func(k, v string) bool { return v != "" && !store.InternalParams[k] })
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{
 		"link":       s.withLinkTag(appID, appDestination(appID, dest), func() string { return link.Key }),
 		"route":      u.Path,

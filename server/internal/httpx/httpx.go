@@ -75,8 +75,9 @@ func isTrustedPeer(host string) bool {
 	return false
 }
 
-// RemoteIP: client IP. TrustProxy: verifies peer IP against trusted CIDRs, then parses
-// last XFF entry (proxy appends its peer; earlier entries client-set), else X-Real-IP.
+// RemoteIP: client IP. TrustProxy: verifies peer IP against trusted CIDRs, then walks XFF
+// right to left (each proxy appends its peer; leftmost entries client-set), skipping trusted
+// proxies (CDN -> ingress chains), else X-Real-IP.
 // Untrusted peers ignore forwarded headers to prevent IP spoofing (R4, R6).
 func RemoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -85,14 +86,8 @@ func RemoteIP(r *http.Request) string {
 	}
 	if TrustProxy {
 		if isTrustedPeer(host) {
-			if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
-				last := xff[len(xff)-1]
-				if i := strings.LastIndexByte(last, ','); i >= 0 {
-					last = last[i+1:]
-				}
-				if ip := strings.TrimSpace(last); ip != "" {
-					return ip
-				}
+			if ip := forwardedClient(r.Header.Values("X-Forwarded-For")); ip != "" {
+				return ip
 			}
 			if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
 				return ip
@@ -105,6 +100,23 @@ func RemoteIP(r *http.Request) string {
 		notePeer(host)
 	}
 	return host
+}
+
+// forwardedClient: rightmost XFF entry outside TRUSTED_PROXIES; all trusted -> leftmost. "" when empty.
+func forwardedClient(xff []string) string {
+	entries := strings.Split(strings.Join(xff, ","), ",")
+	ip := ""
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := strings.TrimSpace(entries[i])
+		if e == "" {
+			continue
+		}
+		ip = e
+		if !isTrustedPeer(e) {
+			break
+		}
+	}
+	return ip
 }
 
 // Socket peers, TRUST_PROXY off. Mostly private = proxy in front, one shared IP.
