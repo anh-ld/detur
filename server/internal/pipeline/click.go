@@ -41,6 +41,14 @@ type pipelineServer struct {
 func Register(mux *http.ServeMux, st *store.Store, retentionHours int) {
 	p := &pipelineServer{st: st, log: log.Default(), retentionHours: retentionHours}
 	mux.HandleFunc("GET /{key}", p.handleShort)
+	// "lnk.example/promo/" (chat apps, hand-typed): 301 to the key, query kept
+	mux.HandleFunc("GET /{key}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		target := "/" + url.PathEscape(r.PathValue("key"))
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+	})
 }
 
 // handleShort: resolve key globally, record click (bot-filtered), 302 to store
