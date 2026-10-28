@@ -343,6 +343,10 @@ func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	// pasted from App Store Connect / Play Console: stray spaces or newlines would land verbatim in AASA / assetlinks and break verification
+	body.IOSAppID = strings.TrimSpace(body.IOSAppID)
+	body.AndroidPackage = strings.TrimSpace(body.AndroidPackage)
+	body.AndroidCertFingerprint = strings.TrimSpace(body.AndroidCertFingerprint)
 	body.IOSScheme = strings.TrimSuffix(strings.TrimSpace(body.IOSScheme), "://")
 	if body.IOSScheme != "" && !validScheme(body.IOSScheme) {
 		http.Error(w, "iosScheme must be an app URL scheme like myapp (not http, https, javascript, data, file)", http.StatusBadRequest)
