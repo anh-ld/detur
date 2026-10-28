@@ -128,6 +128,7 @@ type App struct {
 	IOSAppID               string
 	AndroidPackage         string
 	AndroidCertFingerprint string
+	IOSScheme              string // custom URL scheme ("myapp"): iOS tap page tries <scheme>://<route> before the App Store
 	MatchThreshold         int
 	MatchWindowMinutes     int
 	TagLinks               bool // match-link + resolve-short destinations carry detur_link=<key>
@@ -149,9 +150,9 @@ func (s *Store) CreateApp(name, apiKey string) (App, error) {
 func (s *Store) GetApp(id string) (App, error) {
 	var a App
 	err := s.db.QueryRow(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes, tag_links
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), COALESCE(ios_scheme, ''), match_threshold, match_window_minutes, tag_links
 		 FROM apps WHERE id = ?`, id,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks)
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.IOSScheme, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -162,10 +163,10 @@ func (s *Store) GetApp(id string) (App, error) {
 }
 
 // UpdateAppDetails: set hosting details; "" clears (nullable); ErrNotFound if app unknown.
-func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint string) error {
+func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint, iosScheme string) error {
 	res, err := s.db.Exec(
-		`UPDATE apps SET ios_app_id = ?, android_package = ?, android_cert_fingerprint = ? WHERE id = ?`,
-		nullStr(iosAppID), nullStr(androidPackage), nullStr(certFingerprint), id,
+		`UPDATE apps SET ios_app_id = ?, android_package = ?, android_cert_fingerprint = ?, ios_scheme = ? WHERE id = ?`,
+		nullStr(iosAppID), nullStr(androidPackage), nullStr(certFingerprint), nullStr(iosScheme), id,
 	)
 	if err != nil {
 		return fmt.Errorf("update app details: %w", err)
@@ -225,7 +226,7 @@ func (s *Store) DeleteApp(id string) error {
 
 func (s *Store) ListApps() ([]App, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), match_threshold, match_window_minutes, tag_links
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), COALESCE(ios_scheme, ''), match_threshold, match_window_minutes, tag_links
 		 FROM apps ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list apps: %w", err)
@@ -234,7 +235,7 @@ func (s *Store) ListApps() ([]App, error) {
 	var apps []App
 	for rows.Next() {
 		var a App
-		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.IOSScheme, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks); err != nil {
 			return nil, err
 		}
 		apps = append(apps, a)
@@ -780,6 +781,22 @@ func (s *Store) ClickByPasteToken(appID, key, token, deviceHash string) (Click, 
 // ParamPasteToken: query key carrying the paste token in a copied short link.
 const ParamPasteToken = "_dc"
 
+// Short-link query params detur appends (interstitial, tap page); internal, never forwarded.
+const (
+	ParamDone     = "_dt"
+	ParamScreen   = "screen"
+	ParamTimezone = "tz"
+	ParamPasted   = "pasted_link"
+	ParamNoTrack  = "detur-no-track" // Dub's dub-no-track
+	ParamTap      = "_tap"           // safety-net reload: hop 2 answers with the tap page
+	ParamTouch    = "_touch"         // interstitial saw a touch screen (iPadOS Safari behind a Mac UA)
+)
+
+// InternalParams: detur's own query params; consumed by the pipeline, never forwarded to a destination (Dub skips dub-no-track, redir_url).
+var InternalParams = map[string]bool{
+	ParamDone: true, ParamScreen: true, ParamTimezone: true, ParamPasted: true, ParamNoTrack: true, ParamTap: true, ParamTouch: true, ParamPasteToken: true,
+}
+
 const pasteTokenLen = 16
 
 var (
@@ -1054,6 +1071,7 @@ func addMissingColumns(db *sql.DB) error {
 		{"links", "og_title", "TEXT"},
 		{"links", "og_description", "TEXT"},
 		{"links", "og_image", "TEXT"},
+		{"apps", "ios_scheme", "TEXT"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {

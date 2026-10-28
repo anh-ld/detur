@@ -128,6 +128,16 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 	if !strings.Contains(string(b), `"iosAppId":"ABCDE12345.com.example.app"`) {
 		t.Fatalf("app details not persisted: %s", b)
 	}
+	for in, want := range map[string]int{`"myapp://"`: http.StatusOK, `"javascript"`: http.StatusBadRequest, `"https"`: http.StatusBadRequest, `"my app"`: http.StatusBadRequest} {
+		resp, b = portalReq(t, portal, "PATCH", "/api/apps/"+created.ID,
+			`{"iosAppId":"ABCDE12345.com.example.app","androidPackage":"com.example.app","androidCertFingerprint":"AA:BB:CC","iosScheme":`+in+`}`, nil)
+		if resp.StatusCode != want {
+			t.Fatalf("iosScheme %s: %d %s; want %d", in, resp.StatusCode, b, want)
+		}
+		if want == http.StatusOK && !strings.Contains(string(b), `"iosScheme":"myapp"`) {
+			t.Fatalf("iosScheme not normalized: %s", b)
+		}
+	}
 
 	resp, b = portalReq(t, portal, "POST", "/api/apps/"+created.ID+"/links",
 		`{"key":"c1","url":"/p","ios":"https://apps.apple.com/app/id1",`+

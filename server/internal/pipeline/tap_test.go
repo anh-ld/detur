@@ -48,11 +48,37 @@ func TestInAppIOSGetsTapPage(t *testing.T) {
 	}
 }
 
+// Messenger iOS, app scheme set + route link: button tries <scheme>://<route>?<tapped query> first, App Store stays the href.
+func TestInAppIOSSchemeButton(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	app, _ := setupPipeline(t, s)
+	if err := s.UpdateAppDetails(app.ID, "", "", "", "myapp"); err != nil {
+		t.Fatalf("UpdateAppDetails: %v", err)
+	}
+	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "invite", URL: "/invite", IOS: "https://apps.apple.com/app/id123"}); err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	_, body := mobileClick(t, ts, "/invite?userId=1", map[string]string{"User-Agent": messengerIOSUA})
+	page := string(body)
+	for _, want := range []string{`href="https://apps.apple.com/app/id123"`, `data-open="myapp://invite?userId=1"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("tap page missing %q:\n%s", want, page)
+		}
+	}
+	// no scheme -> App Store only
+	if err := s.UpdateAppDetails(app.ID, "", "", "", ""); err != nil {
+		t.Fatalf("UpdateAppDetails: %v", err)
+	}
+	if _, body = mobileClick(t, ts, "/invite?userId=1", map[string]string{"User-Agent": messengerIOSUA}); strings.Contains(string(body), "data-open=") {
+		t.Errorf("tap page without scheme has data-open:\n%s", body)
+	}
+}
+
 // Messenger Android, package set: intent:// button back to short link, Play fallback with click_id, plain Play link as backup.
 func TestInAppAndroidIntentButton(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
-	if err := s.UpdateAppDetails(app.ID, "", "com.example", "AA:BB"); err != nil {
+	if err := s.UpdateAppDetails(app.ID, "", "com.example", "AA:BB", ""); err != nil {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 	resp, body := mobileClick(t, ts, "/"+link.Key, map[string]string{"User-Agent": messengerAndroidUA})
@@ -248,7 +274,7 @@ func TestTapPageStripsTapParam(t *testing.T) {
 func TestTapPageMarketBackupLink(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)
-	if err := s.UpdateAppDetails(app.ID, "", "com.example", "AA:BB"); err != nil {
+	if err := s.UpdateAppDetails(app.ID, "", "com.example", "AA:BB", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "mkt", URL: "https://example.com/m", Android: "market://details?id=com.example"}); err != nil {

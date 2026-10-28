@@ -52,11 +52,11 @@ func TestHealthChecks(t *testing.T) {
 	}
 
 	// bad formats fail; 2nd iOS app → fresh link waits for AASA
-	if err := st.UpdateAppDetails(app.ID, "com.example.app", "com.example", "AA:BB"); err != nil {
+	if err := st.UpdateAppDetails(app.ID, "com.example.app", "com.example", "AA:BB", ""); err != nil {
 		t.Fatal(err)
 	}
 	other, _ := st.CreateApp("other", "k2")
-	if err := st.UpdateAppDetails(other.ID, "ABCDE12345.com.other", "", ""); err != nil {
+	if err := st.UpdateAppDetails(other.ID, "ABCDE12345.com.other", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	h = healthOf(t, portal, app.ID)
@@ -67,7 +67,7 @@ func TestHealthChecks(t *testing.T) {
 		t.Errorf("AASA refresh = %+v; want warn naming /abc", c)
 	}
 
-	if err := st.UpdateAppDetails(app.ID, "ABCDE12345.com.example.app", "com.example.app", strings.TrimSuffix(strings.Repeat("AB:", 32), ":")); err != nil {
+	if err := st.UpdateAppDetails(app.ID, "ABCDE12345.com.example.app", "com.example.app", strings.TrimSuffix(strings.Repeat("AB:", 32), ":"), ""); err != nil {
 		t.Fatal(err)
 	}
 	h = healthOf(t, portal, app.ID)

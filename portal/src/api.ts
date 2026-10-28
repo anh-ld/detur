@@ -7,6 +7,8 @@ export interface App {
   iosAppId: string;
   androidPackage: string;
   androidCertFingerprint: string;
+  // iOS tap page tries <scheme>://<route> before the App Store
+  iosScheme: string;
   matchThreshold: number;
   matchWindowMinutes: number;
   // SDK destinations get detur_link=<key> so the app can tag its device
@@ -188,7 +190,10 @@ export const api = {
   createApp: (name: string) => req<CreatedApp>('POST', '/api/apps', { name }),
   rotateKey: (id: string) => req<CreatedApp>('POST', `/api/apps/${id}/rotate-key`),
   revokeKey: (id: string) => req<void>('DELETE', `/api/apps/${id}/key`),
-  updateApp: (id: string, d: { iosAppId: string; androidPackage: string; androidCertFingerprint: string }) =>
+  updateApp: (
+    id: string,
+    d: { iosAppId: string; androidPackage: string; androidCertFingerprint: string; iosScheme: string },
+  ) =>
     req<App>('PATCH', `/api/apps/${id}`, d),
   deleteApp: (id: string) => req<void>('DELETE', `/api/apps/${id}`),
   listLinks: (appId: string) => req<Link[]>('GET', `/api/apps/${appId}/links`),

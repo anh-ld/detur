@@ -20,15 +20,15 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// Interstitial-appended query params: internal, never forwarded.
+// Interstitial-appended query params: internal, never forwarded (store.InternalParams).
 const (
-	paramDone     = "_dt"
-	paramScreen   = "screen"
-	paramTimezone = "tz"
-	paramPasted   = "pasted_link"
-	paramNoTrack  = "detur-no-track" // Dub's dub-no-track
-	paramTap      = "_tap"           // safety-net reload: hop 2 answers with the tap page
-	paramTouch    = "_touch"         // interstitial saw a touch screen (iPadOS Safari behind a Mac UA)
+	paramDone     = store.ParamDone
+	paramScreen   = store.ParamScreen
+	paramTimezone = store.ParamTimezone
+	paramPasted   = store.ParamPasted
+	paramNoTrack  = store.ParamNoTrack
+	paramTap      = store.ParamTap
+	paramTouch    = store.ParamTouch
 )
 
 type pipelineServer struct {
