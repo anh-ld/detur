@@ -52,7 +52,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 
 - **Database concurrency**: Uses SQLite in WAL mode with a single writer. Built for personal, team, or medium product scale; not horizontally scalable.
 - **Shutdown & upgrades**: No graceful drain on shutdown; SQLite WAL ensures crash-safety. Schema migrations run on `Open()` by adding columns. Always back up `detur.db` before upgrading versions.
-- **Storage growth on floods**: Public endpoints have no rate limits. Unmatched clicks accumulate until purged by `RETENTION_HOURS` (or `CLICK_ID_DAYS` for click IDs).
+- **Storage growth on floods**: Public endpoints have no rate limits. Unmatched clicks accumulate until purged by `RETENTION_HOURS` (or `CLICK_ID_DAYS` for click IDs). A match scans only the newest 5,000 unmatched clicks in the window → flood or >5k clicks per window = older clicks can't match. Request line + headers capped at 32 KB, link targets at 2 KB.
 - **Analytics aggregation**: All rollups operate on UTC days. Deleting a link permanently removes its associated click and event rollup counts.
 - **Event names**: Custom event names are truncated to 64 characters and retained indefinitely. Do not place PII, user IDs, or device IDs in event names.
 - **Per-link conversions & retention**: Requires devices to be tagged by an event containing `data.link`. On Detour SDK 2.3.1, the client app only knows the link key if "Tag deferred links" is enabled in app settings.

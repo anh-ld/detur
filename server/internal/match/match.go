@@ -141,7 +141,7 @@ func Match(st *store.Store, appID string, req Request) (Result, error) {
 	if t := fp.CapturedAt; !t.IsZero() && t.After(now.Add(-MaxWindow*time.Minute)) && t.Before(now.Add(time.Minute)) {
 		ref = t
 	}
-	clicks, err := st.ClicksSince(appID, ref.Add(-time.Duration(app.MatchWindowMinutes)*time.Minute))
+	clicks, err := st.ClicksSince(appID, req.DeviceHash, ref.Add(-time.Duration(app.MatchWindowMinutes)*time.Minute))
 	if err != nil {
 		return Result{}, err
 	}

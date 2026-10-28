@@ -142,7 +142,7 @@ func dropTable(t *testing.T, path, table string) {
 
 func latestClicks(t *testing.T, s *store.Store, appID string) []store.Click {
 	t.Helper()
-	clicks, err := s.ClicksSince(appID, time.Now().Add(-time.Hour))
+	clicks, err := s.ClicksSince(appID, "", time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("ClicksSince: %v", err)
 	}

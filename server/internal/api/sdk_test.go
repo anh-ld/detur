@@ -431,7 +431,7 @@ func TestUniversalLinkClickNormal(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("clicks = %d (%v); want 1 recorded", n, err)
 	}
-	clicks, err := s.ClicksSince(app.ID, time.Now().Add(-time.Hour))
+	clicks, err := s.ClicksSince(app.ID, "", time.Now().Add(-time.Hour))
 	if err != nil || len(clicks) != 1 || clicks[0].Destination != link.URL {
 		t.Fatalf("clicks since = %d (%v); want 1 with destination %s", len(clicks), err, link.URL)
 	}
@@ -621,7 +621,7 @@ func TestUniversalLinkOpenNotUASuspect(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, body %s; want 200", resp.StatusCode, b)
 	}
-	clicks, err := s.ClicksSince(app.ID, time.Now().Add(-time.Hour))
+	clicks, err := s.ClicksSince(app.ID, "", time.Now().Add(-time.Hour))
 	if err != nil || len(clicks) != 1 {
 		t.Fatalf("clicks = %v, %v; want 1", clicks, err)
 	}
@@ -815,7 +815,7 @@ func TestUniversalLinkOpenHostingIP(t *testing.T) {
 			t.Fatalf("%s: status = %d, body %s; want 200", ip, resp.StatusCode, b)
 		}
 	}
-	clicks, err := s.ClicksSince(app.ID, time.Now().Add(-time.Hour))
+	clicks, err := s.ClicksSince(app.ID, "", time.Now().Add(-time.Hour))
 	if err != nil || len(clicks) != 2 {
 		t.Fatalf("clicks = %v, %v; want 2", clicks, err)
 	}

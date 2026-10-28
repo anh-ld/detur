@@ -2,7 +2,7 @@ import { cloneElement, JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Tab, Table, TabList, Toggle, ToggleGroup } from 'kinu';
 import { api, Link, LinkRule, Platform, RuleTargets, SplitVariant, VariantStat } from './api';
-import { adminCall, closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
+import { closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
 
 const cleanTargets = (t?: RuleTargets): RuleTargets => ({
   destination: t?.destination?.trim() || undefined,
@@ -74,14 +74,6 @@ export function RulesDialog({
     } finally {
       if (seq === reqSeq.current) setLoading(false);
     }
-  };
-
-  const loadStats = (days: number) => {
-    const seq = ++reqSeq.current;
-    api
-      .getLinkVariantStats(appId, link.id, days)
-      .then((s) => seq === reqSeq.current && setStats(s))
-      .catch((e) => seq === reqSeq.current && setErr(String(e)));
   };
 
   // close (Escape/backdrop/button) keeps unsaved edits; reopen shows them until Save/Discard
@@ -238,7 +230,7 @@ export function RulesDialog({
     setSaving(true);
     setSuccess('');
     try {
-      const updated = await adminCall(() => api.setLinkRules(appId, link.id, rules));
+      const updated = await api.setLinkRules(appId, link.id, rules);
       setRules(updated);
       setDirty(false);
       setSuccess('Rules saved');
@@ -609,7 +601,13 @@ export function RulesDialog({
           <div class="dialog-actions">
             {editing ? (
               <>
-                <Button variant="outline" onClick={() => setEditingIndex(null)}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditingIndex(null);
+                    setDraftRule(null); // left set, reopening skipped loadData forever
+                  }}
+                >
                   Cancel
                 </Button>
                 <Button onClick={saveDraftRule}>Done</Button>

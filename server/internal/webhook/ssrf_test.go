@@ -115,6 +115,8 @@ func TestIsProhibitedIP(t *testing.T) {
 		"64:ff9b::a9fe:a9fe": true, // NAT64 -> 169.254.169.254
 		"2002:a9fe:a9fe::1":  true, // 6to4 -> 169.254.169.254
 		"fd00::1":            true,
+		"::a9fe:a9fe":        true, // IPv4-compatible -> 169.254.169.254
+		"fec0::1":            true,
 		"0.0.0.0":            true,
 		"127.0.0.1":          true,
 	} {

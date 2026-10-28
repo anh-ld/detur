@@ -591,7 +591,7 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	}
 	existing, err := scanClick(tx.QueryRow(
 		`SELECT `+clickCols+` FROM clicks
-		 WHERE link_id = ? AND ip IS ? AND COALESCE(user_agent, '') = ? AND created_at >= ? AND expires_at >= ?
+		 WHERE link_id = ? AND ip IS ? AND COALESCE(user_agent, '') = ? AND created_at >= ? AND expires_at >= ? AND matched_at IS NULL
 		 ORDER BY created_at DESC LIMIT 1`,
 		c.LinkID, nullStr(c.Fingerprint.IP), c.Fingerprint.UserAgent, rfc3339(now.Add(-clickDedupWindow)), rfc3339(now),
 	))
@@ -680,7 +680,7 @@ func reopenCandidate(tx *sql.Tx, c Click, now time.Time) (Click, error) {
 	rows, err := tx.Query(
 		`SELECT `+clickCols+` FROM clicks
 		 WHERE link_id = ? AND ip = ? AND COALESCE(source, '') != '' AND COALESCE(user_agent, '') != ? AND COALESCE(kind, '') != ?
-		   AND created_at >= ? AND expires_at >= ?
+		   AND created_at >= ? AND expires_at >= ? AND matched_at IS NULL
 		 ORDER BY created_at DESC LIMIT 20`,
 		c.LinkID, c.Fingerprint.IP, c.Fingerprint.UserAgent, KindOpen, rfc3339(now.Add(-clickDedupWindow)), rfc3339(now),
 	)
@@ -866,11 +866,16 @@ func (s *Store) PriorMatch(appID, deviceHash string) (Click, error) {
 		appID, deviceHash, AttributionNonOrganic, rfc3339(time.Now())))
 }
 
-// ClicksSince: non-bot clicks created at or after since (window scan).
-func (s *Store) ClicksSince(appID string, since time.Time) ([]Click, error) {
+// maxWindowClicks: newest unmatched clicks a match scan loads. Bounds memory when the window is flooded.
+// ponytail: older clicks past the cap can't match; raise it (or prefilter by IP in SQL) for apps above ~5k clicks per window.
+const maxWindowClicks = 5000
+
+// ClicksSince: newest non-bot clicks created at or after since (window scan), capped at maxWindowClicks.
+// Unmatched, or already claimed by deviceHash: an overlapping retry finds its own click before the install row exists (M4).
+func (s *Store) ClicksSince(appID, deviceHash string, since time.Time) ([]Click, error) {
 	rows, err := s.db.Query(
-		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND is_bot = 0 AND matched_at IS NULL AND created_at >= ? ORDER BY created_at DESC`,
-		appID, rfc3339(since),
+		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND is_bot = 0 AND (matched_at IS NULL OR matched_device = ?) AND created_at >= ? ORDER BY created_at DESC LIMIT ?`,
+		appID, nullStr(deviceHash), rfc3339(since), maxWindowClicks,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("clicks since: %w", err)

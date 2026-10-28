@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS installs (
 CREATE INDEX IF NOT EXISTS idx_installs_app_attribution ON installs (app_id, attribution);
 -- (app_id) index entries are (app_id, rowid): webhook delivery seeks app_id = ? AND rowid > cursor in order, no sort.
 CREATE INDEX IF NOT EXISTS idx_installs_app ON installs (app_id);
+-- date filters: created_at BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD' || '~' ('~' sorts after any time suffix) -> range seek, not a scan of every install ever
+CREATE INDEX IF NOT EXISTS idx_installs_app_created ON installs (app_id, created_at);
 
 CREATE TABLE IF NOT EXISTS events (
     id         TEXT PRIMARY KEY,

@@ -238,6 +238,9 @@ func htmlNoStore(w http.ResponseWriter) {
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
+	h.Set("X-Frame-Options", "DENY") // no clickjacking overlay on the tap/copy pages
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 }
 
 // fingerprint: click-time device signals: IP, device model (client hint, else UA), OS version hint, first Accept-Language tag, UA, screen/timezone/pasted_link from interstitial.

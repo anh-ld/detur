@@ -608,7 +608,7 @@ func TestS_PORTAL_26_MatchingSettingsValidated(t *testing.T) {
 
 // ---------- Admin password ----------
 
-// Real world: a teammate without the admin password browses the portal. Expect: reads open (apps, links, rules, analytics), every app-management write 403 and nothing changes.
+// Real world: a teammate without the admin password browses the portal. Expect: reads open (apps, links, rules, analytics), rules writable, every app-management write 403 and nothing changes.
 func TestS_PORTAL_27_ViewerReadsOpenWritesGated(t *testing.T) {
 	e := newEnvWith(t, envOpts{AdminPassword: portalAdminPW, TrustProxy: true})
 	a := e.app()
@@ -627,13 +627,15 @@ func TestS_PORTAL_27_ViewerReadsOpenWritesGated(t *testing.T) {
 		{"DELETE", "/api/apps/" + a.ID + "/key", ""},
 		{"PATCH", "/api/apps/" + a.ID + "/matching", `{"threshold":900,"windowMinutes":30}`},
 		{"PATCH", "/api/apps/" + a.ID + "/tagging", `{"tagLinks":true}`},
-		{"PUT", "/api/apps/" + a.ID + "/links/" + l.ID + "/rules", `[]`},
 		{"DELETE", "/api/apps/" + a.ID, ""},
 	}
 	for _, w := range writes {
 		r := e.portal(w[0], w[1], w[2], nil)
 		must(t, r.Code == 403, "viewer %s %s = %d", w[0], w[1], r.Code)
 	}
+	// rules: marketing action like link edits, open to viewers (DECISIONS P1, LR5)
+	r := e.portal("PUT", "/api/apps/"+a.ID+"/links/"+l.ID+"/rules", `[]`, nil)
+	must(t, r.Code == 200, "viewer PUT rules = %d %s", r.Code, r.Body)
 	must(t, e.sdk(a, "/api/link/resolve-short", `{"url":"https://lnk.example/promo"}`).Code == 200, "app/key changed by viewer")
 }
 

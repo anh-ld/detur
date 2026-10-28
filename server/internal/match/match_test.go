@@ -531,6 +531,22 @@ func TestSameDeviceRetryStillMatches(t *testing.T) {
 	}
 }
 
+// retry overlapping the first request: click claimed, install row not written yet -> same click, not organic
+func TestSameDeviceRetryBeforeInstallRow(t *testing.T) {
+	s, _ := newTestStore(t)
+	_, link := setupApp(t, s)
+	recordClick(t, s, androidClick(link))
+	req := Request{IP: testIP, DeviceHash: "d1", Fingerprint: fpPtr(androidFP())}
+	first, err := Match(s, link.AppID, req)
+	if err != nil || !first.Matched {
+		t.Fatalf("first Match = %+v, %v; want matched", first, err)
+	}
+	again, err := Match(s, link.AppID, req)
+	if err != nil || !again.Matched || again.Click.ID != first.Click.ID {
+		t.Errorf("retry Match = %+v, %v; want matched click %s", again, err, first.Click.ID)
+	}
+}
+
 func TestDeterministicAfterProbabilisticConsumed(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)

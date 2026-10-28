@@ -335,7 +335,7 @@ func TestPipelineShortLinkWithRulesE2E(t *testing.T) {
 	}
 
 	// click: Variant "v-landing-a", Destination "myapp://variant-a"
-	clicks, err := st.ClicksSince(app.ID, time.Now().Add(-1*time.Hour))
+	clicks, err := st.ClicksSince(app.ID, "", time.Now().Add(-1*time.Hour))
 	if err != nil {
 		t.Fatalf("ClicksSince: %v", err)
 	}

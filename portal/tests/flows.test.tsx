@@ -501,6 +501,29 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
+  it('rules dialog: Cancel in the editor, close, reopen still loads rules saved elsewhere', async () => {
+    const app = await api.createApp(uniq('rules-cancel'));
+    const link = await api.createLink(app.id, { key: 'cancel-link', url: '/base', ios: '', android: '', fallbackUrl: '' });
+    render(<AppPage id={app.id} tab="links" />);
+    const row = (await screen.findAllByText('cancel-link'))[0].closest('tr')!;
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
+    let dlg = openDialog();
+    await within(dlg).findByText('No rules yet');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Add rule' }));
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
+
+    // another teammate saves a rule meanwhile
+    await api.setLinkRules(app.id, link.id, [{ name: 'Saved Elsewhere', cond: { platform: 'ios' }, action: { targets: { fallback_url: 'https://example.com/x' } } }] as never);
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
+    dlg = openDialog();
+    await within(dlg).findByText('Saved Elsewhere');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
+    await api.deleteApp(app.id);
+  });
+
   it('link validation flow: empty fields rejected', async () => {
     const app = await api.createApp(uniq('link-val-app'));
     render(<AppPage id={app.id} tab="links" />);

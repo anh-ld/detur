@@ -133,7 +133,7 @@ func (s *Store) AnalyticsRange(appID string, from, to time.Time, platform string
 
 	rows, err = s.db.Query(
 		`SELECT substr(created_at, 1, 10) d, attribution, COUNT(*) FROM installs
-		 WHERE app_id = ? AND d BETWEEN ? AND ? AND (? = '' OR platform = ?) AND attribution IN (?, ?)
+		 WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~' AND (? = '' OR platform = ?) AND attribution IN (?, ?)
 		 GROUP BY d, attribution`, appID, lo, hi, platform, platform, AttributionOrganic, AttributionNonOrganic)
 	if err != nil {
 		return a, fmt.Errorf("analytics installs: %w", err)
@@ -163,7 +163,7 @@ func (s *Store) AnalyticsRange(appID string, from, to time.Time, platform string
 		   WHERE app_id = ? AND day BETWEEN ? AND ? AND (? = '' OR platform = ?) AND kind != ?
 		   GROUP BY link_id) c ON c.link_id = l.id
 		 LEFT JOIN (SELECT link_id, COUNT(*) n FROM installs
-		   WHERE app_id = ? AND substr(created_at, 1, 10) BETWEEN ? AND ? AND (? = '' OR platform = ?) AND attribution = ?
+		   WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~' AND (? = '' OR platform = ?) AND attribution = ?
 		   GROUP BY link_id) i ON i.link_id = l.id
 		 WHERE l.app_id = ?
 		 ORDER BY 3 DESC, l.key`,
@@ -414,11 +414,11 @@ const ScoreBucketSize = 50
 
 func (s *Store) MatchQuality(appID string, days int, now time.Time) (MatchQuality, error) {
 	q := MatchQuality{Methods: map[string]int64{}, Buckets: []ScoreBucket{}}
-	lo := day(now.UTC().AddDate(0, 0, -(days - 1)))
+	lo, hi := day(now.UTC().AddDate(0, 0, -(days-1))), day(now)
 	rows, err := s.db.Query(
 		`SELECT COALESCE(method, ''), COUNT(*) FROM installs
-		 WHERE app_id = ? AND substr(created_at, 1, 10) >= ? AND attribution IN (?, ?)
-		 GROUP BY 1`, appID, lo, AttributionOrganic, AttributionNonOrganic)
+		 WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~' AND attribution IN (?, ?)
+		 GROUP BY 1`, appID, lo, hi, AttributionOrganic, AttributionNonOrganic)
 	if err != nil {
 		return q, fmt.Errorf("match quality methods: %w", err)
 	}
@@ -439,10 +439,10 @@ func (s *Store) MatchQuality(appID string, days int, now time.Time) (MatchQualit
 
 	rows, err = s.db.Query(
 		`SELECT score / ? * ?, COALESCE(SUM(method = ?), 0), COALESCE(SUM(method = ?), 0) FROM installs
-		 WHERE app_id = ? AND substr(created_at, 1, 10) >= ? AND score IS NOT NULL AND method IN (?, ?)
+		 WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~' AND score IS NOT NULL AND method IN (?, ?)
 		 GROUP BY 1 ORDER BY 1`,
 		ScoreBucketSize, ScoreBucketSize, MethodProbabilistic, MethodOrganic,
-		appID, lo, MethodProbabilistic, MethodOrganic)
+		appID, lo, hi, MethodProbabilistic, MethodOrganic)
 	if err != nil {
 		return q, fmt.Errorf("match quality buckets: %w", err)
 	}
@@ -495,7 +495,7 @@ func (s *Store) FraudRange(appID string, from, to time.Time) (FraudStats, error)
 	rows, err := s.db.Query(
 		`SELECT id, device_hash, created_at, attribution, COALESCE(method, ''), COALESCE(link_id, ''), COALESCE(platform, ''),
 		   fraud, COALESCE(fraud_action, ''), COALESCE(fraud_link_id, '')
-		 FROM installs WHERE app_id = ? AND substr(created_at, 1, 10) BETWEEN ? AND ? AND fraud IS NOT NULL
+		 FROM installs WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~' AND fraud IS NOT NULL
 		 ORDER BY created_at DESC LIMIT ?`, appID, lo, hi, flaggedLimit)
 	if err != nil {
 		return f, fmt.Errorf("fraud installs: %w", err)
@@ -537,7 +537,7 @@ func (s *Store) FraudSignalsRange(appID string, from, to time.Time) (map[string]
 	args = append(args, appID, lo, hi)
 	if err := s.db.QueryRow(
 		`SELECT `+strings.Join(sums, ", ")+` FROM installs
-		 WHERE app_id = ? AND substr(created_at, 1, 10) BETWEEN ? AND ?`, args...).Scan(dest...); err != nil {
+		 WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~'`, args...).Scan(dest...); err != nil {
 		return nil, fmt.Errorf("fraud signals: %w", err)
 	}
 	out := make(map[string]int64, len(fraud.Signals))

@@ -577,6 +577,7 @@ func TestPortalLinkURLValidation(t *testing.T) {
 		{`{"key":"v3","url":"https://"}`, http.StatusBadRequest},
 		{`{"key":"v6","url":"https://example.com/p"}`, http.StatusBadRequest},
 		{`{"key":"v7","url":"myapp://p"}`, http.StatusBadRequest},
+		{`{"key":"v8","url":"/` + strings.Repeat("a", 2048) + `"}`, http.StatusBadRequest},
 		{`{"key":"v4","url":"/home","ios":"myapp://open"}`, http.StatusCreated},
 		{`{"key":"v5","url":"/home","android":"market://details?id=x"}`, http.StatusCreated},
 	} {
@@ -1190,10 +1191,10 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		}
 	]`
 
-	// 2. PUT without elevation -> 403
-	resp, _ = portalReq(t, portal, "PUT", base+"/rules", validRulesBody, nil)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("PUT rules without admin elevation: want 403, got %d", resp.StatusCode)
+	// 2. PUT without elevation -> 200: rules are a viewer (marketing) action like link edits (P1)
+	resp, b = portalReq(t, portal, "PUT", base+"/rules", validRulesBody, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT rules without admin elevation: want 200, got %d: %s", resp.StatusCode, b)
 	}
 
 	// elevate
