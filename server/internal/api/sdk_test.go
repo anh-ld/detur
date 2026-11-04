@@ -991,3 +991,16 @@ func TestMatchLinkFractionalAndroidScreen(t *testing.T) {
 		t.Fatalf("status %d body %s; want 200 with link", resp.StatusCode, b)
 	}
 }
+
+// Event metadata capped: oversized body 413, nothing stored (webhook batches stay small).
+func TestAnalyticsEventTooLarge(t *testing.T) {
+	ts, s, _ := newTestServer(t)
+	app, _ := setup(t, s)
+	big := `{"event_name":"x","data":{"blob":"` + strings.Repeat("a", maxEventBytes) + `"}}`
+	if resp, b := doPost(t, ts, "/api/analytics/event", big, authHeaders(app.ID)); resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d body %s; want 413", resp.StatusCode, b)
+	}
+	if n, _ := s.CountEvents(app.ID); n != 0 {
+		t.Errorf("events stored = %d; want 0", n)
+	}
+}

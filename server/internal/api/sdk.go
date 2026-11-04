@@ -271,6 +271,9 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 	return rec.ID
 }
 
+// maxEventBytes: stored event metadata cap (SDK events are well under 1 KB).
+const maxEventBytes = 16 << 10
+
 func (s *sdkServer) analyticsEvent(w http.ResponseWriter, r *http.Request) {
 	s.recordAnalytics(w, r, false)
 }
@@ -294,6 +297,11 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, rete
 	md, err := json.Marshal(body)
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, errorBody("internal error"))
+		return
+	}
+	// stored verbatim + sent in webhook batches of 100: a public SDK key must not be able to make each batch 100 MB
+	if len(md) > maxEventBytes {
+		httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, errorBody("event too large"))
 		return
 	}
 	if err := s.st.RecordEvent(appID, name, string(md)); err != nil {

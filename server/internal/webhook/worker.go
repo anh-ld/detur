@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -171,10 +173,15 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 
 		resp, err := w.client.Do(req)
 		if err != nil {
+			var ue *url.Error
+			if errors.As(err, &ue) {
+				err = ue.Err // *url.Error prints the URL: Slack-style endpoints carry their token in the path
+			}
 			w.logger.Printf("webhook %s %s POST failed: %v", wh.ID, stream, err)
 			w.handleFailure(wh.ID, stream, st.Fails)
 			return
 		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10)) // drained body -> connection reused
 		resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
