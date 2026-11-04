@@ -56,19 +56,34 @@ func (w *Worker) Start() {
 	w.doneCh = make(chan struct{})
 	w.mu.Unlock()
 
+	stopCh := w.stopCh
 	go func() {
 		defer close(w.doneCh)
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
+		// Stop cancels an in-flight POST: shutdown never waits out a slow endpoint (cursor unmoved -> redelivered next start)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			<-stopCh
+			cancel()
+		}()
+		once := func() {
+			defer func() {
+				if r := recover(); r != nil {
+					w.logger.Printf("webhook worker panic: %v", r)
+				}
+			}()
+			w.ProcessOnce(ctx)
+		}
 
-		w.ProcessOnce(context.Background())
-
+		once()
 		for {
 			select {
-			case <-w.stopCh:
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				w.ProcessOnce(context.Background())
+				once()
 			}
 		}
 	}()
@@ -100,6 +115,9 @@ func (w *Worker) ProcessOnce(ctx context.Context) {
 	now := time.Now().UTC()
 	for _, wh := range webhooks {
 		for _, stream := range wh.Types {
+			if ctx.Err() != nil {
+				return
+			}
 			w.processStream(ctx, wh, stream, now)
 		}
 	}
@@ -172,6 +190,9 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 		}
 
 		resp, err := w.client.Do(req)
+		if err != nil && ctx.Err() != nil {
+			return // shutting down: not the endpoint's failure, no backoff
+		}
 		if err != nil {
 			var ue *url.Error
 			if errors.As(err, &ue) {

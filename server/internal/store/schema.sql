@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS clicks (
 
 CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
+-- purge scrub: only rows still holding a fingerprint, not every retained click
+CREATE INDEX IF NOT EXISTS idx_clicks_unscrubbed ON clicks (expires_at) WHERE ip IS NOT NULL OR user_agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_clicks_clickid ON clicks (click_id);
 CREATE INDEX IF NOT EXISTS idx_clicks_app_created ON clicks (app_id, is_bot, created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_app ON clicks (app_id);

@@ -64,7 +64,7 @@ func Open(path string) (*Store, error) {
 	if strings.Contains(path, "?") {
 		sep = "&"
 	}
-	db, err := sql.Open("sqlite", path+sep+"_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", path+sep+"_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_size_limit(67108864)")
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -92,6 +92,11 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("index paste_token: %w", err)
 	}
+	// purge: matched clicks past expiry (matched_at is an added column on legacy dbs)
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_clicks_matched_expires ON clicks (expires_at) WHERE matched_at IS NOT NULL`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("index matched clicks: %w", err)
+	}
 	if !hadMatch {
 		if err := seedAppMatchFromSettings(db); err != nil {
 			db.Close()
@@ -108,10 +113,10 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-// Ping: trivial query (healthcheck).
+// Ping: healthcheck. Reads the schema page: plain SELECT 1 never opens the db file, so a missing/corrupt db would pass.
 func (s *Store) Ping() error {
-	var one int
-	return s.db.QueryRow(`SELECT 1`).Scan(&one)
+	var n int
+	return s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master`).Scan(&n)
 }
 
 // HashKey: SHA-256 hex of API key (hash-at-rest).
@@ -900,26 +905,25 @@ func (s *Store) ClicksSince(appID, deviceHash string, since time.Time) ([]Click,
 // PurgeExpired: scrub expired clicks; delete matched or past-ClickIDHours ones, old events, hit buckets past 24h max window, device tags past deviceLinkDays (last two not counted). Returns rows deleted.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
-	if _, err := s.db.Exec(
-		`UPDATE clicks SET ip = NULL, device = NULL, locale = NULL, timezone = NULL, screen = NULL,
+	at := rfc3339(now)
+	if _, err := s.batched(`UPDATE clicks SET ip = NULL, device = NULL, locale = NULL, timezone = NULL, screen = NULL,
 		   user_agent = NULL, os_version = NULL, pasted_link = NULL
-		 WHERE expires_at < ? AND (ip IS NOT NULL OR user_agent IS NOT NULL)`, rfc3339(now)); err != nil {
+		 WHERE rowid IN (SELECT rowid FROM clicks WHERE expires_at < ? AND (ip IS NOT NULL OR user_agent IS NOT NULL) LIMIT ?)`, at); err != nil {
 		return 0, fmt.Errorf("scrub clicks: %w", err)
 	}
-	res, err := s.db.Exec(`DELETE FROM clicks WHERE expires_at < ? AND (matched_at IS NOT NULL OR created_at <= ?)`,
-		rfc3339(now), rfc3339(s.clickIDCutoff(now)))
-	if err != nil {
-		return 0, fmt.Errorf("purge clicks: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		removed += n
-	}
-	cutoff := now.Add(-time.Duration(retentionHours) * time.Hour)
-	res, err = s.db.Exec(`DELETE FROM events WHERE created_at < ?`, rfc3339(cutoff))
-	if err != nil {
-		return 0, fmt.Errorf("purge events: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n > 0 {
+	// two deletes, each on its own index: one OR'd predicate walks every retained unmatched click (up to CLICK_ID_DAYS) per batch
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`DELETE FROM clicks WHERE rowid IN (SELECT rowid FROM clicks WHERE matched_at IS NOT NULL AND expires_at < ? LIMIT ?)`, []any{at}},
+		{`DELETE FROM clicks WHERE rowid IN (SELECT rowid FROM clicks WHERE created_at <= ? AND expires_at < ? LIMIT ?)`, []any{rfc3339(s.clickIDCutoff(now)), at}},
+		{`DELETE FROM events WHERE rowid IN (SELECT rowid FROM events WHERE created_at < ? LIMIT ?)`, []any{rfc3339(now.Add(-time.Duration(retentionHours) * time.Hour))}},
+	} {
+		n, err := s.batched(q.sql, q.args...)
+		if err != nil {
+			return 0, fmt.Errorf("purge: %w", err)
+		}
 		removed += n
 	}
 	if _, err := s.db.Exec(`DELETE FROM click_hits WHERE bucket < ?`, now.UTC().Add(-24*time.Hour).Format(bucketLayout)); err != nil {
@@ -929,6 +933,26 @@ func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 		return 0, fmt.Errorf("purge device links: %w", err)
 	}
 	return removed, nil
+}
+
+// purgeBatch: rows per purge statement. Each batch frees the single conn, so redirects and match-link queue behind
+// one short statement, not one multi-second sweep after a flood.
+const purgeBatch = 2000
+
+// batched: run q (last arg = LIMIT) until it affects fewer than purgeBatch rows. Returns rows affected.
+func (s *Store) batched(q string, args ...any) (int64, error) {
+	var total int64
+	for {
+		res, err := s.db.Exec(q, append(args, purgeBatch)...)
+		if err != nil {
+			return total, err
+		}
+		n, _ := res.RowsAffected()
+		total += n
+		if n < purgeBatch {
+			return total, nil
+		}
+	}
 }
 
 func scanClick(row rowScanner) (Click, error) {
