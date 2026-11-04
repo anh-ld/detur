@@ -34,18 +34,10 @@ func schemeURL(scheme, route string) string {
 	return scheme + "://" + strings.TrimPrefix(route, "/")
 }
 
-// inAppMenu: per-app "Open in browser" menu label; unlisted -> platform default.
+// inAppMenu: per-app menu label that differs from the generic "Open in browser".
 var inAppMenu = map[string]string{
 	"instagram": "Open in external browser",
 	"threads":   "Open in external browser",
-	"linkedin":  "Open in browser",
-	"tiktok":    "Open in browser",
-	"zalo":      "Open in browser",
-	"snapchat":  "Open in browser",
-	"line":      "Open in browser",
-	"x":         "Open in browser",
-	"telegram":  "Open in browser",
-	"wechat":    "Open in browser",
 }
 
 // tapSteps: numbered "Open in browser" steps for source app + platform.
@@ -54,21 +46,15 @@ func tapSteps(source string, ios bool) []string {
 	if ios {
 		icon = "···"
 	}
-	return []string{"Tap " + icon + " in the top corner.", "Choose “" + menuLabel(source, ios) + "”."}
+	return []string{"Tap " + icon + " in the top corner.", "Choose “" + menuLabel(source) + "”."}
 }
 
-// menuLabel: app's own menu item, else generic for unknown webviews, else platform browser.
-func menuLabel(source string, ios bool) string {
+// menuLabel: app's own menu item, else generic "Open in browser" (any platform).
+func menuLabel(source string) string {
 	if l, ok := inAppMenu[source]; ok {
 		return l
 	}
-	if source == "" || source == ua.SourceUnknownInApp {
-		return "Open in browser"
-	}
-	if ios {
-		return "Open in Safari"
-	}
-	return "Open in Chrome"
+	return "Open in browser"
 }
 
 // serveTap: tap page, plain link to tap (in-app browsers block auto store hand-off). iOS copies short link first (pasteboard signal), reports it like copy page; app scheme set -> tries the installed app before the App Store.
@@ -81,46 +67,46 @@ func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link s
 		Steps []string
 		Paste string
 		Open  template.URL // iOS: app scheme URL tried before Href (App Store)
+		Icon  string
 	}{Href: template.URL(dest), IOS: ios, Steps: tapSteps(source, ios)}
+	app, err := p.st.GetApp(link.AppID)
+	if err != nil {
+		p.log.Printf("tap page app lookup failed (plain store button, icon from link URLs only): %v", err)
+		app = store.App{}
+	}
+	data.Icon = appIcons.first(iconKeys(link.IOS, link.Android, app.AndroidPackage))
 	if ios {
 		data.Paste = store.PasteQuery() // reported with pasted_link (pasteToken)
 		// app scheme set -> button opens the installed app at the route first, App Store after a timeout
-		if app, err := p.st.GetApp(link.AppID); err != nil {
-			p.log.Printf("tap page app lookup failed (App Store button only): %v", err)
-		} else if app.IOSScheme != "" && httpx.IsRoute(link.URL) {
+		if app.IOSScheme != "" && httpx.IsRoute(link.URL) {
 			data.Open = template.URL(schemeURL(app.IOSScheme, deepLinkURL(link, q)))
 		}
-	}
-	if !ios {
-		// app package -> button = intent opening installed app at link
-		if app, err := p.st.GetApp(link.AppID); err != nil {
-			p.log.Printf("tap page app lookup failed (Play button instead of intent): %v", err)
-		} else if app.AndroidPackage != "" {
-			data.Href = template.URL(intentURL(r.Host, link.Key, q, app.AndroidPackage, dest))
-			data.Play = template.URL(dest)
-		}
+	} else if app.AndroidPackage != "" {
+		data.Href = template.URL(intentURL(r.Host, link.Key, q, app.AndroidPackage, dest))
+		data.Play = template.URL(dest)
 	}
 	htmlNoStore(w)
 	_ = tapTmpl.Execute(w, data)
 }
 
-// tapTmpl: headline, one primary button (plain href, no JS needed), Android-only Play text link, numbered steps. 48px full-width button, light + dark.
+// tapTmpl: centered; store icon (fallback glyph), one primary button (plain href, no JS needed), Android-only Play text link, numbered steps. 48px full-width button, light + dark.
 var tapTmpl = template.Must(template.New("tap").Parse(`<!doctype html>
 <meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Get the app</title>
 <style>
-:root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#555;--btn:#0a66ff;--btn-fg:#fff}
-@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#f2f2f2;--muted:#b5b5b5;--btn:#3d8bff}}
+:root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#767676;--btn:#3a3a3c;--btn-fg:#fff;--ph:#ececec;--ph-fg:#b5b5b5}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#f2f2f2;--muted:#999;--btn:#d1d1d6;--btn-fg:#111;--ph:#2a2a2a;--ph-fg:#5c5c5c}}
 body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.45 -apple-system,system-ui,sans-serif}
-main{max-width:28rem;margin:0 auto;padding:48px 16px;display:grid;gap:20px}
-h1{font-size:22px;margin:0}
-.go{display:block;min-height:48px;box-sizing:border-box;padding:14px 20px;border-radius:12px;background:var(--btn);color:var(--btn-fg);font-weight:600;text-align:center;text-decoration:none}
-.alt{color:var(--fg);text-align:center}
-p,ol{margin:0;color:var(--muted)}
-ol{padding-left:1.4em;display:grid;gap:6px}
+main{box-sizing:border-box;max-width:28rem;min-height:100vh;min-height:100dvh;margin:0 auto;padding:48px 16px;display:flex;flex-direction:column;justify-content:center;gap:20px;text-align:center}
+.go{display:block;min-height:48px;box-sizing:border-box;padding:14px 20px;border-radius:12px;background:var(--btn);color:var(--btn-fg);font-weight:600;text-decoration:none}
+.alt{color:var(--fg)}
+p,ol{margin:0;color:var(--muted);font-size:13px}
+ol{align-self:center;text-align:left;padding-left:1.4em;display:grid;gap:4px;margin-top:-12px}
+.icon{align-self:center;width:80px;height:80px;border-radius:18px;margin-bottom:4px;object-fit:cover;box-shadow:0 0 0 1px rgba(127,127,127,.2)}
+svg.icon{background:var(--ph);color:var(--ph-fg)}
 </style>
 <main>
-<h1>Continue to the app</h1>
+{{if .Icon}}<img class="icon" src="{{.Icon}}" alt="" width="80" height="80">{{else}}<svg class="icon" viewBox="0 0 80 80" aria-hidden="true"><g fill="currentColor"><rect x="22" y="22" width="15" height="15" rx="4"/><rect x="43" y="22" width="15" height="15" rx="4"/><rect x="22" y="43" width="15" height="15" rx="4"/><rect x="43" y="43" width="15" height="15" rx="4"/></g></svg>{{end}}
 <a class="go" id="go" href="{{.Href}}"{{if .Open}} data-open="{{.Open}}"{{end}}>Get the app</a>
 {{if .Play}}<a class="alt" href="{{.Play}}">Open Play Store</a>{{end}}
 <p>Nothing happens? Open this page in your browser:</p>

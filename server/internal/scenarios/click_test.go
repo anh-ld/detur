@@ -200,7 +200,7 @@ func TestS_CLICK_09_MessengerIOSTapPage(t *testing.T) {
 	r := e.tap("/msg", uaMessengerIOS)
 	must(t, r.Code == 200 && !strings.Contains(r.Body, "Open in App Store"), "hop 1 = %d, want auto reload (no copy button)", r.Code)
 	r = e.mobileTap("/msg", uaMessengerIOS)
-	must(t, r.Code == 200 && strings.Contains(r.Body, "Continue to the app"), "hop 2 = %d %q, want tap page", r.Code, r.Loc())
+	must(t, r.Code == 200 && strings.Contains(r.Body, "Nothing happens?"), "hop 2 = %d %q, want tap page", r.Code, r.Loc())
 	must(t, strings.HasPrefix(clickAttr(t, r.Body, "href"), clickAppStore), "button href = %q", clickAttr(t, r.Body, "href"))
 	must(t, clickOne(e, a).Source == "messenger", "source != messenger")
 }
@@ -211,7 +211,7 @@ func TestS_CLICK_10_FacebookIOSTapPage(t *testing.T) {
 	a := e.app()
 	e.link(a, "fb", "/p")
 	r := e.mobileTap("/fb", uaFacebookIOS)
-	must(t, r.Code == 200 && strings.Contains(r.Body, "Continue to the app"), "hop 2 = %d, want tap page", r.Code)
+	must(t, r.Code == 200 && strings.Contains(r.Body, "Nothing happens?"), "hop 2 = %d, want tap page", r.Code)
 	must(t, clickOne(e, a).Source == "facebook", "source != facebook")
 }
 
@@ -237,7 +237,7 @@ func TestS_CLICK_12_TikTokIOSTapPage(t *testing.T) {
 	a := e.app()
 	e.link(a, "tt", "/p")
 	r := e.mobileTap("/tt", uaTikTokIOS)
-	must(t, r.Code == 200 && strings.Contains(r.Body, "Continue to the app"), "hop 2 = %d, want tap page", r.Code)
+	must(t, r.Code == 200 && strings.Contains(r.Body, "Nothing happens?"), "hop 2 = %d, want tap page", r.Code)
 	must(t, clickOne(e, a).Source == "tiktok", "source != tiktok")
 }
 
@@ -257,7 +257,7 @@ func TestS_CLICK_14_LineIOSTapPage(t *testing.T) {
 	a := e.app()
 	e.link(a, "line", "/p")
 	r := e.mobileTap("/line", uaLineIOS)
-	must(t, r.Code == 200 && strings.Contains(r.Body, "Continue to the app"), "hop 2 = %d, want tap page", r.Code)
+	must(t, r.Code == 200 && strings.Contains(r.Body, "Nothing happens?"), "hop 2 = %d, want tap page", r.Code)
 	must(t, clickOne(e, a).Source == "line", "source != line")
 }
 
@@ -267,7 +267,7 @@ func TestS_CLICK_15_WeChatIOSTapPage(t *testing.T) {
 	a := e.app()
 	e.link(a, "wx", "/p")
 	r := e.mobileTap("/wx", uaWeChatIOS)
-	must(t, r.Code == 200 && strings.Contains(r.Body, "Continue to the app"), "hop 2 = %d, want tap page", r.Code)
+	must(t, r.Code == 200 && strings.Contains(r.Body, "Nothing happens?"), "hop 2 = %d, want tap page", r.Code)
 	must(t, clickOne(e, a).Source == "wechat", "source != wechat")
 }
 
@@ -287,7 +287,7 @@ func TestS_CLICK_17_SafetyNetReloadServesTapPage(t *testing.T) {
 	e.link(a, "net", "/p")
 	e.mobileTap("/net", uaAndroidWebView)
 	r := e.tap("/net?_dt=1&screen=393x852%403&tz=Asia%2FHo_Chi_Minh&_tap=1", uaAndroidWebView)
-	must(t, r.Code == 200 && strings.Contains(r.Body, "Continue to the app"), "safety net = %d %q, want tap page", r.Code, r.Loc())
+	must(t, r.Code == 200 && strings.Contains(r.Body, "Nothing happens?"), "safety net = %d %q, want tap page", r.Code, r.Loc())
 	clickOne(e, a)
 }
 

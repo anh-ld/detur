@@ -126,6 +126,9 @@ func HashKey(key string) string {
 }
 
 // App: owns links + API keys; trailing fields = well-known hosting details: iOS appID (TEAMID.BUNDLEID), Android package + SHA-256 cert fingerprint.
+// AndroidPackageRe: valid Android application id (com.example.app).
+var AndroidPackageRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$`)
+
 type App struct {
 	ID                     string
 	Name                   string

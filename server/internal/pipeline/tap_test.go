@@ -34,7 +34,7 @@ func TestInAppIOSGetsTapPage(t *testing.T) {
 		t.Fatalf("hop 2 = %d; want 200 tap page", resp.StatusCode)
 	}
 	page := string(body)
-	for _, want := range []string{"Get the app", `href="https://apps.apple.com/app/id123"`, "Safari"} {
+	for _, want := range []string{"Get the app", `href="https://apps.apple.com/app/id123"`, "Open in browser"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tap page missing %q:\n%s", want, page)
 		}
@@ -94,7 +94,7 @@ func TestInAppAndroidIntentButton(t *testing.T) {
 	fallback := url.QueryEscape("https://play.google.com/store/apps/details?id=com.example&referrer=click_id%3D" + clicks[0].ID)
 	for _, want := range []string{
 		"intent://" + host + "/" + link.Key + "#Intent;scheme=https;package=com.example;S.browser_fallback_url=" + fallback + ";end",
-		"Open Play Store", "Chrome",
+		"Open Play Store", "Open in browser",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tap page missing %q:\n%s", want, page)
@@ -203,7 +203,7 @@ func TestSafetyNetDelay(t *testing.T) {
 	}
 }
 
-// "Open in browser" wording: app's own menu item, generic for unknown webviews, else platform browser; platform menu icon.
+// "Open in browser" wording: app's own menu item, else generic on every platform; platform menu icon.
 func TestTapSteps(t *testing.T) {
 	for _, c := range []struct {
 		source string
@@ -212,11 +212,8 @@ func TestTapSteps(t *testing.T) {
 		label  string
 	}{
 		{"instagram", true, "···", "Open in external browser"},
+		{"messenger", true, "···", "Open in browser"},
 		{"zalo", false, "⋮", "Open in browser"},
-		{"messenger", true, "···", "Open in Safari"},
-		{"messenger", false, "⋮", "Open in Chrome"},
-		{ua.SourceUnknownInApp, true, "···", "Open in browser"},
-		{"", false, "⋮", "Open in browser"},
 	} {
 		got := tapSteps(c.source, c.ios)
 		if len(got) != 2 || !strings.Contains(got[0], c.icon) || !strings.Contains(got[1], "“"+c.label+"”") {
