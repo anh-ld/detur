@@ -969,3 +969,25 @@ func TestMatchLinkVariantAttribution(t *testing.T) {
 		t.Fatalf("unexpected variant stats: %+v", stats)
 	}
 }
+
+// Android Dimensions.get("screen") is px / density: fractional dp (Pixel 7 at 2.625). Must decode and score the screen, not 400.
+func TestMatchLinkFractionalAndroidScreen(t *testing.T) {
+	ts, s, _ := newTestServer(t)
+	app, link := setup(t, s)
+	if _, err := s.RecordClick(store.Click{
+		AppID: app.ID, LinkID: link.ID, Destination: link.URL,
+		Fingerprint: store.Fingerprint{
+			IP: testIP, Device: "Pixel 7", Locale: "en", Timezone: "Europe/Warsaw", Screen: "411x914@2.625",
+			UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/TQ3A.230805.001)",
+		},
+		Platform: "android", Kind: store.KindApp,
+	}, 24); err != nil {
+		t.Fatalf("RecordClick: %v", err)
+	}
+	body := strings.Replace(androidFingerprintJSON(), `"screenWidth":393,"screenHeight":852,"scale":3`,
+		`"screenWidth":411.42857142857144,"screenHeight":914.2857142857143,"scale":2.625`, 1)
+	resp, b := doPost(t, ts, "/api/link/match-link", body, authHeaders(app.ID))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), link.URL) {
+		t.Fatalf("status %d body %s; want 200 with link", resp.StatusCode, b)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -79,8 +80,8 @@ type matchLinkBody struct {
 	Model         string      `json:"model"`
 	Manufacturer  string      `json:"manufacturer"`
 	SystemVersion string      `json:"systemVersion"`
-	ScreenWidth   int         `json:"screenWidth"`
-	ScreenHeight  int         `json:"screenHeight"`
+	ScreenWidth   float64     `json:"screenWidth"` // Android: px / density, fractional (411.428...)
+	ScreenHeight  float64     `json:"screenHeight"`
 	Scale         float64     `json:"scale"`
 	Locale        []localeTag `json:"locale"`
 	Timezone      *string     `json:"timezone"`
@@ -109,7 +110,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	} else {
 		req.Fingerprint = &match.Fingerprint{
 			Model: body.Model, Manufacturer: body.Manufacturer,
-			SystemVersion: body.SystemVersion, ScreenWidth: body.ScreenWidth, ScreenHeight: body.ScreenHeight,
+			SystemVersion: body.SystemVersion, ScreenWidth: int(math.Round(body.ScreenWidth)), ScreenHeight: int(math.Round(body.ScreenHeight)),
 			Scale: body.Scale, Locale: localeString(body.Locale), Timezone: strOr(body.Timezone),
 			UserAgent: body.UserAgent, PastedLink: body.PastedLink,
 		}
@@ -337,7 +338,7 @@ func deviceHash(b matchLinkBody) string {
 		return store.HashKey("clickId=" + b.ClickID)
 	}
 	canonical := fmt.Sprintf("model=%s|manufacturer=%s|systemVersion=%s|screenWidth=%d|screenHeight=%d|scale=%g|locale=%s|timezone=%s|userAgent=%s|pastedLink=%s",
-		b.Model, b.Manufacturer, b.SystemVersion, b.ScreenWidth, b.ScreenHeight, b.Scale,
+		b.Model, b.Manufacturer, b.SystemVersion, int(math.Round(b.ScreenWidth)), int(math.Round(b.ScreenHeight)), b.Scale,
 		localeString(b.Locale), strOr(b.Timezone), b.UserAgent, b.PastedLink)
 	return store.HashKey(canonical)
 }
