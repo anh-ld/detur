@@ -1422,3 +1422,24 @@ func TestMinimumInstallTimingDefense(t *testing.T) {
 		t.Errorf("aged click failed to match: %+v", res2)
 	}
 }
+
+// Setup hash past RetryWindow is another phone: with a 60-min window it must not re-claim the click an identical phone took 20 min ago.
+func TestSameHashPastRetryWindowNoReclaim(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	if err := s.UpdateAppMatchSettings(app.ID, 850, 60); err != nil {
+		t.Fatal(err)
+	}
+	c := recordAged(t, s, path, androidClick(link))
+	req := Request{IP: testIP, DeviceHash: "h1", Fingerprint: fpPtr(androidFP())}
+	if res, err := Match(s, app.ID, req); err != nil || !res.Matched || res.Click.ID != c.ID {
+		t.Fatalf("first match = %+v, %v; want click %s", res, err, c.ID)
+	}
+	if res, err := Match(s, app.ID, req); err != nil || !res.Matched { // overlapping retry inside RetryWindow keeps its click (M4)
+		t.Fatalf("retry inside window = %+v, %v; want matched", res, err)
+	}
+	setClick(t, path, c.ID, `matched_at = ?`, ago(20*time.Minute))
+	if res, err := Match(s, app.ID, req); err != nil || res.Matched {
+		t.Errorf("same hash 20 min later = %+v, %v; want organic", res, err)
+	}
+}

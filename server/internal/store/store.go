@@ -881,11 +881,12 @@ func (s *Store) PriorMatch(appID, deviceHash string) (Click, error) {
 const maxWindowClicks = 5000
 
 // ClicksSince: newest non-bot clicks created at or after since (window scan), capped at maxWindowClicks.
-// Unmatched, or already claimed by deviceHash: an overlapping retry finds its own click before the install row exists (M4).
+// Unmatched, or claimed by deviceHash within RetryWindow: an overlapping retry finds its own click before the install
+// row exists (M4); past that, the same setup hash is another phone and must not take the earlier one's click.
 func (s *Store) ClicksSince(appID, deviceHash string, since time.Time) ([]Click, error) {
 	rows, err := s.db.Query(
-		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND is_bot = 0 AND (matched_at IS NULL OR matched_device = ?) AND created_at >= ? ORDER BY created_at DESC LIMIT ?`,
-		appID, nullStr(deviceHash), rfc3339(since), maxWindowClicks,
+		`SELECT `+clickCols+` FROM clicks WHERE app_id = ? AND is_bot = 0 AND (matched_at IS NULL OR (matched_device = ? AND matched_at >= ?)) AND created_at >= ? ORDER BY created_at DESC LIMIT ?`,
+		appID, nullStr(deviceHash), rfc3339(time.Now().Add(-RetryWindow)), rfc3339(since), maxWindowClicks,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("clicks since: %w", err)
@@ -911,13 +912,14 @@ func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 		 WHERE rowid IN (SELECT rowid FROM clicks WHERE expires_at < ? AND (ip IS NOT NULL OR user_agent IS NOT NULL) LIMIT ?)`, at); err != nil {
 		return 0, fmt.Errorf("scrub clicks: %w", err)
 	}
-	// two deletes, each on its own index: one OR'd predicate walks every retained unmatched click (up to CLICK_ID_DAYS) per batch
+	// two deletes, each on its own index: one OR'd predicate walks every retained unmatched click (up to CLICK_ID_DAYS) per batch.
+	// INDEXED BY: the planner otherwise picks idx_clicks_expires and walks every expired, retained click (no stats: no ANALYZE).
 	for _, q := range []struct {
 		sql  string
 		args []any
 	}{
 		{`DELETE FROM clicks WHERE rowid IN (SELECT rowid FROM clicks WHERE matched_at IS NOT NULL AND expires_at < ? LIMIT ?)`, []any{at}},
-		{`DELETE FROM clicks WHERE rowid IN (SELECT rowid FROM clicks WHERE created_at <= ? AND expires_at < ? LIMIT ?)`, []any{rfc3339(s.clickIDCutoff(now)), at}},
+		{`DELETE FROM clicks WHERE rowid IN (SELECT rowid FROM clicks INDEXED BY idx_clicks_created WHERE created_at <= ? AND expires_at < ? LIMIT ?)`, []any{rfc3339(s.clickIDCutoff(now)), at}},
 		{`DELETE FROM events WHERE rowid IN (SELECT rowid FROM events WHERE created_at < ? LIMIT ?)`, []any{rfc3339(now.Add(-time.Duration(retentionHours) * time.Hour))}},
 	} {
 		n, err := s.batched(q.sql, q.args...)
@@ -1032,7 +1034,7 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 			ORDER BY created_at DESC LIMIT 1`, i.AppID, i.DeviceHash, AttributionOrganic, rfc3339(now.Add(-RetryWindow))).Scan(&id)
 		switch {
 		case err == nil:
-			return s.installByID(tx, id)
+			return s.commitInstall(tx, id)
 		case !errors.Is(err, sql.ErrNoRows):
 			return Install{}, fmt.Errorf("record install retry check: %w", err)
 		}
@@ -1071,11 +1073,11 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 			return Install{}, fmt.Errorf("record install readback: %w", err)
 		}
 	}
-	return s.installByID(tx, id)
+	return s.commitInstall(tx, id)
 }
 
-// installByID: read back one install and commit tx.
-func (s *Store) installByID(tx *sql.Tx, id string) (Install, error) {
+// commitInstall: read back install id, commit tx, return it.
+func (s *Store) commitInstall(tx *sql.Tx, id string) (Install, error) {
 	var (
 		got       Install
 		createdAt string

@@ -340,7 +340,7 @@ func installPlatform(b matchLinkBody) string {
 	return ua.AppPlatform(b.UserAgent)
 }
 
-// deviceHash: SHA-256 hex of canonical fingerprint fields, fixed order. Timestamp excluded (not a device trait); stable hash keeps duplicate match-link calls idempotent on (device_hash, click_id). clickId-only payload: hashes clickId.
+// deviceHash: SHA-256 hex of canonical fingerprint fields, fixed order. Timestamp excluded (not a device trait); stable hash keeps duplicate match-link calls idempotent on (device_hash, click_id) within store.RetryWindow (hash = setup, not device). clickId-only payload: hashes clickId.
 func deviceHash(b matchLinkBody) string {
 	if b.ClickID != "" {
 		return store.HashKey("clickId=" + b.ClickID)

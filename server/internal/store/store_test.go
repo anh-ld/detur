@@ -1615,3 +1615,52 @@ func TestRetryWindowBoundsDeviceHash(t *testing.T) {
 		t.Errorf("organic rows past RetryWindow = %d; want 2", n)
 	}
 }
+
+// Purge loop runs past one batch: purgeBatch+1 matched expired clicks all go, one call.
+func TestPurgeExpiredMultiBatch(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	old := rfc3339(time.Now().Add(-48 * time.Hour))
+	if _, err := s.db.Exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+		INSERT INTO clicks (id, app_id, link_id, ip, user_agent, destination, created_at, expires_at, matched_at)
+		SELECT 'c' || i, ?, ?, '203.0.113.7', 'ua', 'https://x', ?, ?, ? FROM n`, purgeBatch+1, app.ID, link.ID, old, old, old); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.PurgeExpired(time.Now(), 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM clicks`).Scan(&left)
+	if n != purgeBatch+1 || left != 0 {
+		t.Errorf("removed %d, left %d; want %d, 0", n, left, purgeBatch+1)
+	}
+}
+
+// Click-ID purge seeks created_at, not every expired retained click.
+func TestPurgeClickIDDeleteUsesCreatedIndex(t *testing.T) {
+	s := newTestStore(t)
+	var id, parent, notused int
+	var detail string
+	if err := s.db.QueryRow(`EXPLAIN QUERY PLAN SELECT rowid FROM clicks INDEXED BY idx_clicks_created WHERE created_at <= ? AND expires_at < ? LIMIT 1`, "x", "y").
+		Scan(&id, &parent, &notused, &detail); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(detail, "idx_clicks_created") {
+		t.Errorf("plan = %q; want idx_clicks_created", detail)
+	}
+}
+
+// Legacy organic rows carry click_id ” (pre-NULL): a retry inside RetryWindow still dedupes onto them.
+func TestOrganicRetryDedupesOntoLegacyEmptyClickID(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	if _, err := s.db.Exec(`INSERT INTO installs (id, app_id, device_hash, click_id, attribution, created_at) VALUES ('legacy', ?, 'o1', '', ?, ?)`,
+		app.ID, AttributionOrganic, rfc3339(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "o1", Attribution: AttributionOrganic})
+	if err != nil || got.ID != "legacy" {
+		t.Errorf("RecordInstall = %+v, %v; want legacy row", got, err)
+	}
+}
