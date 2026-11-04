@@ -22,7 +22,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 - **Late Play referrer (`clickId`)**: `clickId` matches are supported for up to `CLICK_ID_DAYS` (default 30 days). However, the raw click fingerprint is purged after `RETENTION_HOURS` (default 24h), so installs matching late `clickId`s lose original click metadata (such as platform).
 - **Matching thresholds & windows**: Configured per app (threshold default 850, window default 15 min). There are no per-link threshold overrides.
 - **Threshold ceilings**: Cellular → Wi-Fi (no IP match) max = 850 iOS / 900 Android without pasteboard → threshold above that = those installs go organic. Below 801 (Android) / 751 (iOS) → IP + device alone matches again → shared Wi-Fi peers can take the link.
-- **Reinstalls within retention**: A user reinstalling the app within `RETENTION_HOURS` receives their earlier matched link again, even if they tapped a newer link in between.
+- **Same-device retries**: The device hash is a device *setup* (model, OS, screen, locale, timezone), not a device. A repeat match-link with the same hash within 15 minutes gets the earlier answer (idempotent SDK retries). After that it is matched afresh: a reinstall gets a newer tapped link or goes organic (its first click is consumed), and an identical phone is never handed someone else's link.
 - **Device clock drift**: The matching window uses the SDK client timestamp only if it is within 180 minutes of server time; otherwise, it clamps to server time.
 - **iPad Safari**: iPadOS Safari sends a Mac UA. Mac Safari visitors also get the interstitial (one extra reload on real Macs); a touch screen marks the visit as iPad. No tap-to-copy page for iPad (unknown at hop 1) → no pasteboard signal.
 - **One-hop interstitial**: Mobile browsers reload through an interstitial to capture screen, timezone, and client hints (model + OS). Maximum probabilistic score on iOS is 1250 without pasteboard.
@@ -45,15 +45,16 @@ Operational gotchas, architectural limits, and security constraints to read befo
 - **Private & proxy IPs**: Loopback and private IPs are always exempt. If running behind a reverse proxy with `TRUST_PROXY=0`, all clients share the proxy's IP and IP-based fraud signals will be blinded.
 - **Bot clicks in analytics**: Clicks identified with suspicious or bot User-Agents are excluded from analytics click counts, even in Tagged mode.
 - **Threshold updates**: Changing fraud thresholds or rules applies only to future match requests; historical installs are never retroactively re-scored.
-- **Repeat device velocity**: When the same device profile reappears within `RETENTION_HOURS`, it reuses the earlier match instead of generating a new install. It can only be flagged after the original click expires.
+- **Repeat device velocity**: The same device profile reappearing within 15 minutes reuses the earlier match instead of generating a new install; later appearances are new installs and count toward the fingerprint signal.
 - **Unsupported fraud checks**: Detur does not detect click injection, device resets, emulator environments, or store purchase receipts (see [DECISIONS.md](DECISIONS.md)).
 
 ## Ops
 
-- **Database concurrency**: Uses SQLite in WAL mode with a single writer. Built for personal, team, or medium product scale; not horizontally scalable.
-- **Shutdown & upgrades**: No graceful drain on shutdown; SQLite WAL ensures crash-safety. Schema migrations run on `Open()` by adding columns. Always back up `detur.db` before upgrading versions.
+- **Database concurrency**: SQLite in WAL mode through one connection: reads and writes queue behind each other (portal analytics on a large DB delays redirects). Hourly purge runs in 2,000-row batches so it never holds the connection for long. Built for personal, team, or medium product scale; not horizontally scalable.
+- **Shutdown & upgrades**: SIGTERM drains in-flight requests (8s), cancels webhook POSTs (redelivered on start), then closes the DB; SQLite WAL covers a hard kill. Schema migrations run on `Open()` by adding columns. Always back up `detur.db` before upgrading versions.
 - **Storage growth on floods**: Public endpoints have no rate limits. Unmatched clicks accumulate until purged by `RETENTION_HOURS` (or `CLICK_ID_DAYS` for click IDs). A match scans only the newest 5,000 unmatched clicks in the window → flood or >5k clicks per window = older clicks can't match. Request line + headers capped at 32 KB, link targets at 2 KB.
 - **Analytics aggregation**: All rollups operate on UTC days. Deleting a link permanently removes its associated click and event rollup counts.
+- **Event size**: An event body over 16 KB is rejected (413) and not stored.
 - **Event names**: Custom event names are truncated to 64 characters and retained indefinitely. Do not place PII, user IDs, or device IDs in event names.
 - **Per-link conversions & retention**: Requires devices to be tagged by an event containing `data.link`. On Detour SDK 2.3.1, the client app only knows the link key if "Tag deferred links" is enabled in app settings.
 - **Retention cohorts**: Cohort assignment begins on the device's tag day (not install day). D1/D7/D30 metrics record cold starts (`app_open`) on that exact UTC day; background/warm resumes are not counted unless the app explicitly invokes `logRetention`.
@@ -67,7 +68,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 - **Outbound network calls**: Detur only initiates outbound HTTP requests when webhooks are explicitly configured and enabled.
 - **Dial-time SSRF protection**: Webhook delivery blocks private networks (RFC 1918, RFC 4193), link-local, CGNAT (`100.64.0.0/10`), reserved ranges, and IPv4-embedding IPv6 (NAT64, 6to4, Teredo), covering metadata services at `169.254.169.254`, `100.100.100.200`, `192.0.0.192`. HTTP redirects are never followed.
 - **Secrets at rest**: Webhook signing secrets are stored in plaintext in SQLite (`detur.db`) so admins can view and rotate them in the portal. Ensure database file permissions are restricted (`chmod 600 detur.db`).
-- **Replay & retention limits**: Only `installs` are retained permanently. Raw `clicks` and `events` are purged after `RETENTION_HOURS` (default 24h); webhook replaying past that window starts at the oldest retained record. Rowids never reused → purges and deletes never hide new rows. Restoring an older `detur.db` backup rewinds cursors to 0 → duplicates; always deduplicate on record `id`.
+- **Replay & retention limits**: Only `installs` are retained permanently. Raw `clicks` and `events` are purged after `RETENTION_HOURS` (default 24h); webhook replaying past that window starts at the oldest retained record. An endpoint down longer than `RETENTION_HOURS` silently loses the clicks and events purged meanwhile (installs are kept). All webhooks share one worker: a slow-but-successful endpoint delays the others' deliveries. Rowids never reused → purges and deletes never hide new rows. Restoring an older `detur.db` backup rewinds cursors to 0 → duplicates; always deduplicate on record `id`.
 - **Adding a stream**: New type on an existing webhook starts at the current tail. Past records → Replay.
 - **Hidden installs**: Backend-error `unknown` installs never sent. Their replacement arrives as a new record.
 - **Consumer signature verification**: Webhook consumers must verify signatures with constant-time comparison (`crypto/subtle.ConstantTimeCompare`) and enforce a timestamp tolerance window (e.g., 5 minutes) to defend against replay attacks.

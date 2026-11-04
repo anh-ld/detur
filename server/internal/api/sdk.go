@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -79,8 +80,8 @@ type matchLinkBody struct {
 	Model         string      `json:"model"`
 	Manufacturer  string      `json:"manufacturer"`
 	SystemVersion string      `json:"systemVersion"`
-	ScreenWidth   int         `json:"screenWidth"`
-	ScreenHeight  int         `json:"screenHeight"`
+	ScreenWidth   float64     `json:"screenWidth"` // Android: px / density, fractional (411.428...)
+	ScreenHeight  float64     `json:"screenHeight"`
 	Scale         float64     `json:"scale"`
 	Locale        []localeTag `json:"locale"`
 	Timezone      *string     `json:"timezone"`
@@ -109,7 +110,7 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 	} else {
 		req.Fingerprint = &match.Fingerprint{
 			Model: body.Model, Manufacturer: body.Manufacturer,
-			SystemVersion: body.SystemVersion, ScreenWidth: body.ScreenWidth, ScreenHeight: body.ScreenHeight,
+			SystemVersion: body.SystemVersion, ScreenWidth: int(math.Round(body.ScreenWidth)), ScreenHeight: int(math.Round(body.ScreenHeight)),
 			Scale: body.Scale, Locale: localeString(body.Locale), Timezone: strOr(body.Timezone),
 			UserAgent: body.UserAgent, PastedLink: body.PastedLink,
 		}
@@ -270,6 +271,9 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 	return rec.ID
 }
 
+// maxEventBytes: stored event metadata cap (SDK events are well under 1 KB).
+const maxEventBytes = 16 << 10
+
 func (s *sdkServer) analyticsEvent(w http.ResponseWriter, r *http.Request) {
 	s.recordAnalytics(w, r, false)
 }
@@ -293,6 +297,11 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, rete
 	md, err := json.Marshal(body)
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, errorBody("internal error"))
+		return
+	}
+	// stored verbatim + sent in webhook batches of 100: a public SDK key must not be able to make each batch 100 MB
+	if len(md) > maxEventBytes {
+		httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, errorBody("event too large"))
 		return
 	}
 	if err := s.st.RecordEvent(appID, name, string(md)); err != nil {
@@ -331,13 +340,13 @@ func installPlatform(b matchLinkBody) string {
 	return ua.AppPlatform(b.UserAgent)
 }
 
-// deviceHash: SHA-256 hex of canonical fingerprint fields, fixed order. Timestamp excluded (not a device trait); stable hash keeps duplicate match-link calls idempotent on (device_hash, click_id). clickId-only payload: hashes clickId.
+// deviceHash: SHA-256 hex of canonical fingerprint fields, fixed order. Timestamp excluded (not a device trait); stable hash keeps duplicate match-link calls idempotent on (device_hash, click_id) within store.RetryWindow (hash = setup, not device). clickId-only payload: hashes clickId.
 func deviceHash(b matchLinkBody) string {
 	if b.ClickID != "" {
 		return store.HashKey("clickId=" + b.ClickID)
 	}
 	canonical := fmt.Sprintf("model=%s|manufacturer=%s|systemVersion=%s|screenWidth=%d|screenHeight=%d|scale=%g|locale=%s|timezone=%s|userAgent=%s|pastedLink=%s",
-		b.Model, b.Manufacturer, b.SystemVersion, b.ScreenWidth, b.ScreenHeight, b.Scale,
+		b.Model, b.Manufacturer, b.SystemVersion, int(math.Round(b.ScreenWidth)), int(math.Round(b.ScreenHeight)), b.Scale,
 		localeString(b.Locale), strOr(b.Timezone), b.UserAgent, b.PastedLink)
 	return store.HashKey(canonical)
 }

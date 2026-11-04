@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"detur.dev/server/internal/api"
@@ -15,7 +20,10 @@ import (
 )
 
 // main: config -> store -> HTTP listeners. Public: SDK, browser pipeline, well-known. Loopback: portal (API + static UI), origin/host-guarded. Clicks/events purged at startup, then hourly.
+// SIGTERM/SIGINT (docker stop): stop accepting, drain in-flight requests, stop the webhook worker, close the DB.
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	// Not env: Docker passes 0.0.0.0:8081 to publish it; bare runs keep unauthenticated portal on loopback.
 	portalAddr := flag.String("portal-addr", "127.0.0.1:8081", "portal listen address")
 	flag.Parse()
@@ -35,13 +43,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("store: %v", err)
 	}
-	defer st.Close()
 	st.ClickIDHours = cfg.ClickIDDays * 24
-	purgeLoop(st, cfg.RetentionHours)
+	purgeLoop(ctx, st, cfg.RetentionHours)
 
 	webhookWorker := webhook.NewWorker(st, 15*time.Second)
 	webhookWorker.Start()
-	defer webhookWorker.Stop()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -60,24 +66,49 @@ func main() {
 	pipeline.RegisterWellKnown(mux, st, config.DomainSet(cfg))
 
 	// Portal: own listener; static UI from ./portal/dist (missing = API only).
-	go func() {
-		portal := api.RegisterPortal(st, "portal/dist", append([]string{*portalAddr}, cfg.PortalHosts...), cfg.LogoutURL, cfg.AdminPassword, cfg.AdminSessionHours, linkBase(cfg.Domain))
-		if cfg.AdminPassword != "" {
-			log.Printf("portal admin gating: ON")
-		} else {
-			log.Printf("portal admin gating: OFF (ADMIN_PASSWORD unset)")
-		}
-		log.Printf("portal on %s", *portalAddr)
-		log.Fatal(serve(*portalAddr, portal))
-	}()
+	portal := api.RegisterPortal(st, "portal/dist", append([]string{*portalAddr}, cfg.PortalHosts...), cfg.LogoutURL, cfg.AdminPassword, cfg.AdminSessionHours, linkBase(cfg.Domain))
+	if cfg.AdminPassword != "" {
+		log.Printf("portal admin gating: ON")
+	} else {
+		log.Printf("portal admin gating: OFF (ADMIN_PASSWORD unset)")
+	}
+	servers := []*http.Server{server(":8080", mux), server(*portalAddr, portal)}
+	errc := make(chan error, len(servers))
+	for _, srv := range servers {
+		go func() {
+			if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				errc <- err
+			}
+		}()
+	}
+	log.Printf("detur :8080 (domain %s, db %s), portal on %s", cfg.Domain, cfg.DBPath, *portalAddr)
 
-	log.Printf("detur :8080 (domain %s, db %s)", cfg.Domain, cfg.DBPath)
-	log.Fatal(serve(":8080", mux))
+	select {
+	case err := <-errc:
+		log.Printf("listener: %v", err) // e.g. port in use: still shut down cleanly, then exit 1
+	case <-ctx.Done():
+		log.Printf("shutting down")
+	}
+	// under docker stop's 10s grace: in-flight requests finish, no new ones
+	sctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	for _, srv := range servers {
+		if err := srv.Shutdown(sctx); err != nil {
+			log.Printf("shutdown %s: %v", srv.Addr, err)
+		}
+	}
+	webhookWorker.Stop()
+	if err := st.Close(); err != nil {
+		log.Printf("close db: %v", err)
+	}
+	if ctx.Err() == nil {
+		os.Exit(1)
+	}
 }
 
-// serve: explicit timeouts so slow clients can't pin the single-writer SQLite conn or listener goroutines.
-func serve(addr string, h http.Handler) error {
-	srv := &http.Server{
+// server: explicit timeouts so slow clients can't pin the single-writer SQLite conn or listener goroutines.
+func server(addr string, h http.Handler) *http.Server {
+	return &http.Server{
 		Addr:              addr,
 		Handler:           h,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -86,20 +117,32 @@ func serve(addr string, h http.Handler) error {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10, // UA/hints/query land in click rows: bounds each row, not just the request
 	}
-	return srv.ListenAndServe()
 }
 
-// purgeLoop: startup, then hourly.
-func purgeLoop(st *store.Store, retentionHours int) {
-	if n, err := st.PurgeExpired(time.Now(), retentionHours); err != nil {
-		log.Printf("initial purge failed: %v", err)
-	} else if n > 0 {
-		log.Printf("purged %d expired rows", n)
+// purgeLoop: startup, then hourly until ctx ends. A panicking purge is logged, never kills the process.
+func purgeLoop(ctx context.Context, st *store.Store, retentionHours int) {
+	purge := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("purge panic: %v", r)
+			}
+		}()
+		if n, err := st.PurgeExpired(time.Now(), retentionHours); err != nil {
+			log.Printf("purge failed: %v", err)
+		} else if n > 0 {
+			log.Printf("purged %d expired rows", n)
+		}
 	}
+	purge()
 	go func() {
-		for range time.Tick(time.Hour) {
-			if _, err := st.PurgeExpired(time.Now(), retentionHours); err != nil {
-				log.Printf("purge failed: %v", err)
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				purge()
 			}
 		}
 	}()

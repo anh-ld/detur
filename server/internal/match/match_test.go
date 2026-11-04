@@ -788,7 +788,7 @@ func TestFraudSignalModes(t *testing.T) {
 	}{
 		{"velocity via ip hits", fraud.SignalVelocity, `hits_ip = ?`, fraud.Defaults.VelocityIPMax},
 		{"velocity via link hits", fraud.SignalVelocity, `hits_link = ?`, fraud.Defaults.VelocityLinkMax},
-		{"timing short", fraud.SignalTiming, `first_seen_at = ?`, ago(3 * time.Second)},
+		{"timing short", fraud.SignalTiming, `first_seen_at = ?`, func() any { return ago(3 * time.Second) }}, // per subtest: one table-time value goes stale past the 10s threshold on slow runs
 		{"user agent", fraud.SignalUserAgent, `ua_suspect = ?`, 1},
 		{"ip hosting", fraud.SignalIP, `ip_hosting = ?`, 1},
 	}
@@ -798,7 +798,11 @@ func TestFraudSignalModes(t *testing.T) {
 				s, path := newTestStore(t)
 				app, link := setupApp(t, s)
 				flagged, clean := flaggedAndClean(t, s, path, link)
-				setClick(t, path, flagged.ID, tc.set, tc.arg)
+				arg := tc.arg
+				if f, ok := arg.(func() any); ok {
+					arg = f()
+				}
+				setClick(t, path, flagged.ID, tc.set, arg)
 				switch mode {
 				case "active":
 					setFraud(t, s, app.ID, func(f *fraud.Settings) { *modeOf(f, tc.sig) = fraud.ModeActive })
@@ -1416,5 +1420,26 @@ func TestMinimumInstallTimingDefense(t *testing.T) {
 	}
 	if !res2.Matched || res2.Click.ID != rapidClick.ID {
 		t.Errorf("aged click failed to match: %+v", res2)
+	}
+}
+
+// Setup hash past RetryWindow is another phone: with a 60-min window it must not re-claim the click an identical phone took 20 min ago.
+func TestSameHashPastRetryWindowNoReclaim(t *testing.T) {
+	s, path := newTestStore(t)
+	app, link := setupApp(t, s)
+	if err := s.UpdateAppMatchSettings(app.ID, 850, 60); err != nil {
+		t.Fatal(err)
+	}
+	c := recordAged(t, s, path, androidClick(link))
+	req := Request{IP: testIP, DeviceHash: "h1", Fingerprint: fpPtr(androidFP())}
+	if res, err := Match(s, app.ID, req); err != nil || !res.Matched || res.Click.ID != c.ID {
+		t.Fatalf("first match = %+v, %v; want click %s", res, err, c.ID)
+	}
+	if res, err := Match(s, app.ID, req); err != nil || !res.Matched { // overlapping retry inside RetryWindow keeps its click (M4)
+		t.Fatalf("retry inside window = %+v, %v; want matched", res, err)
+	}
+	setClick(t, path, c.ID, `matched_at = ?`, ago(20*time.Minute))
+	if res, err := Match(s, app.ID, req); err != nil || res.Matched {
+		t.Errorf("same hash 20 min later = %+v, %v; want organic", res, err)
 	}
 }

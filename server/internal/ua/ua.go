@@ -31,8 +31,9 @@ var uaBots = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	"deadlinkchecker", "brokenlinkcheck", "xenu", "scrutiny", "powermapper", "siteimprove", "monsido",
 }, "|"))
 
-// uaFalsePositive: Dub's UA_FALSE_POSITIVES. Instagram webview on Pixel appends "Google/google" (would trip "google"); same for TikTok webview "Channel/googleplay" (not in Dub's list).
-var uaFalsePositive = regexp.MustCompile(`Google/google\b|Channel/googleplay\b`)
+// uaFalsePositive: Dub's UA_FALSE_POSITIVES. Instagram webview on Pixel appends "Google/google" (would trip "google"); same for TikTok webview "Channel/googleplay" (not in Dub's list);
+// Cubot phones put "CUBOT" (trips "bot") in the model token of every in-app webview UA.
+var uaFalsePositive = regexp.MustCompile(`Google/google\b|Channel/googleplay\b|(?i:\bcubot\b)`)
 
 // IsBotUA: UA matches Dub's bot list.
 func IsBotUA(ua string) bool {

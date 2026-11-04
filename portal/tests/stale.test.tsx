@@ -1,6 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
 import { AppPage } from '../src/detail';
+import { AnalyticsView } from '../src/analytics';
+import { CopyButton, getAdmin, refreshAdminSession, setElevated } from '../src/ui';
 
 // unit, mocked fetch: cases the real binary can't produce on demand (delayed reply, every outcome/signal at once)
 
@@ -182,4 +184,61 @@ it('switching apps mid-load: a slow reply for the app left behind never lands un
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.queryByRole('heading', { name: 'Stale App' })).toBeNull();
   expect(screen.getByRole('heading', { name: 'Other App' })).toBeTruthy();
+});
+
+it('analytics error: a rejected range shows the alert; the next good range clears it, and so does switching apps', async () => {
+  vi.stubGlobal('fetch', (url: string) => {
+    if (url.includes('/analytics?days=7')) return Promise.resolve(new Response('Date range cannot exceed 730 days', { status: 400 }));
+    if (url.includes('/analytics?')) return json(stats(30));
+    if (url.endsWith('/links')) return json([]);
+    return json(app);
+  });
+  const { rerender } = render(<AppPage id="app1" tab="analytics" />);
+  await screen.findByText(/730 days/);
+  fireEvent.change(await screen.findByLabelText('Date range'), { target: { value: '30' } });
+  await waitFor(() => expect(screen.queryByText(/730 days/)).toBeNull());
+
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: '7' } });
+  await screen.findByText(/730 days/);
+  rerender(<AppPage id="app2" tab="settings" />);
+  await screen.findByRole('heading', { name: 'API key' }); // past the loading screen, page rendered
+  expect(screen.queryByText(/730 days/)).toBeNull();
+});
+
+const day = (i: number) => ({ day: `2026-10-${String(i + 1).padStart(2, '0')}`, clicks: i, webFallbacks: 0, opens: 0, organic: 0, nonOrganic: 0 });
+const days = (n: number) => ({ days: Array.from({ length: n }, (_, i) => day(i)), links: [], events: [], sources: [] });
+
+it('chart hover: range shrinks under a resting pointer -> no crash, tooltip gone', async () => {
+  const { rerender, container } = render(<AnalyticsView data={days(30)} />);
+  const targets = container.querySelectorAll('.chart-hover');
+  fireEvent.pointerEnter(targets[targets.length - 1]);
+  await waitFor(() => expect(container.querySelector('.chart-tip')).not.toBeNull());
+  rerender(<AnalyticsView data={days(7)} />);
+  expect(container.querySelector('.chart-tip')).toBeNull();
+});
+
+it('copy without navigator.clipboard (plain-HTTP portal): execCommand copies; a failure says so and a later success clears it', async () => {
+  vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
+  let ok = false;
+  const exec = vi.fn(() => ok);
+  (document as unknown as { execCommand: typeof exec }).execCommand = exec;
+  render(<CopyButton value="dk_secret" label="Copy API key" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Copy API key' }));
+  await screen.findByText('Copy failed: select and copy');
+  ok = true;
+  fireEvent.click(screen.getByRole('button'));
+  await screen.findByText('Copied');
+  expect(exec).toHaveBeenCalledWith('copy');
+  await waitFor(() => expect(screen.getByRole('button').textContent).toBe('Copy API key'), { timeout: 3000 });
+});
+
+it('admin session: a slow session read that started before unlock never clears the fresh elevation', async () => {
+  let release!: () => void;
+  vi.stubGlobal('fetch', () => new Promise<Response>((r) => (release = () => r(new Response(JSON.stringify({ admin: false }))))));
+  const pending = refreshAdminSession(); // mount-time check, still in flight
+  setElevated(true, new Date(Date.now() + 3600_000).toISOString()); // unlock lands first
+  release();
+  await pending;
+  expect(getAdmin()).toBe(true);
+  setElevated(false);
 });

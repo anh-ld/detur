@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Table } from 'kinu';
 import { api, App, CreatedApp } from './api';
 import { AdminGateAborted, adminCall, closeDialog, ConfirmDelete, CopyButton, gateOpen, Loading, mono, muted, PageHeader, row } from './ui';
@@ -29,7 +29,13 @@ export function AppsPage() {
     gateOpen(CREATE_ID);
   };
 
+  // ref, not just state: a double-click submits twice before the disabled re-render lands
+  const creating = useRef(false);
+  const [busy, setBusy] = useState(false);
   const submitCreate = async () => {
+    if (creating.current) return;
+    creating.current = true;
+    setBusy(true);
     setError('');
     try {
       const app = await adminCall(() => api.createApp(name.trim()));
@@ -38,6 +44,9 @@ export function AppsPage() {
     } catch (e) {
       if (e instanceof AdminGateAborted) return;
       setError(String(e));
+    } finally {
+      creating.current = false;
+      setBusy(false);
     }
   };
 
@@ -101,7 +110,7 @@ export function AppsPage() {
               <Button type="button" variant="outline" onClick={() => closeDialog(CREATE_ID)}>
                 Cancel
               </Button>
-              <Button type="submit">Create</Button>
+              <Button type="submit" disabled={busy} aria-busy={busy}>Create</Button>
             </div>
           </form>
         )}

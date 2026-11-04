@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -54,19 +56,34 @@ func (w *Worker) Start() {
 	w.doneCh = make(chan struct{})
 	w.mu.Unlock()
 
+	stopCh := w.stopCh
 	go func() {
 		defer close(w.doneCh)
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
+		// Stop cancels an in-flight POST: shutdown never waits out a slow endpoint (cursor unmoved -> redelivered next start)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			<-stopCh
+			cancel()
+		}()
+		once := func() {
+			defer func() {
+				if r := recover(); r != nil {
+					w.logger.Printf("webhook worker panic: %v", r)
+				}
+			}()
+			w.ProcessOnce(ctx)
+		}
 
-		w.ProcessOnce(context.Background())
-
+		once()
 		for {
 			select {
-			case <-w.stopCh:
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				w.ProcessOnce(context.Background())
+				once()
 			}
 		}
 	}()
@@ -98,6 +115,9 @@ func (w *Worker) ProcessOnce(ctx context.Context) {
 	now := time.Now().UTC()
 	for _, wh := range webhooks {
 		for _, stream := range wh.Types {
+			if ctx.Err() != nil {
+				return
+			}
 			w.processStream(ctx, wh, stream, now)
 		}
 	}
@@ -159,7 +179,7 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, wh.URL, bytes.NewReader(bodyBytes))
 		if err != nil {
-			w.logger.Printf("webhook %s invalid request: %v", wh.ID, err)
+			w.logger.Printf("webhook %s invalid request URL", wh.ID) // url.Parse errors quote the URL (tokens)
 			w.handleFailure(wh.ID, stream, st.Fails)
 			return
 		}
@@ -170,11 +190,19 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 		}
 
 		resp, err := w.client.Do(req)
+		if err != nil && ctx.Err() != nil {
+			return // shutting down: not the endpoint's failure, no backoff
+		}
 		if err != nil {
+			var ue *url.Error
+			if errors.As(err, &ue) {
+				err = ue.Err // *url.Error prints the URL: Slack-style endpoints carry their token in the path
+			}
 			w.logger.Printf("webhook %s %s POST failed: %v", wh.ID, stream, err)
 			w.handleFailure(wh.ID, stream, st.Fails)
 			return
 		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10)) // drained body -> connection reused
 		resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
