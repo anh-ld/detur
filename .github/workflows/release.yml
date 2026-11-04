@@ -9,6 +9,11 @@ on:
         options: [patch, minor, major]
         default: patch
 
+# two dispatches at once would compute the same version
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions:
   contents: write # push the version tag
   packages: write # push to ghcr
@@ -27,7 +32,7 @@ jobs:
         with:
           go-version-file: server/go.mod
       - name: Test server
-        run: go vet ./... && go test ./...
+        run: go vet ./... && go test -race ./...
         working-directory: server
 
       # portal dist ships in the image: same gate as ci.yml
@@ -54,6 +59,12 @@ jobs:
           echo "version=$major.$minor.$patch" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
+      # tag first: a failed tag push must not leave an image the next run overwrites under the same version
+      - name: Tag release
+        run: |
+          git tag "v${{ steps.ver.outputs.version }}"
+          git push origin "v${{ steps.ver.outputs.version }}"
+
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -72,7 +83,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Tag release
-        run: |
-          git tag "v${{ steps.ver.outputs.version }}"
-          git push origin "v${{ steps.ver.outputs.version }}"

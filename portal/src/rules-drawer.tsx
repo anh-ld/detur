@@ -1,7 +1,7 @@
 import { cloneElement, JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Tab, Table, TabList, Toggle, ToggleGroup } from 'kinu';
-import { api, Link, LinkRule, Platform, RuleTargets, SplitVariant, VariantStat } from './api';
+import { api, DateRangeFilter, Link, LinkRule, Platform, RuleTargets, SplitVariant, VariantStat } from './api';
 import { closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
 
 const cleanTargets = (t?: RuleTargets): RuleTargets => ({
@@ -21,14 +21,14 @@ export function RulesDialog({
   linkBase = '',
   trigger,
   onSaved,
-  days = 30,
+  range = 30,
 }: {
   appId: string;
   link: Link;
   linkBase?: string;
   trigger: JSX.Element;
   onSaved?: () => void;
-  days?: number; // page date filter: Performance follows it
+  range?: DateRangeFilter | number; // page date filter: Performance follows it
 }) {
   const dialogId = `dlg-rules-${link.id}`;
   const [tab, setTab] = useState<'rules' | 'perf'>('rules');
@@ -38,7 +38,9 @@ export function RulesDialog({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState('');
-  const perfDays = days;
+  const perfRange = range;
+  const perfLabel =
+    typeof range === 'number' ? `last ${range} days` : range.days ? `last ${range.days} days` : `${range.from} to ${range.to}`;
   const [dirty, setDirty] = useState(false);
   const reqSeq = useRef(0); // latest load wins, stale dropped
 
@@ -63,7 +65,7 @@ export function RulesDialog({
     try {
       const [r, s] = await Promise.all([
         api.getLinkRules(appId, link.id),
-        api.getLinkVariantStats(appId, link.id, perfDays),
+        api.getLinkVariantStats(appId, link.id, perfRange),
       ]);
       if (seq !== reqSeq.current) return;
       setRules(r);
@@ -291,13 +293,13 @@ export function RulesDialog({
               {err}
             </Alert>
           )}
-          {success && <Alert variant="default">{success}</Alert>}
+          {success && <Alert variant="success">{success}</Alert>}
 
           {loading && <Loading />}
 
           {!loading && tab === 'perf' && (
             <div style={{ display: 'grid', gap: 12 }}>
-              <span style={muted}>Clicks and installs per rule and variant, last {perfDays} days.</span>
+              <span style={muted}>Clicks and installs per rule and variant, {perfLabel}.</span>
               {stats.length === 0 ? (
                 <Empty>
                   <h3>No variant stats yet</h3>

@@ -98,6 +98,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
   const [platform, setPlatform] = useState<Platform>('');
   const [error, setError] = useState('');
+  const [statsError, setStatsError] = useState(''); // own slot: a fixed range clears it without hiding an app-load error
   const [linkBase, setLinkBase] = useState('');
   useEffect(() => {
     api.getConfig().then((c) => setLinkBase(c.linkBase ?? ''), () => {});
@@ -131,8 +132,12 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
     setStatsLoading(true);
     api
       .getAnalytics(id, range, platform)
-      .then((s) => !stale && setStats(s))
-      .catch((e) => !stale && setError(String(e)))
+      .then((s) => {
+        if (stale) return;
+        setStats(s);
+        setStatsError('');
+      })
+      .catch((e) => !stale && setStatsError(String(e)))
       .finally(() => !stale && setStatsLoading(false));
     return () => {
       stale = true;
@@ -207,7 +212,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
         </TabList>
         {filtered && <Filters range={range} platform={platform} onRange={setRange} onPlatform={setPlatform} />}
       </div>
-      {error && <Alert variant="destructive">{error}</Alert>}
+      {(error || statsError) && <Alert variant="destructive">{error || statsError}</Alert>}
 
       {tab === 'links' && (
         <section aria-label="Links" style={{ display: 'grid', gap: 16 }}>
@@ -269,7 +274,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
                           appId={app.id}
                           link={l}
                           linkBase={linkBase}
-                          days={range.days ?? 30}
+                          range={range}
                           onSaved={refresh}
                           trigger={
                             <Button size="sm" variant="outline">

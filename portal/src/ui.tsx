@@ -8,8 +8,19 @@ export const muted = { color: 'hsl(var(--k-muted-foreground))', fontSize: 14, ma
 export const mono = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13 };
 export const row = { display: 'flex', gap: 8, alignItems: 'center' };
 
+// navigator.clipboard is undefined outside a secure context (http://<LAN-IP>:8081): fall back to execCommand
 export const copyText = async (v: string) => {
-  await navigator.clipboard.writeText(v);
+  if (navigator.clipboard) return navigator.clipboard.writeText(v);
+  const ta = document.createElement('textarea');
+  ta.value = v;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  const ok = document.execCommand('copy');
+  ta.remove();
+  if (!ok) throw new Error('copy failed');
 };
 
 // 1.5px outline icon paths (24px grid); decorative, the button label carries the name
@@ -49,14 +60,20 @@ export function CopyButton({ value, label, icon }: { value: string; label: strin
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
   }, [copied]);
+  const [failed, setFailed] = useState(false);
   const onClick = async () => {
-    await copyText(value);
-    setCopied(true);
+    try {
+      await copyText(value);
+      setCopied(true);
+    } catch {
+      setFailed(true); // say so: a silent no-op on the show-once key dialog loses the key
+    }
   };
-  if (icon) return <IconButton icon={copied ? ICONS.check : ICONS.copy} label={copied ? 'Copied' : label} onClick={onClick} />;
+  const text = copied ? 'Copied' : failed ? 'Copy failed: select and copy' : label;
+  if (icon) return <IconButton icon={copied ? ICONS.check : ICONS.copy} label={text} onClick={onClick} />;
   return (
     <Button size="sm" variant="outline" onClick={onClick}>
-      {copied ? 'Copied' : label}
+      {text}
     </Button>
   );
 }

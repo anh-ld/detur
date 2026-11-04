@@ -510,7 +510,9 @@ function Chart({
   kind: 'line' | 'bar';
 }) {
   const [ref, w] = useWidth();
-  const [hover, setHover] = useState<number | null>(null);
+  const [hoverAt, setHover] = useState<number | null>(null);
+  // range shrank under a resting pointer: index past the new data would throw and blank the page
+  const hover = hoverAt !== null && hoverAt < days.length ? hoverAt : null;
   const n = Math.max(days.length, 1);
   const plotW = w - PAD.l - PAD.r;
   const plotH = H - PAD.t - PAD.b;

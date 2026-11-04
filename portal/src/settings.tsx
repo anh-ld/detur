@@ -1,5 +1,5 @@
 import { JSX } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   Alert,
   Badge,
@@ -117,7 +117,10 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
     setError('');
     setSaved(false);
     try {
-      onSaved(await adminCall(() => api.updateApp(app.id, draft)));
+      const a = await adminCall(() => api.updateApp(app.id, draft));
+      // server trims + strips "://" from the scheme: show what was stored
+      setDraft({ iosAppId: a.iosAppId, androidPackage: a.androidPackage, androidCertFingerprint: a.androidCertFingerprint, iosScheme: a.iosScheme });
+      onSaved(a);
       setSaved(true);
     } catch (e) {
       if (e instanceof AdminGateAborted) return;
@@ -432,7 +435,13 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
   const [err, setErr] = useState('');
   const id = `dlg-rotate-${app.id}`;
 
+  // ref guard: a second rotate would kill the key this dialog is about to show
+  const rotating = useRef(false);
+  const [busy, setBusy] = useState(false);
   const doRotate = async () => {
+    if (rotating.current) return;
+    rotating.current = true;
+    setBusy(true);
     setErr('');
     try {
       setRotated(await adminCall(() => api.rotateKey(app.id)));
@@ -440,6 +449,9 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
     } catch (e) {
       if (e instanceof AdminGateAborted) return;
       setErr(String(e));
+    } finally {
+      rotating.current = false;
+      setBusy(false);
     }
   };
 
@@ -480,7 +492,7 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
               <Button type="button" variant="outline" onClick={() => closeDialog(id)}>
                 Cancel
               </Button>
-              <Button type="submit">Rotate key</Button>
+              <Button type="submit" disabled={busy} aria-busy={busy}>Rotate key</Button>
             </div>
           </form>
         )}
