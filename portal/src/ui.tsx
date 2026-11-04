@@ -16,7 +16,9 @@ export const copyText = async (v: string) => {
   ta.setAttribute('readonly', '');
   ta.style.position = 'fixed';
   ta.style.opacity = '0';
-  document.body.appendChild(ta);
+  // inside the open modal: showModal() makes everything outside it inert, so a body child can't hold the selection
+  (document.querySelector('dialog[open]') ?? document.body).appendChild(ta);
+  ta.focus();
   ta.select();
   const ok = document.execCommand('copy');
   ta.remove();
@@ -64,6 +66,7 @@ export function CopyButton({ value, label, icon }: { value: string; label: strin
   const onClick = async () => {
     try {
       await copyText(value);
+      setFailed(false);
       setCopied(true);
     } catch {
       setFailed(true); // say so: a silent no-op on the show-once key dialog loses the key

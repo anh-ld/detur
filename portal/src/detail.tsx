@@ -154,6 +154,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
     setApp(null);
     setLinks(null);
     setStats(null);
+    setStatsError('');
     loadAll();
   }, [id]);
 
@@ -212,7 +213,7 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
         </TabList>
         {filtered && <Filters range={range} platform={platform} onRange={setRange} onPlatform={setPlatform} />}
       </div>
-      {(error || statsError) && <Alert variant="destructive">{error || statsError}</Alert>}
+      {(error || (filtered && statsError)) && <Alert variant="destructive">{error || statsError}</Alert>}
 
       {tab === 'links' && (
         <section aria-label="Links" style={{ display: 'grid', gap: 16 }}>

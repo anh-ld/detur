@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -378,8 +378,13 @@ describe('portal client flows', () => {
     await screen.findByRole('heading', { name: 'API key' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Rotate', exact: true }));
-    fireEvent.click(within(openDialog()).getByRole('button', { name: 'Rotate key' }));
+    const rotate = vi.spyOn(api, 'rotateKey');
+    const submit = within(openDialog()).getByRole('button', { name: 'Rotate key' });
+    fireEvent.click(submit);
+    fireEvent.click(submit); // double click: a second rotate would kill the key about to be shown
     await screen.findByText('Key rotated');
+    expect(rotate).toHaveBeenCalledTimes(1);
+    rotate.mockRestore();
     expect((within(openDialog()).getByDisplayValue(/^dk_/) as HTMLInputElement).value).toMatch(/^dk_[A-Za-z0-9]{22}$/);
     expect((await api.getApp(app.id)).apiKeyHash).not.toBe(app.apiKeyHash);
     await api.deleteApp(app.id);
