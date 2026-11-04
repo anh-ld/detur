@@ -857,13 +857,18 @@ func (s *Store) MarkClickMatched(id, deviceHash string) (bool, error) {
 	return true, nil
 }
 
-// PriorMatch: retained click this device already got attributed to (idempotent match-link retries).
+// RetryWindow: how long a device hash counts as "the same device retrying". The hash is a device setup
+// (model, OS, screen, locale, timezone), not a device: past this, an identical phone is a different install.
+const RetryWindow = 15 * time.Minute
+
+// PriorMatch: click this device hash was attributed to within RetryWindow (idempotent match-link retries).
 func (s *Store) PriorMatch(appID, deviceHash string) (Click, error) {
+	now := time.Now()
 	return scanClick(s.db.QueryRow(
 		`SELECT `+clickColsC+` FROM clicks c JOIN installs i ON i.click_id = c.id
-		 WHERE i.app_id = ? AND i.device_hash = ? AND i.attribution = ? AND c.expires_at >= ?
+		 WHERE i.app_id = ? AND i.device_hash = ? AND i.attribution = ? AND c.expires_at >= ? AND i.created_at >= ?
 		 ORDER BY i.created_at DESC LIMIT 1`,
-		appID, deviceHash, AttributionNonOrganic, rfc3339(time.Now())))
+		appID, deviceHash, AttributionNonOrganic, rfc3339(now), rfc3339(now.Add(-RetryWindow))))
 }
 
 // maxWindowClicks: newest unmatched clicks a match scan loads. Bounds memory when the window is flooded.
@@ -976,7 +981,7 @@ type Install struct {
 	Variant     string // matched click's variant; analytics
 }
 
-// RecordInstall: idempotent upsert per app, device, click; empty click_id = organic/unknown, deduped per app + device too. Only an unknown row is replaced by
+// RecordInstall: idempotent upsert per app, device, click; organic deduped per app + device within RetryWindow (stored click_id NULL), unknown per app + device. Only an unknown row is replaced by
 // a later real attribution: delete + re-insert -> new rowid, so webhook cursors past the unknown still see it. One tx: install + variant rollup.
 func (s *Store) RecordInstall(i Install) (Install, error) {
 	if i.ID == "" {
@@ -995,6 +1000,20 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 			return Install{}, fmt.Errorf("record install replace unknown: %w", err)
 		}
 	}
+	// organic: dedupe only a retry within RetryWindow; later same-hash installs are other phones -> own row (click_id NULL never conflicts)
+	var clickID any = i.ClickID
+	if i.Attribution == AttributionOrganic && i.ClickID == "" {
+		var id string
+		err := tx.QueryRow(`SELECT id FROM installs WHERE app_id = ? AND device_hash = ? AND COALESCE(click_id, '') = '' AND attribution = ? AND created_at >= ?
+			ORDER BY created_at DESC LIMIT 1`, i.AppID, i.DeviceHash, AttributionOrganic, rfc3339(now.Add(-RetryWindow))).Scan(&id)
+		switch {
+		case err == nil:
+			return s.installByID(tx, id)
+		case !errors.Is(err, sql.ErrNoRows):
+			return Install{}, fmt.Errorf("record install retry check: %w", err)
+		}
+		clickID = nil
+	}
 	res, err := tx.Exec(
 		`INSERT INTO installs (rowid, id, app_id, device_hash, click_id, attribution, created_at, link_id, platform, method, score, runner_up, fraud, fraud_action, fraud_link_id, variant)
 		 VALUES ((SELECT n + 1 FROM row_seq WHERE name = 'installs'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1004,7 +1023,7 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 			   fraud = excluded.fraud, fraud_action = excluded.fraud_action, fraud_link_id = excluded.fraud_link_id,
 			   variant = COALESCE(NULLIF(excluded.variant, ''), installs.variant)
 			 WHERE installs.attribution = ?`,
-		i.ID, i.AppID, i.DeviceHash, i.ClickID, i.Attribution, rfc3339(now), nullStr(i.LinkID), nullStr(i.Platform),
+		i.ID, i.AppID, i.DeviceHash, clickID, i.Attribution, rfc3339(now), nullStr(i.LinkID), nullStr(i.Platform),
 		nullStr(i.Method), i.nullScore(i.Score), i.nullScore(i.RunnerUp), nullStr(i.Fraud), nullStr(i.FraudAction), nullStr(i.FraudLinkID), nullStr(i.Variant), AttributionUnknown,
 	)
 	if err != nil {
@@ -1021,15 +1040,26 @@ func (s *Store) RecordInstall(i Install) (Install, error) {
 		}
 	}
 	// surviving row on conflict
+	id := i.ID
+	if clickID != nil {
+		if err := tx.QueryRow(`SELECT id FROM installs WHERE app_id = ? AND device_hash = ? AND click_id = ?`,
+			i.AppID, i.DeviceHash, i.ClickID).Scan(&id); err != nil {
+			return Install{}, fmt.Errorf("record install readback: %w", err)
+		}
+	}
+	return s.installByID(tx, id)
+}
+
+// installByID: read back one install and commit tx.
+func (s *Store) installByID(tx *sql.Tx, id string) (Install, error) {
 	var (
 		got       Install
 		createdAt string
 		variant   string
 	)
-	err = tx.QueryRow(
-		`SELECT id, app_id, device_hash, click_id, attribution, created_at, COALESCE(variant, '')
-		 FROM installs WHERE app_id = ? AND device_hash = ? AND click_id = ?`,
-		i.AppID, i.DeviceHash, i.ClickID,
+	err := tx.QueryRow(
+		`SELECT id, app_id, device_hash, COALESCE(click_id, ''), attribution, created_at, COALESCE(variant, '')
+		 FROM installs WHERE id = ?`, id,
 	).Scan(&got.ID, &got.AppID, &got.DeviceHash, &got.ClickID, &got.Attribution, &createdAt, &variant)
 	if err != nil {
 		return Install{}, fmt.Errorf("record install readback: %w", err)

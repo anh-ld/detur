@@ -1580,3 +1580,38 @@ func TestMarkClickMatchedSameDevice(t *testing.T) {
 		t.Errorf("other-device clickId lookup = %v; want ErrNotFound", err)
 	}
 }
+
+// Device hash = setup, not device: past RetryWindow an identical phone is a new install, never a prior match or a merged organic row.
+func TestRetryWindowBoundsDeviceHash(t *testing.T) {
+	s := newTestStore(t)
+	app, link := setupApp(t, s)
+	c, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 24)
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d1", ClickID: c.ID, Attribution: AttributionNonOrganic}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // retry inside window: one row
+		if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "o1", Attribution: AttributionOrganic}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	countOrganic := func() (n int) {
+		_ = s.db.QueryRow(`SELECT COUNT(*) FROM installs WHERE device_hash = 'o1'`).Scan(&n)
+		return
+	}
+	if n := countOrganic(); n != 1 {
+		t.Fatalf("organic rows after retry = %d; want 1", n)
+	}
+	old := rfc3339(time.Now().Add(-RetryWindow - time.Minute))
+	if _, err := s.db.Exec(`UPDATE installs SET created_at = ?`, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PriorMatch(app.ID, "d1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("PriorMatch past RetryWindow = %v; want ErrNotFound", err)
+	}
+	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "o1", Attribution: AttributionOrganic}); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOrganic(); n != 2 {
+		t.Errorf("organic rows past RetryWindow = %d; want 2", n)
+	}
+}
