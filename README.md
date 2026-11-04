@@ -1,17 +1,14 @@
 # detur
 
-Self-hosted backend for `@swmansion/react-native-detour`. Drop-in for
-[godetour](https://godetour.dev).
+Self-hosted, drop-in [godetour](https://godetour.dev) backend for `@swmansion/react-native-detour`: deferred deep links (tap → install → first launch opens the link) + click, install, event analytics.
 
-Deferred deep links + analytics: tap link → install → first launch opens link. Clicks, installs, events tracked.
-
-- **Single binary**: Go + SQLite + Preact portal. ~30 MB RAM, <0.1 vCPU.
-- **Link rules & A/B splits**: Route by platform, language, query, or date. Sticky weighted splits.
-- **In-app browser bypass**: Tap-through page for Messenger, TikTok, Zalo so users never get stuck.
-- **Exact iOS match**: Copied link carries a one-time token → exact install match, no time window.
-- **Link pages**: Per-link social previews. Desktop QR page for app-only links.
-- **Fraud protection**: Detect & block click floods, bots, datacenter IPs, and repeat devices.
-- **Analytics & webhooks**: Per-link conversions, D1/D7/D30 retention, and HMAC-signed webhook delivery.
+- **Single binary**: Go + SQLite + Preact portal; ~30 MB RAM, <0.1 vCPU.
+- **Rules & A/B**: route by platform, language, query, date; sticky weighted splits.
+- **In-app browsers**: tap page → Messenger, TikTok, Zalo users never get stuck.
+- **Exact iOS match**: copied link carries a one-time token → no time window.
+- **Link pages**: per-link social previews; desktop QR page for app-only links.
+- **Fraud**: flag/block click floods, bots, datacenter IPs, repeat devices.
+- **Analytics & webhooks**: per-link conversions, D1/D7/D30 retention, HMAC-signed webhooks.
 
 [DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
 
@@ -48,7 +45,7 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 
 ## Quick start
 
-> **Agent skill:** `npx skills add anh-ld/detur` (or [skills/detur/](skills/detur/)) automates steps 3–4.
+> **Agent skill:** `npx skills add anh-ld/detur` ([skills/detur/](skills/detur/)) → automates steps 3–4.
 
 ### 1. Docker
 
@@ -63,9 +60,9 @@ docker run -d --restart unless-stopped --env-file .env \
   ghcr.io/anh-ld/detur:0.15.1
 ```
 
-- Prod: pin a version (latest tag on [GitHub](https://github.com/anh-ld/detur/tags), without the `v`).
-- `-v`: without a named volume, `docker rm` loses every app, key and install. Bind mount → writable by uid 1000.
-- `127.0.0.1:8081`: the portal has no login. A bare `-p 8081:8081` publishes it to the internet (Docker bypasses ufw).
+- Prod: pin a version ([GitHub tags](https://github.com/anh-ld/detur/tags), no `v`).
+- `-v`: no named volume → `docker rm` loses every app, key, install. Bind mount → writable by uid 1000.
+- `127.0.0.1:8081`: portal has no login; bare `-p 8081:8081` → public (Docker bypasses ufw).
 
 > Ports: `8080` (public SDK, links, `/health`) · `8081` (portal UI).
 
@@ -82,22 +79,20 @@ docker run -d --restart unless-stopped --env-file .env \
 | `ADMIN_SESSION_HOURS` | no | `12` | Session length (hours) |
 | `PORTAL_HOSTS` | gateway | empty | Portal hostnames behind a proxy |
 
-See [.env.example](.env.example) for detailed explanations.
+Details → [.env.example](.env.example).
 
 ### 2. Create app
 
 Portal: `:8081`.
 
-- Create app. API key shown once: copy.
-- Add links: `/key` → app route (`/product/42`), optional iOS / Android / fallback.
-- App details: iOS app ID, Android package, cert fingerprint → well-known
-  files.
+- Create app; copy the API key (shown once).
+- Links: `/key` → app route (`/product/42`) + optional iOS / Android / fallback.
+- App details (iOS app ID, Android package, cert fingerprint) → well-known files.
 - `ADMIN_PASSWORD` set → app changes need admin (top bar).
 
 ### 3. Patch SDK
 
-SDK hardcodes 5 URLs to godetour.dev, no `baseURL`. Layout varies per
-version → give your AI agent:
+SDK hardcodes 5 godetour.dev URLs (no `baseURL`), layout varies per version → give your AI agent:
 
 ```text
 Point the installed @swmansion/react-native-detour at your detur server.
@@ -137,8 +132,8 @@ export const redirectSystemPath = createDetourNativeIntentHandler({
 });
 ```
 
-- Env: `EXPO_PUBLIC_DETOUR_API_KEY`, `EXPO_PUBLIC_DETOUR_APP_ID` (from step 2).
-- Base URL by target: Android emulator `http://10.0.2.2:8080`, device (trusted LAN dev: `-p 8080:8080`, host LAN IP), prod `https://<DOMAIN>`.
+- Env: `EXPO_PUBLIC_DETOUR_API_KEY`, `EXPO_PUBLIC_DETOUR_APP_ID` (step 2).
+- Base URL: Android emulator `http://10.0.2.2:8080`; device → host LAN IP (trusted LAN, `-p 8080:8080`); prod `https://<DOMAIN>`.
 
 ## Dev run
 
@@ -148,11 +143,11 @@ Prerequisites: Go 1.27, Bun 1.4.4.
 ./dev.sh
 ```
 
-- Portal HMR on `:8000` + Go server reload via [air](https://github.com/air-verse/air).
+- Portal HMR `:8000` + Go reload via [air](https://github.com/air-verse/air).
 - Tests: `cd server && go test ./...` · `cd portal && bun --bun run test`
 
 ## Credits
 
-- [dub.sh](https://dub.sh): server logic from their link funnel.
+- [dub.sh](https://dub.sh): link-funnel server logic.
 - [Detour matching docs](https://detour.swmansion.com/docs/platform/architecture/matching/): weights, threshold, window.
 - [@swmansion/react-native-detour](https://github.com/software-mansion-labs/react-native-detour): the SDK.

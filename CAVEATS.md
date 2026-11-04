@@ -1,96 +1,89 @@
 # Caveats
 
-Operational gotchas, architectural limits, and security constraints to read before deploying to production. For design rationales, see [DECISIONS.md](DECISIONS.md).
+Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 
 ## Security
 
-- **Portal network access**: The portal has no user-level authentication. Anyone who can reach `:8081` can view links and analytics. If `ADMIN_PASSWORD` is unset, anyone can create, edit, or delete apps. Run on loopback or gate behind a zero-trust proxy (Cloudflare Access, Tailscale); set `PORTAL_HOSTS` to the gateway hostname or every request through it gets 403.
-- **Admin session cookie**: The admin session cookie is directly derived from the password (offline-crackable if intercepted). Use a long, random password and enforce HTTPS. Changing `ADMIN_PASSWORD` immediately invalidates all active sessions.
-- **Login brute-force delays**: Failed login attempts introduce a serialized delay per remote IP. If running behind a reverse proxy with `TRUST_PROXY=0`, all users share the gateway IP; a brute-force attempt will queue and delay logins for everyone.
-- **Logout behavior (`LOGOUT_URL`)**: The "Log out" button only redirects to `LOGOUT_URL`. If your identity provider re-authenticates automatically (or if using Tailscale), sessions do not truly terminate on click.
-- **TLS termination**: Detur does not enforce TLS internally. Running over plain HTTP leaks SDK API keys and device fingerprints. Always terminate HTTPS at a reverse proxy or load balancer.
-- **API key storage**: Stored as unsalted SHA-256 hashes. Safe only because generated keys possess ~131 bits of entropy.
-- **Proxy trust risk**: Setting `TRUST_PROXY=1` without an actual reverse proxy stripping upstream headers allows clients to spoof `X-Forwarded-For` and game the 400-point IP matching score. Running behind a proxy with `TRUST_PROXY=0` has the inverse cost: every user shares the proxy's IP, awarding the 400-point IP match to unrelated installs.
-- **Trusted proxies (`TRUST_PROXY=1`)**: Forwarded headers honored only from `TRUSTED_PROXIES` peers (default loopback + private ranges). Proxy on a public IP (Cloudflare, ALB) → add its CIDR, else every click shares the proxy IP. Chains (Cloudflare → ingress → detur) work: `X-Forwarded-For` read right to left, trusted hops skipped, so list every hop. `CF-Connecting-IP` ignored (an ingress reachable around Cloudflare could pass it through spoofed). Startup log + Settings Health warn.
+- **Portal**: no user accounts → anyone reaching `:8081` sees links + analytics; `ADMIN_PASSWORD` unset → can also edit/delete apps. Loopback or zero-trust proxy (Cloudflare Access, Tailscale) + `PORTAL_HOSTS` = gateway hostname, else 403.
+- **Admin cookie**: derived from the password → crackable offline if intercepted. Long random password + HTTPS. New `ADMIN_PASSWORD` → all sessions end.
+- **Login delay**: per IP, serialized. Proxy + `TRUST_PROXY=0` → one shared IP → one brute-force run delays everyone.
+- **Logout**: only redirects to `LOGOUT_URL`. IdP auto re-login (or Tailscale) → session survives.
+- **TLS**: plain HTTP only → leaks API keys + fingerprints. Terminate HTTPS at a proxy.
+- **API keys**: unsalted SHA-256; safe only with ~131-bit generated keys.
+- **`TRUST_PROXY`**: `1` without a header-stripping proxy → spoofed `X-Forwarded-For` games the 400-point IP score. `0` behind a proxy → everyone shares its IP → unrelated installs get the 400.
+- **`TRUSTED_PROXIES`**: forwarded headers honored only from these (default loopback + private). Public-IP proxy (Cloudflare, ALB) → add its CIDR. Chains (Cloudflare → ingress → detur): list every hop; `X-Forwarded-For` read right to left. `CF-Connecting-IP` ignored (spoofable around Cloudflare). Startup log + Health warn.
 
 ## Matching
 
-- **Shared Wi-Fi peers**: Timezone + language = same for a whole network → count only with pasteboard or device + screen. Peer with other OS version or screen size → ≤ 750 → organic, clicker's link kept.
-- **Identical devices, same Wi-Fi**: Same OS version + same screen size + same network → 1250, indistinguishable without pasteboard → a non-clicking peer may take the clicker's link. Hard limit of fingerprinting. Two identical clickers: told apart by paste token (iOS).
-- **No interstitial signals**: Click without screen (interstitial skipped) → IP + device ≤ 800 → organic unless pasteboard matches.
-- **Single-use clicks**: Matched clicks are consumed immediately. If two users install from the same Wi-Fi after a single shared link click, only the first user receives the deferred deep link; the second is recorded as organic.
-- **Late Play referrer (`clickId`)**: `clickId` matches are supported for up to `CLICK_ID_DAYS` (default 30 days). However, the raw click fingerprint is purged after `RETENTION_HOURS` (default 24h), so installs matching late `clickId`s lose original click metadata (such as platform).
-- **Matching thresholds & windows**: Configured per app (threshold default 850, window default 15 min). There are no per-link threshold overrides.
-- **Threshold ceilings**: Cellular → Wi-Fi (no IP match) max = 850 iOS / 900 Android without pasteboard → threshold above that = those installs go organic. Below 801 (Android) / 751 (iOS) → IP + device alone matches again → shared Wi-Fi peers can take the link.
-- **Same-device retries**: The device hash is a device *setup* (model, OS, screen, locale, timezone), not a device. A repeat match-link with the same hash within 15 minutes gets the earlier answer (idempotent SDK retries). After that it is matched afresh: a reinstall gets a newer tapped link or goes organic (its first click is consumed), and an identical phone is never handed someone else's link.
-- **Device clock drift**: The matching window uses the SDK client timestamp only if it is within 180 minutes of server time; otherwise, it clamps to server time.
-- **iPad Safari**: iPadOS Safari sends a Mac UA. Mac Safari visitors also get the interstitial (one extra reload on real Macs); a touch screen marks the visit as iPad. No tap-to-copy page for iPad (unknown at hop 1) → no pasteboard signal.
-- **One-hop interstitial**: Mobile browsers reload through an interstitial to capture screen, timezone, and client hints (model + OS). Maximum probabilistic score on iOS is 1250 without pasteboard.
-- **iOS App Store pasteboard**: Tap-to-copy page before the App Store. Copied link carries a paste token (`?_dc=`) → exact match, no window, `CLICK_ID_DAYS`. No token → 350 exact / 175 domain. Paste denied → signal lost. SDK `pastedLink` checked server-side against the clicked link.
-- **iOS paste guard (SDK patch)**: SDK reads the clipboard only when iOS reports a URL type → no paste alert for plain text. Tap page writes `text/uri-list`; browser that can't → plain text only → no pasteboard signal, match falls back to device + screen.
-- **Multi-app AASA size**: >1 iOS app → newest 256 keys per app, older links open the browser. Apple drops files > 128 KB: many apps × long keys → whole file rejected. Keep keys short.
-- **In-app browser escape (iOS)**: In-app webviews (Messenger, TikTok, Zalo) show an interstitial "Get the app" tap-page to escape sandbox restrictions. Installed app: button goes to the App Store unless the app sets an iOS URL scheme (Settings). Then the button opens `<scheme>://<route>?<query>` first, App Store after 1.5s if the page is still up. The SDK reads scheme URLs only with `linkProcessingMode: "all"`; otherwise the app handles the scheme itself. Some webviews show an "open this app?" prompt or block schemes, and those users fall through to the App Store.
-- **In-app browser escape (Android)**: Android deep links can launch the installed app directly via `intent://` only if the package name and verified App Links certificates match; otherwise, it falls back to Google Play.
-- **Click deduplication**: Clicks from the same link, IP, and User-Agent are deduplicated within a 1-hour window. A re-tap refreshes the timestamp and signals, re-opening the match window.
-- **In-app to real browser merge**: If a user taps "Open in browser" from an in-app webview within 1 hour, the new browser click merges with the in-app click. On shared IPs (offices, cellular CGNAT), two different users could theoretically be merged into one.
-- **In-app source detection**: X and Telegram typically use Safari View Controller / Chrome Custom Tabs with standard browser User-Agents, making source detection rely on the delayed safety-net fallback.
-- **Tap page locale**: The in-app tap page is currently in English only. Append `?detur-no-track=1` during development/testing to bypass it.
+- **Shared Wi-Fi**: timezone + language count only with pasteboard or device + screen. Other OS version or screen → ≤ 750 → organic.
+- **Identical devices, same Wi-Fi**: 1250, indistinguishable without pasteboard → a non-clicker may take the link. Two identical clickers: paste token (iOS) tells them apart.
+- **No interstitial**: no screen → IP + device ≤ 800 → organic unless pasteboard.
+- **One click, one install**: two installs on one Wi-Fi after one click → second goes organic.
+- **Late `clickId`**: matches for `CLICK_ID_DAYS` (30), but fingerprint purged at `RETENTION_HOURS` (24h) → click metadata (platform) lost.
+- **Threshold ceilings**: cellular → Wi-Fi (no IP) max 850 iOS / 900 Android without pasteboard; threshold above → organic. Below 801 Android / 751 iOS → IP + device alone matches → shared Wi-Fi peers can take the link.
+- **Device hash = setup** (model, OS, screen, locale, timezone), not a device. Same hash within 15 min → earlier answer (SDK retries). Later → fresh match: reinstall gets a newer link or organic; identical phone never gets another's link; counts toward the fingerprint fraud signal.
+- **Threshold + window**: per app (850, 15 min); no per-link override.
+- **Clock drift**: SDK timestamp used only within 180 min of server time.
+- **iPad Safari**: sends a Mac UA → Macs get the interstitial too (one extra reload); touch screen → iPad. No tap-to-copy (unknown at hop 1) → no pasteboard.
+- **Interstitial**: one reload → screen, timezone, client hints (model + OS). iOS max without pasteboard 1250.
+- **iOS pasteboard**: tap-to-copy before the App Store; paste token (`?_dc=`) → exact match, no window, lives `CLICK_ID_DAYS`. No token → 350 exact / 175 domain. Paste denied → lost. `pastedLink` checked against the clicked link.
+- **Paste guard (SDK patch)**: SDK reads only URL-typed clipboards → no alert. Tap page writes `text/uri-list`; browser can't → no pasteboard → device + screen.
+- **AASA**: >1 iOS app → newest 256 keys per app, older links open the browser. File > 128 KB → Apple drops it all. Keep keys short.
+- **In-app (iOS)**: Messenger, TikTok, Zalo → "Get the app" tap page. Button → App Store; iOS URL scheme set (Settings) → `<scheme>://<route>?<query>` first, App Store after 1.5s. SDK reads schemes only with `linkProcessingMode: "all"`. Webview prompts or blocks schemes → App Store.
+- **In-app (Android)**: `intent://` opens the app only if package + App Links cert match; else Play.
+- **Dedup**: link + IP + UA within 1h = one click; re-tap refreshes time + signals.
+- **In-app → browser merge**: "Open in browser" within 1h merges into the in-app click. Shared IPs (office, CGNAT) → two users can merge.
+- **X, Telegram**: Safari View Controller / Custom Tabs send plain browser UAs → only the delayed safety net catches them.
+- **Tap page**: English only. Skip in dev: `?detur-no-track=1`.
 
 ## Fraud
 
-- **Tag-only vs. Active mode**: Fraud signals are in "Tagged" mode by default (monitoring only). Setting a signal to "Active" is per-app in the Fraud tab and saves immediately without confirmation.
-- **Impact of Active signals**: In Active mode, flagged clicks are rejected from matching. The installing user will receive an organic 404 response with no deferred deep link.
-- **Bundled datacenter IP lists**: Datacenter and hosting ASN ranges are compiled into each release. Pinned binary/Docker versions will have increasingly stale IP ranges over time.
-- **Shared IPs & CGNAT velocity**: Cellular CGNAT and corporate NATs share one public IP across thousands of devices. Rapid installs may trip velocity thresholds. Review flagged installs in the portal before turning velocity checks to Active.
-- **Private & proxy IPs**: Loopback and private IPs are always exempt. If running behind a reverse proxy with `TRUST_PROXY=0`, all clients share the proxy's IP and IP-based fraud signals will be blinded.
-- **Bot clicks in analytics**: Clicks identified with suspicious or bot User-Agents are excluded from analytics click counts, even in Tagged mode.
-- **Threshold updates**: Changing fraud thresholds or rules applies only to future match requests; historical installs are never retroactively re-scored.
-- **Repeat device velocity**: The same device profile reappearing within 15 minutes reuses the earlier match instead of generating a new install; later appearances are new installs and count toward the fingerprint signal.
-- **Unsupported fraud checks**: Detur does not detect click injection, device resets, emulator environments, or store purchase receipts (see [DECISIONS.md](DECISIONS.md)).
+- **Modes**: signals start Tagged (monitor). Active: per app, Fraud tab, saves instantly, no confirm.
+- **Active**: flagged clicks skipped → organic 404, no deferred link.
+- **Datacenter IPs**: ASN ranges bundled per release → pinned versions go stale.
+- **CGNAT velocity**: thousands of devices per IP → bursts trip velocity. Review before Active.
+- **Private IPs**: always exempt. Proxy + `TRUST_PROXY=0` → IP signals blind.
+- **Bots**: bot/suspicious UAs never counted in analytics, even Tagged.
+- **Rule changes**: future matches only; no re-scoring.
+- **Not detected**: click injection, device resets, emulators, receipts ([DECISIONS.md](DECISIONS.md)).
 
 ## Ops
 
-- **Database concurrency**: SQLite in WAL mode through one connection: reads and writes queue behind each other (portal analytics on a large DB delays redirects). Hourly purge runs in 2,000-row batches so it never holds the connection for long. Built for personal, team, or medium product scale; not horizontally scalable.
-- **Shutdown & upgrades**: SIGTERM drains in-flight requests (8s), cancels webhook POSTs (redelivered on start), then closes the DB; SQLite WAL covers a hard kill. Schema migrations run on `Open()` by adding columns. Always back up `detur.db` before upgrading versions.
-- **Storage growth on floods**: Public endpoints have no rate limits. Unmatched clicks accumulate until purged by `RETENTION_HOURS` (or `CLICK_ID_DAYS` for click IDs). A match scans only the newest 5,000 unmatched clicks in the window → flood or >5k clicks per window = older clicks can't match. Request line + headers capped at 32 KB, link targets at 2 KB.
-- **Analytics aggregation**: All rollups operate on UTC days. Deleting a link permanently removes its associated click and event rollup counts.
-- **Event size**: An event body over 16 KB is rejected (413) and not stored.
-- **Event names**: Custom event names are truncated to 64 characters and retained indefinitely. Do not place PII, user IDs, or device IDs in event names.
-- **Per-link conversions & retention**: Requires devices to be tagged by an event containing `data.link`. On Detour SDK 2.3.1, the client app only knows the link key if "Tag deferred links" is enabled in app settings.
-- **Retention cohorts**: Cohort assignment begins on the device's tag day (not install day). D1/D7/D30 metrics record cold starts (`app_open`) on that exact UTC day; background/warm resumes are not counted unless the app explicitly invokes `logRetention`.
-- **Retention tag lifecycle**: Device tag mappings expire after 90 days. If the same device is re-tagged later, it enters a new cohort and can be attributed to a different link.
-- **Retention filtering**: Per-link conversion and retention metrics are aggregated across all devices and ignore the portal's platform filter.
-- **Permanent records**: Installs and daily aggregated rollups are never purged by design.
-- **Multi-tenancy**: Designed for a single operator/team; there is no role-based access control (RBAC) or organization isolation.
+- **SQLite**: WAL, one connection → reads + writes queue (big analytics query delays redirects). Hourly purge in 2,000-row batches. Personal → mid-size scale; no horizontal scaling.
+- **Shutdown**: SIGTERM drains requests (8s), cancels webhook POSTs (redelivered on start), closes DB; WAL survives a hard kill. Migrations add columns on `Open()`. Back up `detur.db` before upgrading.
+- **Floods**: no rate limits. Unmatched clicks pile up until `RETENTION_HOURS` (`CLICK_ID_DAYS` for click IDs). Match scans newest 5,000 per window → older can't match. Headers ≤ 32 KB, link targets ≤ 2 KB.
+- **Rollups**: UTC days. Link delete → its rollups gone. Installs + rollups never purged.
+- **Events**: body > 16 KB → 413. Names cut to 64 chars, kept forever → no PII/IDs.
+- **Per-link conversions**: need a `data.link` tag event. SDK 2.3.1 knows the key only with "Tag deferred links" on.
+- **Retention**: cohort = tag day, not install day. D1/D7/D30 = cold start (`app_open`) that UTC day; warm resume only via `logRetention`. Tags expire at 90 days → re-tag = new cohort. Ignores the platform filter.
+- **Tenancy**: one team; no RBAC, no org isolation.
 
 ## Webhooks
 
-- **Outbound network calls**: Detur initiates outbound HTTP requests for webhooks (when configured and enabled) and for tap-page app icons (iTunes Lookup API in the link's storefront, Play listing page; cached 24h in memory, failures logged). The visitor's browser then loads the icon image straight from Apple's or Google's image CDN (IP and user agent visible to them; Referer limited to origin).
-- **Dial-time SSRF protection**: Webhook delivery blocks private networks (RFC 1918, RFC 4193), link-local, CGNAT (`100.64.0.0/10`), reserved ranges, and IPv4-embedding IPv6 (NAT64, 6to4, Teredo), covering metadata services at `169.254.169.254`, `100.100.100.200`, `192.0.0.192`. HTTP redirects are never followed.
-- **Secrets at rest**: Webhook signing secrets are stored in plaintext in SQLite (`detur.db`) so admins can view and rotate them in the portal. Ensure database file permissions are restricted (`chmod 600 detur.db`).
-- **Replay & retention limits**: Only `installs` are retained permanently. Raw `clicks` and `events` are purged after `RETENTION_HOURS` (default 24h); webhook replaying past that window starts at the oldest retained record. An endpoint down longer than `RETENTION_HOURS` silently loses the clicks and events purged meanwhile (installs are kept). All webhooks share one worker: a slow-but-successful endpoint delays the others' deliveries. Rowids never reused → purges and deletes never hide new rows. Restoring an older `detur.db` backup rewinds cursors to 0 → duplicates; always deduplicate on record `id`.
-- **Adding a stream**: New type on an existing webhook starts at the current tail. Past records → Replay.
-- **Hidden installs**: Backend-error `unknown` installs never sent. Their replacement arrives as a new record.
-- **Consumer signature verification**: Webhook consumers must verify signatures with constant-time comparison (`crypto/subtle.ConstantTimeCompare`) and enforce a timestamp tolerance window (e.g., 5 minutes) to defend against replay attacks.
+- **Outbound calls**: webhooks (enabled) + tap-page icons (iTunes Lookup in the link's storefront, Play listing; 24h in-memory, failures logged). Browsers load icons from Apple/Google CDN → they see IP + UA; Referer = origin.
+- **SSRF**: delivery blocks RFC 1918, RFC 4193, link-local, CGNAT `100.64.0.0/10`, reserved, IPv4-in-IPv6 (NAT64, 6to4, Teredo) → covers `169.254.169.254`, `100.100.100.200`, `192.0.0.192`. No redirects.
+- **Secrets**: plaintext in `detur.db` (viewable + rotatable) → `chmod 600 detur.db`.
+- **Retention**: only installs kept forever; clicks + events purged at `RETENTION_HOURS` → replay starts at the oldest left; endpoint down longer → those lost. One shared worker → slow endpoint delays others. Rowids never reused. Older backup restore → cursors 0 → duplicates; dedupe on `id`.
+- **New stream**: starts at the tail; past → Replay.
+- **`unknown` installs**: never sent; replacement arrives as a new record.
+- **Consumers**: constant-time signature compare (`crypto/subtle.ConstantTimeCompare`) + timestamp tolerance (~5 min).
 
-## Link rules & A/B testing
+## Rules & A/B
 
-- **Sticky A/B visitor bucket stability**: Hashing relies on `link_id|client_ip|user_agent`. On cellular CGNAT or shared corporate Wi-Fi with identical mobile models/browsers, multiple visitors share the same bucket. If a visitor moves from Wi-Fi to cellular, their IP changes and their bucket may shift on subsequent clicks.
-- **Rule order evaluation**: Rules evaluate in strict ascending position order (`1..N`); first match terminates evaluation. A broad rule (e.g., matching iOS with no language condition) placed before a more specific rule (iOS + German) will shadow the specific rule.
-- **Date window timezone**: Rule date conditions (`from` and `until`) operate in UTC (RFC 3339). When configuring rules in the portal, ensure input times are aligned with UTC.
-- **Variant weights**: Each variant 1–100%, total 100%. New variant defaults to the remaining percentage.
-- **Unsaved rule edits**: Closing the rules drawer keeps edits until Save or Discard. Nothing applies until Save.
-- **Variant weight changes**: Reallocating variant percentages in active tests does not migrate previously matched users; because the bucket is computed as `hash mod 100`, existing hash values may fall into a new cumulative threshold band.
-- **Installed-app opens skip rules**: Rules run on browser clicks and carry into deferred installs. An app that is already installed opens the link through the SDK (`resolve-short`), which returns the base link destination and records no variant.
-- **Variant label = analytics key**: `variant_days` keys on link + label, so labels (direct rule names and split variant names) must be unique per link. Renaming a variant starts a new stats row; old rows keep the old name.
-- **Cascading deletion**: Deleting a link cascades to delete all associated link rules and variant daily aggregation statistics (`variant_days`).
+- **Bucket**: hash of `link_id|client_ip|user_agent` → CGNAT/office Wi-Fi + same phone/browser = same bucket; Wi-Fi → cellular may shift it.
+- **Order**: `1..N`, first match wins → broad rule above specific one shadows it.
+- **Dates**: `from`/`until` UTC (RFC 3339).
+- **Weights**: 1–100% each, total 100%; new variant = remainder. Changing them keeps past attributions; returning visitors may switch variant (`hash mod 100`).
+- **Drawer**: edits kept until Save/Discard; nothing applies before Save.
+- **Installed app**: rules run on browser clicks (→ carried into deferred installs); SDK `resolve-short` → base destination, no variant.
+- **Labels = analytics key** (`variant_days`: link + label) → unique per link; rename = new stats row.
+- **Link delete** → its rules + `variant_days` gone.
 
 ## Compatibility
 
-- **Desktop page**: App-scheme target, no web fallback → QR page. QR uses `https://<host>`; `host:port` without TLS (dev) → `http`.
-- **Link destination**: App route only (`/product/42`). Web visitors (desktop, no store target) need the fallback URL, else they get the app page.
-- **Single-segment link paths**: Only single-segment slugs (e.g., `links.example.com/promo`) are supported. Multi-segment paths like `/app/promo` will return 404 without recording clicks. A trailing slash (`/promo/`) 301s to `/promo`, query kept.
-- **No billing or platform API**: Detur is purely self-hosted. There is no billing engine, tier enforcement, or upstream godetour platform API.
-- **SDK limits response**: Returns `effectiveLimit: -1` to signal unlimited clicks to `@swmansion/react-native-detour` (compatible with SDK 2.3.x).
-- **SDK patch stability**: Because Detour SDK hardcodes its backend URLs to `godetour.dev`, patch files must be re-generated when upgrading SDK versions.
-- **Example app testing**: The included example app in `example/expo-app/` demonstrates configuration but has not been tested on physical hardware.
+- **Desktop**: app-scheme target, no fallback → QR page (`https://<host>`; dev `host:port` → `http`).
+- **Destination**: app route only (`/product/42`). Web visitors need the fallback URL, else app page.
+- **Paths**: one segment (`/promo`); `/app/promo` → 404, no click. `/promo/` → 301 `/promo`, query kept.
+- **Self-hosted**: no billing, tiers, or godetour platform API.
+- **SDK**: `effectiveLimit: -1` = unlimited (2.3.x). URLs hardcoded to `godetour.dev` → regenerate the patch per SDK upgrade.
+- **Example app** (`example/expo-app/`): untested on real devices.
