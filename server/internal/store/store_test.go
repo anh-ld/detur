@@ -1642,7 +1642,7 @@ func TestPurgeClickIDDeleteUsesCreatedIndex(t *testing.T) {
 	s := newTestStore(t)
 	var id, parent, notused int
 	var detail string
-	if err := s.db.QueryRow(`EXPLAIN QUERY PLAN SELECT rowid FROM clicks INDEXED BY idx_clicks_created WHERE created_at <= ? AND expires_at < ? LIMIT 1`, "x", "y").
+	if err := s.db.QueryRow(`EXPLAIN QUERY PLAN `+purgeClickIDSelect, "x", "y", 1).
 		Scan(&id, &parent, &notused, &detail); err != nil {
 		t.Fatal(err)
 	}

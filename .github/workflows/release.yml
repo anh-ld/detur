@@ -87,7 +87,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # image push failed after the tag went out: drop the tag so nobody pins a version with no image
+      # image push failed or run cancelled after the tag went out: drop the tag so nobody pins a version with no image
       - name: Remove tag on failure
-        if: failure() && steps.tag.outcome == 'success'
+        if: (failure() || cancelled()) && steps.tag.outcome == 'success'
         run: git push --delete origin "v${{ steps.ver.outputs.version }}"

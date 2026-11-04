@@ -903,6 +903,9 @@ func (s *Store) ClicksSince(appID, deviceHash string, since time.Time) ([]Click,
 	return clicks, rows.Err()
 }
 
+// purgeClickIDSelect: rows past ClickIDHours; INDEXED BY pins created_at (tested against this exact SQL).
+const purgeClickIDSelect = `SELECT rowid FROM clicks INDEXED BY idx_clicks_created WHERE created_at <= ? AND expires_at < ? LIMIT ?`
+
 // PurgeExpired: scrub expired clicks; delete matched or past-ClickIDHours ones, old events, hit buckets past 24h max window, device tags past deviceLinkDays (last two not counted). Returns rows deleted.
 func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 	var removed int64
@@ -919,7 +922,7 @@ func (s *Store) PurgeExpired(now time.Time, retentionHours int) (int64, error) {
 		args []any
 	}{
 		{`DELETE FROM clicks WHERE rowid IN (SELECT rowid FROM clicks WHERE matched_at IS NOT NULL AND expires_at < ? LIMIT ?)`, []any{at}},
-		{`DELETE FROM clicks WHERE rowid IN (SELECT rowid FROM clicks INDEXED BY idx_clicks_created WHERE created_at <= ? AND expires_at < ? LIMIT ?)`, []any{rfc3339(s.clickIDCutoff(now)), at}},
+		{`DELETE FROM clicks WHERE rowid IN (` + purgeClickIDSelect + `)`, []any{rfc3339(s.clickIDCutoff(now)), at}},
 		{`DELETE FROM events WHERE rowid IN (SELECT rowid FROM events WHERE created_at < ? LIMIT ?)`, []any{rfc3339(now.Add(-time.Duration(retentionHours) * time.Hour))}},
 	} {
 		n, err := s.batched(q.sql, q.args...)
