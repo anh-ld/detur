@@ -179,7 +179,7 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, wh.URL, bytes.NewReader(bodyBytes))
 		if err != nil {
-			w.logger.Printf("webhook %s invalid request: %v", wh.ID, err)
+			w.logger.Printf("webhook %s invalid request URL", wh.ID) // url.Parse errors quote the URL (tokens)
 			w.handleFailure(wh.ID, stream, st.Fails)
 			return
 		}

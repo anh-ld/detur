@@ -1,12 +1,16 @@
 package webhook_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -384,5 +388,59 @@ func TestWorkerRewindsCursorAboveHighWater(t *testing.T) {
 	webhook.NewWorker(st, 15*time.Second).ProcessOnce(context.Background())
 	if delivered != 1 {
 		t.Fatalf("delivered = %d, want 1 (cursor rewound below the new row)", delivered)
+	}
+}
+
+// Stop mid-delivery cancels the POST: returns promptly, no failure counted, no backoff, cursor unmoved (redelivered next start).
+func TestWorkerStopCancelsInFlightWithoutBackoff(t *testing.T) {
+	st := newTestStore(t)
+	app, _ := st.CreateApp("Stop App", "dk_stop")
+	entered := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body) // server notices a client hang-up only once the body is read
+		entered <- struct{}{}
+		<-r.Context().Done() // slow endpoint: holds until the client gives up
+	}))
+	defer srv.Close()
+	wh, _ := st.CreateWebhook(app.ID, srv.URL, []string{"installs"})
+	_, _ = st.RecordInstall(store.Install{AppID: app.ID, DeviceHash: "d1", Attribution: store.AttributionOrganic})
+
+	w := webhook.NewWorker(st, time.Hour)
+	w.Start()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("delivery never reached the endpoint")
+	}
+	done := make(chan struct{})
+	go func() { w.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop waited out the in-flight POST")
+	}
+	got, _ := st.GetWebhook(wh.ID)
+	if got.FailsInstalls != 0 || got.BackoffInstalls != nil || got.CursorInstalls != wh.CursorInstalls {
+		t.Errorf("after stop: fails %d backoff %v cursor %d; want 0, nil, %d", got.FailsInstalls, got.BackoffInstalls, got.CursorInstalls, wh.CursorInstalls)
+	}
+}
+
+// Delivery error logs never carry the endpoint URL (Slack-style tokens live in the path).
+func TestWorkerFailureLogOmitsURL(t *testing.T) {
+	st := newTestStore(t)
+	app, _ := st.CreateApp("Log App", "dk_log")
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL + "/services/SECRET123"
+	srv.Close() // connection refused
+	_, _ = st.CreateWebhook(app.ID, url, []string{"installs"})
+	_, _ = st.RecordInstall(store.Install{AppID: app.ID, DeviceHash: "d1", Attribution: store.AttributionOrganic})
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	webhook.NewWorker(st, time.Hour).ProcessOnce(context.Background())
+	out := buf.String()
+	if !strings.Contains(out, "POST failed") || strings.Contains(out, "SECRET123") {
+		t.Errorf("log = %q; want a POST failure without the URL", out)
 	}
 }
