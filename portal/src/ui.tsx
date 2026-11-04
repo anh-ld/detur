@@ -130,6 +130,7 @@ export function closeDialog(id: string) {
 // GET /api/admin/session; adminSet mirrors config.adminSet (unset password = no gating). ---
 let adminSet = false;
 let elevated = false;
+let adminVersion = 0; // bumped on every state change: a session read started before one is stale
 let until = ''; // expiresAt ISO; '' = not lifted
 const adminListeners = new Set<() => void>();
 
@@ -143,6 +144,7 @@ export function setAdminAvailable(v: boolean) {
   adminListeners.forEach((l) => l());
 }
 export function setElevated(v: boolean, expiresAt = '') {
+  adminVersion++;
   if (v === elevated && expiresAt === until) return;
   elevated = v;
   until = expiresAt;
@@ -156,12 +158,14 @@ export function subscribeAdmin(cb: () => void): () => void {
 }
 
 // re-read session from server; 403 handler calls this first
+// a slow read (e.g. the mount check) landing after an unlock or exit would undo it: dropped
 export async function refreshAdminSession() {
+  const v = adminVersion;
   try {
     const s = await api.getAdminSession();
-    setElevated(s.admin, s.expiresAt ?? '');
+    if (v === adminVersion) setElevated(s.admin, s.expiresAt ?? '');
   } catch {
-    setElevated(false);
+    if (v === adminVersion) setElevated(false);
   }
 }
 

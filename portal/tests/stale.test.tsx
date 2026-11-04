@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
 import { AppPage } from '../src/detail';
 import { AnalyticsView } from '../src/analytics';
-import { CopyButton } from '../src/ui';
+import { CopyButton, getAdmin, refreshAdminSession, setElevated } from '../src/ui';
 
 // unit, mocked fetch: cases the real binary can't produce on demand (delayed reply, every outcome/signal at once)
 
@@ -230,4 +230,15 @@ it('copy without navigator.clipboard (plain-HTTP portal): execCommand copies; a 
   await screen.findByText('Copied');
   expect(exec).toHaveBeenCalledWith('copy');
   await waitFor(() => expect(screen.getByRole('button').textContent).toBe('Copy API key'), { timeout: 3000 });
+});
+
+it('admin session: a slow session read that started before unlock never clears the fresh elevation', async () => {
+  let release!: () => void;
+  vi.stubGlobal('fetch', () => new Promise<Response>((r) => (release = () => r(new Response(JSON.stringify({ admin: false }))))));
+  const pending = refreshAdminSession(); // mount-time check, still in flight
+  setElevated(true, new Date(Date.now() + 3600_000).toISOString()); // unlock lands first
+  release();
+  await pending;
+  expect(getAdmin()).toBe(true);
+  setElevated(false);
 });
