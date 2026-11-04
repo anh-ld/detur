@@ -21,7 +21,6 @@ type healthCheck struct {
 
 var (
 	iosAppIDRe    = regexp.MustCompile(`^[A-Z0-9]{10}\.[A-Za-z0-9.-]+$`)
-	androidPkgRe  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$`)
 	fingerprintRe = regexp.MustCompile(`^([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$`)
 )
 
@@ -76,7 +75,7 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 		add("Android", "warn", "Not set. App Links off.")
 	case pkg == "" || fp == "":
 		add("Android", "fail", "Package and cert fingerprint both needed for assetlinks.json.")
-	case !androidPkgRe.MatchString(pkg):
+	case !store.AndroidPackageRe.MatchString(pkg):
 		add("Android", "fail", "Package should look like com.example.app.")
 	case !allMatch(fp, fingerprintRe):
 		add("Android", "fail", "Fingerprint should be SHA-256, 32 hex pairs: AA:BB:…")

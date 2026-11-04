@@ -5,7 +5,7 @@ Self-hosted backend for `@swmansion/react-native-detour`. Drop-in for
 
 Deferred deep links + analytics: tap link → install → first launch opens link. Clicks, installs, events tracked.
 
-- **Single binary**: Go + SQLite + Preact portal. ~30 MB RAM, <0.1 vCPU. Zero outbound calls.
+- **Single binary**: Go + SQLite + Preact portal. ~30 MB RAM, <0.1 vCPU.
 - **Link rules & A/B splits**: Route by platform, language, query, or date. Sticky weighted splits.
 - **In-app browser bypass**: Tap-through page for Messenger, TikTok, Zalo so users never get stuck.
 - **Exact iOS match**: Copied link carries a one-time token → exact install match, no time window.

@@ -44,6 +44,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | C8 | In-app browsers (Messenger, Facebook, Instagram, Threads, Zalo, TikTok, LinkedIn, Snapchat, LINE, X, Telegram, WeChat) get a tap page at hop 2, not the 302: Get the app link, Android `intent://` + Play backup, "Open in browser" steps. No store target → 302. | Ours | Webviews block automatic store hand-offs. A tapped link gets through. Detour docs: nothing. | in-app |
 | C9 | Safety net: hop-1 page still visible after the delay → reload with `_tap` → tap page. 1.5s generic webview, 4s real-browser UA, off for named apps. | Ours | Covers apps no token names. 4s keeps slow real browsers unchanged. Tune on devices. | in-app |
 | C10 | Click `source`: app name or `unknown-inapp`. Stored on the click, rolled up per link in `click_sources`, sent in webhooks, shown in the portal. | Ours | Makes social traffic visible. Own table keeps the `click_days` key. | in-app |
+| C11 | Tap page shows the store icon: App Store (iTunes Lookup `artworkUrl512`), else Play (listing `og:image`; no public API). In-memory, 24h (1h after a failure), fetched in the background: first visit gets a generic glyph. | Ours | Recognizable app, no new app field. Page never waits on a store. | in-app |
 
 ## Redirects
 
@@ -127,7 +128,7 @@ Change a decision: edit the row, keep the ID. New conflict: add the row before t
 | W4 | Dial-time SSRF block: private ranges (RFC 1918, RFC 4193), link-local, CGNAT `100.64/10`, `192.0.0/24`, `198.18/15`, reserved, NAT64 / 6to4 / Teredo. Covers metadata at 169.254.169.254, 100.100.100.200 (Alibaba), 192.0.0.192 (Oracle). Loopback HTTP allowed for dev. No redirects followed. | Ours | Cloud hosts + DNS rebinding. IPv6 ranges embed an IPv4. | feat-webhooks |
 | W5 | Backoff per `(endpoint, event_type)`: `min(30s * 2^fails, 1h)`. Failing clicks don't block installs. | Ours | One bad stream can't stall the rest. | feat-webhooks |
 | W6 | Managing webhooks needs admin. `ADMIN_PASSWORD` unset → 403. | Ours | Guards secrets, endpoints, replay. | feat-webhooks |
-| W7 | No outbound calls unless a webhook is configured and enabled. | Ours | Offline by default. | feat-webhooks |
+| W7 | Webhook calls only when a webhook is configured and enabled. Other outbound call: tap-page icons (C11). | Ours | No surprise traffic. | feat-webhooks |
 
 ## Not built
 

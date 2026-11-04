@@ -65,7 +65,7 @@ Operational gotchas, architectural limits, and security constraints to read befo
 
 ## Webhooks
 
-- **Outbound network calls**: Detur only initiates outbound HTTP requests when webhooks are explicitly configured and enabled.
+- **Outbound network calls**: Detur initiates outbound HTTP requests for webhooks (when configured and enabled) and for tap-page app icons (iTunes Lookup API in the link's storefront, Play listing page; cached 24h in memory, failures logged). The visitor's browser then loads the icon image straight from Apple's or Google's image CDN (IP and user agent visible to them; Referer limited to origin).
 - **Dial-time SSRF protection**: Webhook delivery blocks private networks (RFC 1918, RFC 4193), link-local, CGNAT (`100.64.0.0/10`), reserved ranges, and IPv4-embedding IPv6 (NAT64, 6to4, Teredo), covering metadata services at `169.254.169.254`, `100.100.100.200`, `192.0.0.192`. HTTP redirects are never followed.
 - **Secrets at rest**: Webhook signing secrets are stored in plaintext in SQLite (`detur.db`) so admins can view and rotate them in the portal. Ensure database file permissions are restricted (`chmod 600 detur.db`).
 - **Replay & retention limits**: Only `installs` are retained permanently. Raw `clicks` and `events` are purged after `RETENTION_HOURS` (default 24h); webhook replaying past that window starts at the oldest retained record. An endpoint down longer than `RETENTION_HOURS` silently loses the clicks and events purged meanwhile (installs are kept). All webhooks share one worker: a slow-but-successful endpoint delays the others' deliveries. Rowids never reused → purges and deletes never hide new rows. Restoring an older `detur.db` backup rewinds cursors to 0 → duplicates; always deduplicate on record `id`.
