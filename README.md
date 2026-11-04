@@ -56,14 +56,23 @@ Deferred deep links + analytics: tap link → install → first launch opens lin
 ghcr.io/anh-ld/detur:latest
 ```
 
-Prod: pin version (`:0.1.0`).
+```sh
+docker run -d --restart unless-stopped --env-file .env \
+  -v detur-data:/data \
+  -p 8080:8080 -p 127.0.0.1:8081:8081 \
+  ghcr.io/anh-ld/detur:0.15.1
+```
+
+- Prod: pin a version (latest tag on [GitHub](https://github.com/anh-ld/detur/tags), without the `v`).
+- `-v`: without a named volume, `docker rm` loses every app, key and install. Bind mount → writable by uid 1000.
+- `127.0.0.1:8081`: the portal has no login. A bare `-p 8081:8081` publishes it to the internet (Docker bypasses ufw).
 
 > Ports: `8080` (public SDK, links, `/health`) · `8081` (portal UI).
 
 | Env | Required | Default | Description |
 |---|---|---|---|
 | `DOMAIN` | prod | `localhost` | Public domain |
-| `DB_PATH` | no | `/data/detur.db` | SQLite path |
+| `DB_PATH` | no | `detur.db` (image: `/data/detur.db`) | SQLite path |
 | `RETENTION_HOURS` | no | `24` | Click TTL (hours) |
 | `CLICK_ID_DAYS` | no | `30` | Referrer TTL (days) |
 | `TRUST_PROXY` | no | `0` | Trust reverse proxy |
