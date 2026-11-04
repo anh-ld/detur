@@ -50,8 +50,9 @@ func TestIsBotUADubList(t *testing.T) {
 	if IsBotUA(instagramPixel) {
 		t.Errorf("IsBotUA(instagram Pixel webview) = true; want false (Google/google exception)")
 	}
-	// real browsers never bots; "preview" no longer a marker
-	for _, ua := range []string{modernAndroid, reducedAndroid, iphoneSafari, "SomePreviewApp/1.0 Preview/2"} {
+	// real browsers never bots; "preview" no longer a marker; Cubot model token is not "bot"
+	cubotFB := "Mozilla/5.0 (Linux; Android 13; CUBOT X30 Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/460.0.0.48.109;]"
+	for _, ua := range []string{modernAndroid, reducedAndroid, iphoneSafari, "SomePreviewApp/1.0 Preview/2", cubotFB} {
 		if IsBotUA(ua) {
 			t.Errorf("IsBotUA(%q) = true; want false", ua)
 		}

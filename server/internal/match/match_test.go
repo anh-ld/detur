@@ -788,7 +788,7 @@ func TestFraudSignalModes(t *testing.T) {
 	}{
 		{"velocity via ip hits", fraud.SignalVelocity, `hits_ip = ?`, fraud.Defaults.VelocityIPMax},
 		{"velocity via link hits", fraud.SignalVelocity, `hits_link = ?`, fraud.Defaults.VelocityLinkMax},
-		{"timing short", fraud.SignalTiming, `first_seen_at = ?`, ago(3 * time.Second)},
+		{"timing short", fraud.SignalTiming, `first_seen_at = ?`, func() any { return ago(3 * time.Second) }}, // per subtest: one table-time value goes stale past the 10s threshold on slow runs
 		{"user agent", fraud.SignalUserAgent, `ua_suspect = ?`, 1},
 		{"ip hosting", fraud.SignalIP, `ip_hosting = ?`, 1},
 	}
@@ -798,7 +798,11 @@ func TestFraudSignalModes(t *testing.T) {
 				s, path := newTestStore(t)
 				app, link := setupApp(t, s)
 				flagged, clean := flaggedAndClean(t, s, path, link)
-				setClick(t, path, flagged.ID, tc.set, tc.arg)
+				arg := tc.arg
+				if f, ok := arg.(func() any); ok {
+					arg = f()
+				}
+				setClick(t, path, flagged.ID, tc.set, arg)
 				switch mode {
 				case "active":
 					setFraud(t, s, app.ID, func(f *fraud.Settings) { *modeOf(f, tc.sig) = fraud.ModeActive })
