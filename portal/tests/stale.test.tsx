@@ -232,6 +232,20 @@ it('copy without navigator.clipboard (plain-HTTP portal): execCommand copies; a 
   await waitFor(() => expect(screen.getByRole('button').textContent).toBe('Copy API key'), { timeout: 3000 });
 });
 
+it('copy fallback inside an open modal: textarea lives in the dialog (rest is inert) and focus returns to the button', async () => {
+  vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
+  let parent: Element | null = null;
+  const exec = vi.fn(() => ((parent = document.activeElement?.parentElement ?? null), true));
+  (document as unknown as { execCommand: typeof exec }).execCommand = exec;
+  const { container } = render(<dialog open><CopyButton value="dk_secret" label="Copy API key" /></dialog>);
+  const btn = screen.getByRole('button', { name: 'Copy API key' });
+  btn.focus();
+  fireEvent.click(btn);
+  await screen.findByText('Copied');
+  expect(parent).toBe(container.querySelector('dialog'));
+  expect(document.activeElement).toBe(btn);
+});
+
 it('admin session: a slow session read that started before unlock never clears the fresh elevation', async () => {
   let release!: () => void;
   vi.stubGlobal('fetch', () => new Promise<Response>((r) => (release = () => r(new Response(JSON.stringify({ admin: false }))))));

@@ -18,10 +18,12 @@ export const copyText = async (v: string) => {
   ta.style.opacity = '0';
   // inside the open modal: showModal() makes everything outside it inert, so a body child can't hold the selection
   (document.querySelector('dialog[open]') ?? document.body).appendChild(ta);
+  const prev = document.activeElement as HTMLElement | null;
   ta.focus();
   ta.select();
   const ok = document.execCommand('copy');
   ta.remove();
+  prev?.focus(); // keep keyboard/screen-reader place on the copy button
   if (!ok) throw new Error('copy failed');
 };
 
