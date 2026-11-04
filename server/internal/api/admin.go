@@ -139,7 +139,13 @@ func (p *portalServer) session(r *http.Request) (expiresAt time.Time, ok bool) {
 	if err != nil {
 		return time.Time{}, false
 	}
-	return verifyToken(c.Value, p.adminPassword, time.Now())
+	now := time.Now()
+	expiresAt, ok = verifyToken(c.Value, p.adminPassword, now)
+	// lowered ADMIN_SESSION_HOURS shortens tokens already issued
+	if ok && expiresAt.Sub(now) > time.Duration(p.adminHours)*time.Hour {
+		return time.Time{}, false
+	}
+	return expiresAt, ok
 }
 
 // clearSession: DELETE /api/admin/session. Clears cookie (Max-Age=0); stateless token itself dies at embedded expiry.

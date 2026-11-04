@@ -85,7 +85,7 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	return guard(mux, allowedHosts)
 }
 
-// guard: 403 on unallowed Host or cross-origin Origin (DNS-rebinding + CSRF). No identity check.
+// guard: 403 on unallowed Host or cross-origin Origin (DNS-rebinding + CSRF), anti-framing headers. No identity check.
 func guard(next http.Handler, allowedHosts []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !hostAllowed(r.Host, allowedHosts) {
@@ -96,6 +96,12 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+		// never framed: a cross-site iframe would make the SPA's own same-origin fetches pass the Origin check (clickjacking)
+		h := w.Header()
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
 		next.ServeHTTP(w, r)
 	})
 }

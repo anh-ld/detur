@@ -148,3 +148,30 @@ func TestSessionCookieSecure(t *testing.T) {
 		}
 	}
 }
+
+// Portal never framed (clickjacking past the Origin guard): every response, SPA shell and API alike.
+func TestPortalAntiFramingHeaders(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	for _, path := range []string{"/", "/api/apps"} {
+		resp, _ := portalReq(t, portal, http.MethodGet, path, "", nil)
+		if got := resp.Header.Get("X-Frame-Options"); got != "DENY" {
+			t.Errorf("%s X-Frame-Options = %q; want DENY", path, got)
+		}
+		if got := resp.Header.Get("Content-Security-Policy"); got != "frame-ancestors 'none'" {
+			t.Errorf("%s CSP = %q; want frame-ancestors 'none'", path, got)
+		}
+	}
+}
+
+// Token minted under a longer ADMIN_SESSION_HOURS dies once the setting is lowered.
+func TestAdminTokenCappedBySessionHours(t *testing.T) {
+	const pw = "correct horse battery staple"
+	portal, _, _ := newPortalEnvAdmin(t, pw, 12)
+	for hours, want := range map[int]bool{12: true, 72: false} {
+		token, _ := mintToken(pw, hours, time.Now())
+		_, b := portalReq(t, portal, http.MethodGet, "/api/admin/session", "", map[string]string{"Cookie": adminCookie + "=" + token})
+		if got := strings.Contains(string(b), `"admin":true`); got != want {
+			t.Errorf("token %dh: body %s; want admin=%v", hours, b, want)
+		}
+	}
+}
