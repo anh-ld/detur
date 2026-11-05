@@ -61,6 +61,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	api.RegisterSDK(mux, st, cfg.RetentionHours)
+	api.RegisterData(mux, st, cfg.AdminPassword)   // read-only data API + MCP, bearer tokens
 	pipeline.Register(mux, st, cfg.RetentionHours) // GET /{key}: short links, click recording, store redirects
 	// Well-known: AASA + assetlinks for configured domains; unknown host = 404.
 	pipeline.RegisterWellKnown(mux, st, config.DomainSet(cfg))
