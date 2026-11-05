@@ -1,6 +1,8 @@
 # detur
 
-Self-hosted, drop-in [godetour](https://godetour.dev) backend for any [Detour](https://detour.swmansion.com) SDK (React Native, iOS, Android, Flutter): deferred deep links (tap → install → first launch opens the link) + click, install, event analytics.
+> **Built on the Detour team's work. Support them with [Detour](https://detour.swmansion.com).**
+
+Self-hosted, drop-in [Detour](https://detour.swmansion.com) backend for its React Native, iOS, Android, and Flutter SDKs. Deferred deep links open on first launch after install; analytics track clicks, installs, and events.
 
 - **Single binary**: Go + SQLite + Preact portal; ~30 MB RAM, <0.1 vCPU.
 - **Rules & A/B**: route by platform, language, query, date; sticky weighted splits.
@@ -29,20 +31,6 @@ Self-hosted, drop-in [godetour](https://godetour.dev) backend for any [Detour](h
     <td align="center">Settings</td>
   </tr>
 </table>
-
-## Comparison (2026-11-05)
-
-| | detur | godetour.dev | AppsFlyer |
-|---|---|---|---|
-| Cost & data ownership | Free & unlimited · Yours | Tiered · Vendor-hosted | Volume-based · Vendor-hosted |
-| SDK | Any Detour SDK (drop-in) | Detour (official) | AppsFlyer SDK |
-| Matching & attribution | Detour weights (tunable) · 1:1 install | Detour weights · 1:1 install | Proprietary · Multi-touch |
-| Routing rules & A/B splits | ✅ Rules & sticky splits | ❌ | ✅ Enterprise |
-| Analytics | Events tracking | Events tracking | Events, revenue, cohorts |
-| Fraud detection | ✅ Built-in | ❌ | ✅ Enterprise |
-| MMP & ad networks | ❌ | ❌ | ✅ |
-| Webhooks | ✅ HMAC-signed | ✅ | ✅ |
-| Data API | ✅ Read-only + MCP | Analytics API + export (full: paid) | ✅ |
 
 ## Quick start
 
