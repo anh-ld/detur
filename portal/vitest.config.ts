@@ -6,7 +6,7 @@ export default mergeConfig(viteConfig, defineConfig({
   test: {
     include: ['tests/**/*.test.tsx'],
     environment: 'happy-dom',
-    setupFiles: ['tests/setup.ts'],
+    setupFiles: ['tests/_setup.ts'],
     globals: true,
     testTimeout: 30_000,
     hookTimeout: 120_000,

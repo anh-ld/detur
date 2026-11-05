@@ -7,7 +7,7 @@ import { api, setApiBase } from '../src/api';
 import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
-import { go, openDialog, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './integration';
+import { go, openDialog, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './_integration';
 
 // client flows: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal :8091.
 const PORT = 8091;

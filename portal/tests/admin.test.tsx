@@ -10,8 +10,8 @@ import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
 import { setAdminAvailable, setElevated, AdminPasswordDialog } from '../src/ui';
-import { clearJar, setJarCookie } from './setup';
-import { go, openDialog, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './integration';
+import { clearJar, setJarCookie } from './_setup';
+import { go, openDialog, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './_integration';
 
 const PORT = 8092;
 const BASE = `http://127.0.0.1:${PORT}`;
