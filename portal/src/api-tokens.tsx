@@ -366,7 +366,7 @@ function Connect({ base }: { base: string }) {
   const snippets = [
     { label: 'MCP URL (Streamable HTTP)', value: url },
     { label: 'Header', value: 'Authorization: Bearer <token>' },
-    { label: 'mcp.json (most clients)', value: mcpJson(url, '<token>') },
+    { label: 'mcp.json (Claude Code, Cursor)', value: mcpJson(url, '<token>') },
     { label: 'HTTP API', value: `curl -H "Authorization: Bearer <token>" "${base}/api/v1/apps"` },
   ];
   return (
