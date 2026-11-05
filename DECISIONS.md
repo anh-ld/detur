@@ -119,6 +119,17 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | P1 | Gateway → everyone is a viewer (internal team). Marketing actions (links, rules, A/B splits, link delete) open; important ones (apps, keys, matching, tagging, fraud, webhooks) admin → `ADMIN_PASSWORD` → 12h signed browser session. No user table, no RBAC. | Ours | One operator, self-hosted, team brings its own auth; one password beats roles at this scale. | 009 |
 | P2 | Portal guard: Host = loopback, listener, or `PORTAL_HOSTS`. Origin = same origin (port included) or a `PORTAL_HOSTS` name; other localhost ports rejected. | Ours | DNS rebinding + CSRF. Cookies ignore ports → any localhost page rode the admin cookie. Gateway names got 403. | — |
 
+## Data API
+
+| ID | Decision | Source | Why | Plan |
+|---|---|---|---|---|
+| D1 | Read-only `GET /api/v1/...` on `:8080` + MCP `POST /api/mcp`, same reads. No writes. | Ours | Agents ask analytics; leaked token only reads. Writes hard to audit. | data-api-mcp |
+| D2 | Token: `dtr_` + 32 chars (~190 bits), SHA-256 at rest, shown once. Explicit app list, no "all apps"; app delete → dropped from every token. | Ours | Same scheme as API keys. New apps never leak to old tokens. | data-api-mcp |
+| D3 | Admin-only (W6): `ADMIN_PASSWORD` unset → token routes 403, every token 401. | Ours | Credentials to data; no unrevocable tokens. | data-api-mcp |
+| D4 | Reuses portal read handlers; own handlers only where the portal leaks (app key hash, per-install fraud rows, server-wide Proxy/XFF health with a peer IP). No click/install/device rows. | Ours | One number source; IPs + hashes stay on the server. | data-api-mcp |
+| D5 | Not-allowed app = 404, same as unknown. Any `Origin` header → 403. | Ours | No existence leak. No browser clients; blocks DNS rebinding. | data-api-mcp |
+| D6 | MCP: stateless Streamable HTTP, JSON only, no sessions/SSE. Tool call = in-process `GET /api/v1/...`. `last_used_at` written ≤ 1/min/token. | MCP spec + ours | Stdlib, no deps; one code path; bounded writes on one SQLite conn. | data-api-mcp |
+
 ## Webhooks
 
 | ID | Decision | Source | Why | Plan |
@@ -142,7 +153,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | VPN/Tor IP detection | Second dataset; flags real users. |
 | Copy-link toggle | C2 always on; no one needs it off. |
 | Multi-segment links | R5. |
-| Platform API | Portal API + webhooks cover it. |
+| Data API writes, OAuth (claude.ai/ChatGPT web connectors) | Analytics needs reads only; OAuth = large auth surface. Dev tools send a bearer header. |
 | Billing | Self-hosted; no tiers. |
 | Revenue sums, organic-cohort retention, marks beyond D1/D7/D30 | No request yet. |
 | Return-to-web after store dismiss, App Preview page, fallback param strategies, Smart Banners | Detour features, no request yet. |

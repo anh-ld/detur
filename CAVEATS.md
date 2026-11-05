@@ -59,6 +59,14 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **Retention**: cohort = tag day, not install day. D1/D7/D30 = cold start (`app_open`) that UTC day; warm resume only via `logRetention`. Tags expire at 90 days → re-tag = new cohort. Ignores the platform filter.
 - **Tenancy**: one team; no RBAC, no org isolation.
 
+## Data API
+
+- **Tokens**: never expire; survive `ADMIN_PASSWORD` change → revoke in portal (API page). Removing `ADMIN_PASSWORD` disables every token.
+- **Public port**: `:8080` → HTTPS proxy required (bearer in every request).
+- **App list**: explicit → new app needs a token edit.
+- **No rate limit**: looping agent or leaked token can hammer long-range analytics on the one SQLite connection → redirects slow. Revoke to stop.
+- **MCP**: any client that sends a header to a Streamable HTTP server. Web connectors needing OAuth (claude.ai, ChatGPT) can't connect.
+
 ## Webhooks
 
 - **Outbound calls**: webhooks (enabled) + tap-page icons (iTunes Lookup in the link's storefront, Play listing; 24h in-memory, failures logged). Browsers load icons from Apple/Google CDN → they see IP + UA; Referer = origin.
