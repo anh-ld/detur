@@ -30,7 +30,7 @@ Self-hosted, drop-in [godetour](https://godetour.dev) backend for any [Detour](h
   </tr>
 </table>
 
-## Comparison (2026-10-07)
+## Comparison (2026-11-05)
 
 | | detur | godetour.dev | AppsFlyer |
 |---|---|---|---|
@@ -42,7 +42,7 @@ Self-hosted, drop-in [godetour](https://godetour.dev) backend for any [Detour](h
 | Fraud detection | ✅ Built-in | ❌ | ✅ Enterprise |
 | MMP & ad networks | ❌ | ❌ | ✅ |
 | Webhooks | ✅ HMAC-signed | ✅ | ✅ |
-| Data API | ✅ Read-only + MCP | ❌ | ✅ |
+| Data API | ✅ Read-only + MCP | Analytics API + export (full: paid) | ✅ |
 
 ## Quick start
 
