@@ -61,10 +61,10 @@ func clickQuery(t *testing.T, loc string) url.Values {
 	return u.Query()
 }
 
-// clickAttr: unescaped attribute value on the tap page's primary button (id="go").
+// clickAttr: unescaped attribute value on the tap page's primary button (id="detur-cta").
 func clickAttr(t *testing.T, body, attr string) string {
 	t.Helper()
-	m := regexp.MustCompile(`<a [^>]*id="go"[^>]*\s` + attr + `="([^"]*)"`).FindStringSubmatch(body)
+	m := regexp.MustCompile(`<a [^>]*id="detur-cta"[^>]*\s` + attr + `="([^"]*)"`).FindStringSubmatch(body)
 	if m == nil {
 		return ""
 	}

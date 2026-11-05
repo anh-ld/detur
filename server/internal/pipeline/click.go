@@ -16,6 +16,7 @@ import (
 
 	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/httpx"
+	"detur.dev/server/internal/page"
 	"detur.dev/server/internal/store"
 	"detur.dev/server/internal/ua"
 )
@@ -112,7 +113,11 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	}
 	if track && (mobile || ua.MaybeIPad(agent)) && q.Get(paramDone) == "" {
 		// recognized in-app: auto reload, never copy page; hop 2 serves tap page
-		serveInterstitial(w, q, ua.IsIOS(agent) && isAppStoreURL(effectiveLink.IOS) && !named, safetyNetDelay(source))
+		if ua.IsIOS(agent) && isAppStoreURL(effectiveLink.IOS) && !named {
+			p.serveCopyPage(w, effectiveLink, q, safetyNetDelay(source))
+		} else {
+			serveInterstitial(w, q, safetyNetDelay(source))
+		}
 		return
 	}
 	// clickId minted first, embedded in redirect (Dub link.ts). Click stores link.URL + params as deferred destination, not store URL. Dedup hit -> earlier click's id
@@ -152,17 +157,20 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, dest, http.StatusFound)
 }
 
-// interstitialTmpl: reloads short link once with screen + timezone (+ _touch on touch screens); no-JS browsers fall through with neither. Accept-CH: Chromium sends device model + OS version on reload.
-// Copy mode (iOS + App Store target): waits for tap, copies short link to pasteboard (needs user gesture), reloads with pasted_link in same tap. SDK reads pasteboard on first launch: pasteboard signal (350/175).
+// interstitialTmpl: auto mode. Reloads short link once with screen + timezone (+ _touch on touch screens); no-JS browsers fall through with neither. Accept-CH: Chromium sends device model + OS version on reload.
 // Safety net: page still visible after delay ms = hand-off blocked -> reload with _tap, hop 2 serves tap page. Hidden/pagehide or late timer (frozen in background) cancels; 0 = off.
+// Copy mode (iOS + App Store target) is the get-app page (page.go): tap-to-copy, same reload.
 var interstitialTmpl = template.Must(template.New("i").Parse(`<!doctype html>
 <meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1">
 <noscript><meta http-equiv="refresh" content="0;url={{.Next}}"></noscript>
-{{if .Copy}}<style>body{font:17px -apple-system,system-ui,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center}button{font:inherit;font-weight:600;color:#fff;background:#0a66ff;border:0;border-radius:12px;padding:16px 28px}</style>
-<button id="go" type="button">Open in App Store</button>{{end}}
 <script>
 var delay = {{.Delay}}, left = false;
-document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") left = true; });
+` + reloadJS + `
+go("");
+</script>`))
+
+// reloadJS: shared by auto + copy mode; needs `delay`, `left`. go(pasted) reloads with screen, timezone, touch (+ pasted_link).
+const reloadJS = `document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") left = true; });
 window.addEventListener("pagehide", function () { left = true; });
 function buildQuery(pasted) {
   var q = new URLSearchParams(location.search);
@@ -181,13 +189,7 @@ function go(pasted) {
     location.replace(location.pathname + "?" + q.toString());
   }, delay);
   location.replace(location.pathname + "?" + q.toString());
-}
-` + copyJS + `
-{{if .Copy}}document.getElementById("go").onclick = function () {
-  var link = location.origin + location.pathname + {{.Paste}};
-  go(copy(link) ? link : "");
-};{{else}}go("");{{end}}
-</script>`))
+}`
 
 // safetyNetDelay: ms before hop-1 page assumes blocked hand-off. Generic webviews 1.5s; real-browser UAs 4s (slow hop 2 != block); recognized in-app 0 (hop 2 serves tap page).
 func safetyNetDelay(source string) int {
@@ -212,25 +214,38 @@ func isPlayStoreURL(s string) bool {
 	return err == nil && isPlayStore(u)
 }
 
-// serveInterstitial: one-hop page; copy = tap-to-copy (iOS App Store targets), else auto reload. delay: safety-net ms (0 = off).
-func serveInterstitial(w http.ResponseWriter, q url.Values, copy bool, delay int) {
+// nextQuery: this URL's query + _done, the reload target (hop 2).
+func nextQuery(q url.Values) string {
 	next := url.Values{}
 	for k, v := range q {
 		next[k] = v
 	}
 	next.Set(paramDone, "1")
+	return "?" + next.Encode()
+}
+
+// serveInterstitial: one-hop auto reload page. delay: safety-net ms (0 = off).
+func serveInterstitial(w http.ResponseWriter, q url.Values, delay int) {
 	htmlNoStore(w)
 	w.Header().Set("Accept-CH", "Sec-CH-UA-Model, Sec-CH-UA-Platform-Version")
-	paste := ""
-	if copy {
-		paste = store.PasteQuery() // exact match when the app reads this copy (pasteToken)
-	}
 	_ = interstitialTmpl.Execute(w, struct {
 		Next  string
-		Copy  bool
 		Delay int
-		Paste string
-	}{"?" + next.Encode(), copy, delay, paste})
+	}{nextQuery(q), delay})
+}
+
+// serveCopyPage: hop 1 for iOS App Store targets: get-app page, tap-to-copy (needs a user gesture), reloads with pasted_link in the same tap. SDK reads the pasteboard on first launch: pasteboard signal (350/175).
+func (p *pipelineServer) serveCopyPage(w http.ResponseWriter, link store.Link, q url.Values, delay int) {
+	app, err := p.st.GetApp(link.AppID)
+	if err != nil {
+		p.log.Printf("copy page app lookup failed (default page, icon from link URLs only): %v", err)
+		app = store.App{}
+	}
+	servePage(w, app.PageHTML, page.Input{
+		Copy: true, IOS: true, Href: nextQuery(q), Delay: delay,
+		Paste: store.PasteQuery(), // exact match when the app reads this copy (pasteToken)
+		Icon:  appIcons.first(iconKeys(link.IOS, link.Android, app.AndroidPackage)), AppName: app.Name,
+	})
 }
 
 // htmlNoStore: headers shared by every detur HTML page (never cached: each hop is per visitor).

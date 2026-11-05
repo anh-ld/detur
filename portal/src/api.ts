@@ -178,6 +178,19 @@ export const dateRangeQuery = (r: DateRangeFilter | number): string => {
   return `days=${r.days ?? 7}`;
 };
 
+// GET /api/apps/{id}/page; html '' = default page in use
+export interface AppPage {
+  html: string;
+  defaultHtml: string;
+  placeholders: { name: string; desc: string }[];
+}
+
+export interface PagePreview {
+  html: string;
+  page: 'copy' | 'tap';
+  platform: 'ios' | 'android';
+}
+
 export const api = {
   getMatchQuality: (id: string) => req<MatchQuality>('GET', `/api/apps/${id}/match-quality?days=30`),
   getHealth: (id: string) => req<HealthCheck[]>('GET', `/api/apps/${id}/health`),
@@ -196,6 +209,19 @@ export const api = {
   ) =>
     req<App>('PATCH', `/api/apps/${id}`, d),
   deleteApp: (id: string) => req<void>('DELETE', `/api/apps/${id}`),
+  getPage: (id: string) => req<AppPage>('GET', `/api/apps/${id}/page`),
+  savePage: (id: string, html: string) => req<void>('PUT', `/api/apps/${id}/page`, { html }),
+  // preview comes back as text/html, not JSON
+  previewPage: async (id: string, p: PagePreview) => {
+    const res = await fetch(apiBase + `/api/apps/${id}/page/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(p),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new HttpError(text.trim() || res.statusText, res.status, `POST /api/apps/${id}/page/preview`);
+    return text;
+  },
   listLinks: (appId: string) => req<Link[]>('GET', `/api/apps/${appId}/links`),
   createLink: (appId: string, l: Omit<Link, 'id' | 'appId'>) =>
     req<Link>('POST', `/api/apps/${appId}/links`, l),

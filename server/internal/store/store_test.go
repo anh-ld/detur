@@ -1664,3 +1664,31 @@ func TestOrganicRetryDedupesOntoLegacyEmptyClickID(t *testing.T) {
 		t.Errorf("RecordInstall = %+v, %v; want legacy row", got, err)
 	}
 }
+
+// db without apps.page_html: Open adds the column, page round-trips, "" clears.
+func TestOpenAddsPageHTML(t *testing.T) {
+	path := t.TempDir() + "/legacy.db"
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.db.Exec(`ALTER TABLE apps DROP COLUMN page_html`)
+	s.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err = Open(path); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	app, _ := s.CreateApp("a", "k")
+	if err := s.UpdateAppPage(app.ID, "<p>{{cta}}</p>"); err != nil {
+		t.Fatal(err)
+	}
+	if a, err := s.GetApp(app.ID); err != nil || a.PageHTML != "<p>{{cta}}</p>" {
+		t.Errorf("PageHTML = %q, err %v", a.PageHTML, err)
+	}
+	if err := s.UpdateAppPage("nope", "x"); err != ErrNotFound {
+		t.Errorf("unknown app = %v; want ErrNotFound", err)
+	}
+}

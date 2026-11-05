@@ -21,6 +21,7 @@ import (
 	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/match"
+	"detur.dev/server/internal/page"
 	"detur.dev/server/internal/store"
 )
 
@@ -55,6 +56,9 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	mux.HandleFunc("POST /api/apps/{id}/rotate-key", p.requireAdmin(p.rotateAppKey))
 	mux.HandleFunc("DELETE /api/apps/{id}/key", p.requireAdmin(p.revokeAppKey))
 	mux.HandleFunc("PATCH /api/apps/{id}", p.requireAdmin(p.updateApp))
+	mux.HandleFunc("GET /api/apps/{id}/page", p.requireAdmin(p.getPage))
+	mux.HandleFunc("PUT /api/apps/{id}/page", p.requireAdmin(p.putPage))
+	mux.HandleFunc("POST /api/apps/{id}/page/preview", p.requireAdmin(p.previewPage))
 	mux.HandleFunc("PATCH /api/apps/{id}/matching", p.requireAdmin(p.updateMatching))
 	mux.HandleFunc("PATCH /api/apps/{id}/tagging", p.requireAdmin(p.updateTagging))
 	mux.HandleFunc("GET /api/apps/{id}", p.getApp)
@@ -369,6 +373,56 @@ func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
+}
+
+// getPage: custom get-app page, default + placeholders for the editor (kept out of appJSON: up to 50 KB).
+func (p *portalServer) getPage(w http.ResponseWriter, r *http.Request) {
+	a, err := p.st.GetApp(r.PathValue("id"))
+	if err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"html": a.PageHTML, "defaultHtml": page.DefaultHTML, "placeholders": page.Placeholders})
+}
+
+// putPage: save custom page; "" resets to default. Admin: the HTML is served on the link domain and can break the install flow.
+func (p *portalServer) putPage(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		HTML string `json:"html"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := page.Validate(body.HTML); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := p.st.UpdateAppPage(r.PathValue("id"), body.HTML); err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// previewPage: real renderer on sample links, no scripts (the portal frame is sandboxed). Admin: same as save.
+func (p *portalServer) previewPage(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		HTML     string `json:"html"`
+		Page     string `json:"page"`     // copy | tap
+		Platform string `json:"platform"` // ios | android
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	a, err := p.st.GetApp(r.PathValue("id"))
+	if err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(page.Preview(body.HTML, body.Page, body.Platform, a.Name)))
 }
 
 func (p *portalServer) deleteApp(w http.ResponseWriter, r *http.Request) {

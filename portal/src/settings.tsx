@@ -11,11 +11,15 @@ import {
   Label,
   Switch,
   Table,
+  Textarea,
   toast,
+  Toggle,
+  ToggleGroup,
 } from 'kinu';
-import { api, App, CreatedApp, HealthCheck, MatchQuality } from './api';
-import { AdminGateAborted, adminCall, closeDialog, ConfirmDelete, CopyButton, gateOpen, Loading, mono, muted, row } from './ui';
+import { api, App, AppPage, CreatedApp, HealthCheck, HttpError, MatchQuality, PagePreview } from './api';
+import { AdminGateAborted, adminCall, AdminRequired, closeDialog, ConfirmDelete, CopyButton, gateOpen, getAdmin, getAdminSet, Loading, mono, muted, row, subscribeAdmin } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
+import { CodeEditor } from './code';
 
 const sectionTitle = { margin: '40px 0 16px', fontSize: 20 };
 
@@ -90,6 +94,12 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
           </tr>
         </tbody>
       </Table>
+
+      <h2 style={sectionTitle}>Get-app page</h2>
+      <p style={{ ...muted, marginBottom: 16 }}>
+        What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
+      </p>
+      <PageEditor app={app} />
 
       <h2 style={sectionTitle}>Matching</h2>
       <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
@@ -199,6 +209,130 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
         <Button type="submit">Save config</Button>
       </div>
     </form>
+  );
+}
+
+const PAGE_MAX = 51200;
+// placeholder help: `backticks` -> <code>
+const codeSpans = (s: string) => s.split('`').map((t, i) => (i % 2 ? <code key={i}>{t}</code> : t));
+const PREVIEWS: { label: string; p: Pick<PagePreview, 'page' | 'platform'> }[] = [
+  { label: 'iOS copy', p: { page: 'copy', platform: 'ios' } },
+  { label: 'iOS in-app', p: { page: 'tap', platform: 'ios' } },
+  { label: 'Android in-app', p: { page: 'tap', platform: 'android' } },
+];
+
+// loads on mount (admin-gated GET, 50 KB kept out of the app list), never prompts: viewer -> Unlock admin notice, reloads on elevation.
+// One HTML field (starts as the default), preview, save.
+// Text == default -> saved as "" (stays on the built-in page, picks up its future changes).
+function PageEditor({ app }: { app: App }) {
+  const [data, setData] = useState<AppPage | null>(null);
+  const [text, setText] = useState('');
+  const [view, setView] = useState(0);
+  const [preview, setPreview] = useState('');
+  const [error, setError] = useState('');
+  const [locked, setLocked] = useState(false);
+  const loaded = useRef(false); // unlock reloads only until the page is in (never clobbers edits)
+
+  useEffect(() => {
+    let stale = false;
+    const load = () => {
+      if (getAdminSet() && !getAdmin()) return setLocked(true);
+      api.getPage(app.id).then(
+        (d) => !stale && ((loaded.current = true), setLocked(false), setData(d), setText(d.html || d.defaultHtml)),
+        (e) => !stale && (e instanceof HttpError && e.status === 403 ? setLocked(true) : setError(String(e))),
+      );
+    };
+    load();
+    const unsub = subscribeAdmin(() => !stale && !loaded.current && load());
+    return () => {
+      stale = true;
+      unsub();
+    };
+  }, [app.id]);
+
+  const html = !data || text === data.defaultHtml ? '' : text;
+  // debounced: real renderer on the server; sandboxed frame (no scripts)
+  useEffect(() => {
+    if (!data) return;
+    let stale = false;
+    const t = setTimeout(() => {
+      api.previewPage(app.id, { html, ...PREVIEWS[view].p }).then(
+        (h) => !stale && (setPreview(h), setError('')),
+        (e) => !stale && setError(String(e)),
+      );
+    }, 400);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [data, html, view, app.id]);
+
+  const save = async () => {
+    setError('');
+    try {
+      await adminCall(() => api.savePage(app.id, html));
+      toast.show(html ? 'Custom page saved' : 'Default page saved');
+    } catch (e) {
+      if (e instanceof AdminGateAborted) return;
+      setError(String(e));
+    }
+  };
+
+  if (!data) {
+    if (locked) return <AdminRequired>Enter your admin password to edit the page.</AdminRequired>;
+    return error ? <Alert variant="destructive">{error}</Alert> : <Loading />;
+  }
+  const bytes = new TextEncoder().encode(text).length;
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      {/* one toolbar line: reset, save */}
+      <div style={{ ...row, justifyContent: 'flex-end', gap: 12 }}>
+        <Button variant="outline" disabled={!html} onClick={() => setText(data.defaultHtml)}>
+          Reset to default
+        </Button>
+        <Button onClick={save}>
+          Save page
+        </Button>
+      </div>
+      {error && <Alert variant="destructive">{error}</Alert>}
+      {/* HTML 2 cols, preview 1 col; stacks below ~720px. Twin boxes: same header bar + 560px body -> equal height */}
+      <div class="page-editor">
+        <div class="page-box">
+          <div class="page-box-head" style={{ justifyContent: 'space-between' }}>
+            <Label htmlFor="page-html" style={{ margin: 0 }}>
+              HTML
+            </Label>
+            <small style={{ ...muted, ...(bytes > PAGE_MAX ? { color: 'hsl(var(--k-destructive))' } : {}) }}>
+              {html ? 'Custom' : 'Default'} page · {bytes.toLocaleString()} / {PAGE_MAX.toLocaleString()} bytes
+            </small>
+          </div>
+          <CodeEditor id="page-html" value={text} onInput={setText} height={560} />
+        </div>
+        {/* preview frame: its own target switch on top */}
+        <div class="page-box">
+          <div class="page-box-head" style={{ justifyContent: 'center' }}>
+            <ToggleGroup role="group" aria-label="Preview" class="seg">
+              {PREVIEWS.map((v, i) => (
+                <Toggle key={v.label} type="button" size="sm" pressed={view === i} onClickCapture={() => {}} onClick={() => setView(i)}>
+                  {v.label}
+                </Toggle>
+              ))}
+            </ToggleGroup>
+          </div>
+          <iframe title="Page preview" sandbox="" srcdoc={preview} style={{ display: 'block', width: '100%', height: 560, border: 0, background: '#fff' }} />
+        </div>
+      </div>
+      <div style={muted}>
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          {data.placeholders.map((p) => (
+            <li key={p.name}>
+              <code class="hl-ph">{`{{${p.name}}}`}</code> {codeSpans(p.desc)}
+            </li>
+          ))}
+        </ul>
+        <p style={{ marginTop: 8 }}>No scripts or on* handlers. Images and fonts: https only.</p>
+      </div>
+    </div>
   );
 }
 

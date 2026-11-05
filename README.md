@@ -88,6 +88,7 @@ Portal: `:8081`.
 - Create app; copy the API key (shown once).
 - Links: `/key` → app route (`/product/42`) + optional iOS / Android / fallback.
 - App details (iOS app ID, Android package, cert fingerprint) → well-known files.
+- Settings → Get-app page: default, or custom HTML (`{{cta}}`, `{{icon_url}}`, …) for the iOS copy page + in-app tap page.
 - `ADMIN_PASSWORD` set → app changes need admin (top bar).
 
 ### 3. Point SDK at detur

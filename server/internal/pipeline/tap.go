@@ -1,12 +1,12 @@
 package pipeline
 
 import (
-	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"detur.dev/server/internal/httpx"
+	"detur.dev/server/internal/page"
 	"detur.dev/server/internal/store"
 	"detur.dev/server/internal/ua"
 )
@@ -57,95 +57,29 @@ func menuLabel(source string) string {
 	return "Open in browser"
 }
 
-// serveTap: tap page, plain link to tap (in-app browsers block auto store hand-off). iOS copies short link first (pasteboard signal), reports it like copy page; app scheme set -> tries the installed app before the App Store.
+// serveTap: tap page (get-app page, page.go), plain link to tap (in-app browsers block auto store hand-off). iOS copies short link first (pasteboard signal), reports it like copy page; app scheme set -> tries the installed app before the App Store.
 func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link store.Link, dest, source string, q url.Values) {
 	ios := ua.IsIOS(r.UserAgent())
-	data := struct {
-		Href  template.URL
-		Play  template.URL
-		IOS   bool
-		Steps []string
-		Paste string
-		Open  template.URL // iOS: app scheme URL tried before Href (App Store)
-		Icon  string
-	}{Href: template.URL(dest), IOS: ios, Steps: tapSteps(source, ios)}
+	in := page.Input{IOS: ios, Href: dest, Steps: tapSteps(source, ios)}
 	app, err := p.st.GetApp(link.AppID)
 	if err != nil {
-		p.log.Printf("tap page app lookup failed (plain store button, icon from link URLs only): %v", err)
+		p.log.Printf("tap page app lookup failed (default page, icon from link URLs only): %v", err)
 		app = store.App{}
 	}
-	data.Icon = appIcons.first(iconKeys(link.IOS, link.Android, app.AndroidPackage))
+	in.AppName = app.Name
+	in.Icon = appIcons.first(iconKeys(link.IOS, link.Android, app.AndroidPackage))
 	if ios {
-		data.Paste = store.PasteQuery() // reported with pasted_link (pasteToken)
+		in.Paste = store.PasteQuery() // reported with pasted_link (pasteToken)
 		// app scheme set -> button opens the installed app at the route first, App Store after a timeout
 		if app.IOSScheme != "" && httpx.IsRoute(link.URL) {
-			data.Open = template.URL(schemeURL(app.IOSScheme, deepLinkURL(link, q)))
+			in.Open = schemeURL(app.IOSScheme, deepLinkURL(link, q))
 		}
 	} else if app.AndroidPackage != "" {
-		data.Href = template.URL(intentURL(r.Host, link.Key, q, app.AndroidPackage, dest))
-		data.Play = template.URL(dest)
+		in.Href = intentURL(r.Host, link.Key, q, app.AndroidPackage, dest)
+		in.Play = dest
 	}
-	htmlNoStore(w)
-	_ = tapTmpl.Execute(w, data)
+	servePage(w, app.PageHTML, in)
 }
-
-// tapTmpl: centered; store icon (fallback glyph), one primary button (plain href, no JS needed), Android-only Play text link, numbered steps. 48px full-width button, light + dark.
-var tapTmpl = template.Must(template.New("tap").Parse(`<!doctype html>
-<meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Get the app</title>
-<style>
-:root{color-scheme:light dark;--bg:#fff;--fg:#111;--muted:#767676;--btn:#3a3a3c;--btn-fg:#fff;--ph:#ececec;--ph-fg:#b5b5b5}
-@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#f2f2f2;--muted:#999;--btn:#d1d1d6;--btn-fg:#111;--ph:#2a2a2a;--ph-fg:#5c5c5c}}
-body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.45 -apple-system,system-ui,sans-serif}
-main{box-sizing:border-box;max-width:28rem;min-height:100vh;min-height:100dvh;margin:0 auto;padding:48px 16px;display:flex;flex-direction:column;justify-content:center;gap:20px;text-align:center}
-.go{display:block;min-height:48px;box-sizing:border-box;padding:14px 20px;border-radius:12px;background:var(--btn);color:var(--btn-fg);font-weight:600;text-decoration:none}
-.alt{color:var(--fg)}
-p,ol{margin:0;color:var(--muted);font-size:13px}
-ol{align-self:center;text-align:left;padding-left:1.4em;display:grid;gap:4px;margin-top:-12px}
-.icon{align-self:center;width:80px;height:80px;border-radius:18px;margin-bottom:4px;object-fit:cover;box-shadow:0 0 0 1px rgba(127,127,127,.2)}
-svg.icon{background:var(--ph);color:var(--ph-fg)}
-</style>
-<main>
-{{if .Icon}}<img class="icon" src="{{.Icon}}" alt="" width="80" height="80">{{else}}<svg class="icon" viewBox="0 0 80 80" aria-hidden="true"><g fill="currentColor"><rect x="22" y="22" width="15" height="15" rx="4"/><rect x="43" y="22" width="15" height="15" rx="4"/><rect x="22" y="43" width="15" height="15" rx="4"/><rect x="43" y="43" width="15" height="15" rx="4"/></g></svg>{{end}}
-<a class="go" id="go" href="{{.Href}}"{{if .Open}} data-open="{{.Open}}"{{end}}>Get the app</a>
-{{if .Play}}<a class="alt" href="{{.Play}}">Open Play Store</a>{{end}}
-<p>Nothing happens? Open this page in your browser:</p>
-<ol>{{range .Steps}}<li>{{.}}</li>{{end}}</ol>
-</main>
-<script>
-// drop the safety-net flag from this page's URL: "Open in browser" then reopens the plain link (real browser -> store redirect)
-(function () {
-  var q = new URLSearchParams(location.search);
-  if (!q.has("_tap")) return;
-  q.delete("_tap");
-  try { history.replaceState(null, "", location.pathname + "?" + q.toString()); } catch (e) {}
-})();
-</script>
-{{if .IOS}}<script>
-// copy synchronously inside the tap, report pasted_link before the navigation can unload the page
-` + copyJS + `
-var go = document.getElementById("go");
-go.addEventListener("click", function (e) {
-  var link = location.origin + location.pathname + {{.Paste}};
-  if (copy(link)) {
-    var q = new URLSearchParams(location.search);
-    q.set("pasted_link", link);
-    try { fetch(location.pathname + "?" + q.toString(), { keepalive: true, credentials: "omit" }).catch(function () {}); } catch (e) {}
-  }
-  // app scheme first; still visible after 1.5s = app missing -> App Store (href). Hidden/pagehide or late timer (frozen while the app was up) cancels
-  var open = go.getAttribute("data-open");
-  if (!open) return;
-  e.preventDefault();
-  var left = false, t0 = Date.now();
-  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") left = true; });
-  window.addEventListener("pagehide", function () { left = true; });
-  setTimeout(function () {
-    if (left || document.visibilityState !== "visible" || Date.now() - t0 > 2500) return;
-    location.href = go.href;
-  }, 1500);
-  location.href = open;
-});
-</script>{{end}}`))
 
 // copyJS: shared by copy + tap pages. true only when execCommand confirms copy synchronously -> pasted_link never reported for a failed copy. Clipboard API = best-effort extra: its promise can't confirm before tap navigates.
 const copyJS = `function copy(text) {
