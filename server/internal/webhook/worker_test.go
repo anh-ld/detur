@@ -444,3 +444,32 @@ func TestWorkerFailureLogOmitsURL(t *testing.T) {
 		t.Errorf("log = %q; want a POST failure without the URL", out)
 	}
 }
+
+// Admin disables a webhook mid-cycle: the batch in flight finishes, no further batch goes to the old URL.
+func TestWorkerStopsWhenDisabledMidCycle(t *testing.T) {
+	st := newTestStore(t)
+	app, _ := st.CreateApp("Revoke App", "dk_revoke")
+	var mu sync.Mutex
+	posts := 0
+	var whID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		posts++
+		mu.Unlock()
+		off := false
+		_, _ = st.UpdateWebhook(whID, nil, nil, &off)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	wh, _ := st.CreateWebhook(app.ID, srv.URL, []string{"events"})
+	whID = wh.ID
+	for range 250 {
+		_ = st.RecordEvent(app.ID, "custom_event", "")
+	}
+	webhook.NewWorker(st, 15*time.Second).ProcessOnce(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
+	if posts != 1 {
+		t.Fatalf("POSTs after disable = %d, want 1", posts)
+	}
+}

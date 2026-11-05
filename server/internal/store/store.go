@@ -605,6 +605,13 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 		return Click{}, fmt.Errorf("record click: %w", err)
 	}
 	defer tx.Rollback()
+	// bound row width: headers allow 32 KiB per field, match scans up to maxWindowClicks rows
+	c.Fingerprint.UserAgent = clip(c.Fingerprint.UserAgent, 1024)
+	c.Fingerprint.Device = clip(c.Fingerprint.Device, 128)
+	c.Fingerprint.OSVersion = clip(c.Fingerprint.OSVersion, 64)
+	if len(c.Fingerprint.PastedLink) > MaxClickURL {
+		c.Fingerprint.PastedLink, c.PasteToken = "", ""
+	}
 	// velocity counter before dedup: merged repeats still count (KTD2)
 	c.HitsIP, c.HitsLink, err = bumpHits(tx, c, now)
 	if err != nil {
@@ -816,6 +823,7 @@ const (
 // InternalParams: detur's own query params; consumed by the pipeline, never forwarded to a destination (Dub skips dub-no-track, redir_url).
 var InternalParams = map[string]bool{
 	ParamDone: true, ParamScreen: true, ParamTimezone: true, ParamPasted: true, ParamNoTrack: true, ParamTap: true, ParamTouch: true, ParamPasteToken: true,
+	LinkTag: true, // server-owned: a visitor's ?detur_link= must not override the clicked link's tag
 }
 
 const pasteTokenLen = 16
@@ -1381,6 +1389,17 @@ func rollupEventName(e string) string {
 		return string(r[:maxRollupEventName])
 	}
 	return e
+}
+
+// MaxClickURL: stored click destination / pasted link cap (link targets ≤ 2 KiB + forwarded params).
+const MaxClickURL = 4096
+
+// clip: first n bytes, cut back to a whole rune.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[:n], "")
 }
 
 // day: UTC calendar day (YYYY-MM-DD), rollup + analytics bucket key.

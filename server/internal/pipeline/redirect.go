@@ -35,7 +35,10 @@ func redirectTarget(link store.Link, agent string, clickID string, q url.Values)
 
 // deepLinkURL: link.URL + forwarded params (add-only), returned by match-link. Dub: redirect to store, cache main url (link.ts cacheDeepLinkClickData).
 func deepLinkURL(link store.Link, q url.Values) string {
-	return withParams(link.URL, "", q)
+	if d := withParams(link.URL, "", q); len(d) <= store.MaxClickURL {
+		return d
+	}
+	return link.URL // oversized visitor params: bounded click row beats forwarding them
 }
 
 // uuidRe: App Store Connect custom product page id; malformed ppid dropped (Detour click-handling).

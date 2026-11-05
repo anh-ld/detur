@@ -723,3 +723,22 @@ func TestS_CLICK_56_Hop1KeepsQueryThroughReload(t *testing.T) {
 	must(t, strings.Contains(r.H.Get("Accept-CH"), "Sec-CH-UA-Model"), "Accept-CH = %q", r.H.Get("Accept-CH"))
 	clickNone(e, a)
 }
+
+// Abuse: a visitor appends ?detur_link=<other key> and pads headers/query to the 32 KiB cap. Expect: stored destination keeps no visitor detur_link,
+// oversized params fall back to the link URL, UA is clipped (match scans up to 5,000 rows; row width stays bounded).
+func TestS_CLICK_57_VisitorTagDroppedAndRowBounded(t *testing.T) {
+	e := newEnv(t)
+	a := e.app()
+	e.link(a, "tagged", "/p")
+	e.tap("/tagged?detur_link=other&utm_source=ig", uaDesktopChrome)
+	c := clickOne(e, a)
+	must(t, !strings.Contains(c.Destination, "detur_link") && strings.Contains(c.Destination, "utm_source=ig"), "destination = %q", c.Destination)
+
+	e.link(a, "big", "/q")
+	e.tap("/big?utm_source="+strings.Repeat("a", store.MaxClickURL), uaDesktopChrome+strings.Repeat("x", 20000))
+	cs, err := e.St.ClicksSince(a.ID, "", time.Now().Add(-time.Hour))
+	must(t, err == nil, "ClicksSince: %v", err)
+	for _, c := range cs {
+		must(t, len(c.Destination) <= store.MaxClickURL && len(c.Fingerprint.UserAgent) <= 1024, "row not bounded: dest %d, ua %d", len(c.Destination), len(c.Fingerprint.UserAgent))
+	}
+}

@@ -52,7 +52,7 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 
 - **SQLite**: WAL, one connection → reads + writes queue (big analytics query delays redirects). Hourly purge in 2,000-row batches. Personal → mid-size scale; no horizontal scaling.
 - **Shutdown**: SIGTERM drains requests (8s), cancels webhook POSTs (redelivered on start), closes DB; WAL survives a hard kill. Migrations add columns on `Open()`. Back up `detur.db` before upgrading.
-- **Floods**: no rate limits. Unmatched clicks pile up until `RETENTION_HOURS` (`CLICK_ID_DAYS` for click IDs). Match scans newest 5,000 per window → older can't match. Headers ≤ 32 KB, link targets ≤ 2 KB.
+- **Floods**: no rate limits. Unmatched clicks pile up until `RETENTION_HOURS` (`CLICK_ID_DAYS` for click IDs). Match scans newest 5,000 per window → older can't match. Headers ≤ 32 KB, link targets ≤ 2 KB; stored UA ≤ 1 KB, destination ≤ 4 KB (longer → link URL, no visitor params).
 - **Rollups**: UTC days. Link delete → its rollups gone. Installs + rollups never purged.
 - **Events**: body > 16 KB → 413. Names cut to 64 chars, kept forever → no PII/IDs.
 - **Per-link conversions**: need a `data.link` tag event. SDK 2.3.1 knows the key only with "Tag deferred links" on.
@@ -73,6 +73,7 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **SSRF**: delivery blocks RFC 1918, RFC 4193, link-local, CGNAT `100.64.0.0/10`, reserved, IPv4-in-IPv6 (NAT64, 6to4, Teredo) → covers `169.254.169.254`, `100.100.100.200`, `192.0.0.192`. No redirects.
 - **Secrets**: plaintext in `detur.db` (viewable + rotatable) → `chmod 600 detur.db`.
 - **Retention**: only installs kept forever; clicks + events purged at `RETENTION_HOURS` → replay starts at the oldest left; endpoint down longer → those lost. One shared worker → slow endpoint delays others. Rowids never reused. Older backup restore → cursors 0 → duplicates; dedupe on `id`.
+- **Revoke**: disable, delete, or stream removal stops after the batch in flight; URL/secret change applies to the next batch.
 - **New stream**: starts at the tail; past → Replay.
 - **`unknown` installs**: never sent; replacement arrives as a new record.
 - **Consumers**: constant-time signature compare (`crypto/subtle.ConstantTimeCompare`) + timestamp tolerance (~5 min).

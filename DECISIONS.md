@@ -83,7 +83,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | A5 | Tag: SDK event with `device_id` + `data.link` (key or short URL) → device mapped to that link; first tag wins; device stored as SHA-256; mapping purged 90d after tag. | Ours | `match-link` sends no `device_id`; only the app knows the source. | link-analytics |
 | A6 | Conversions: every `/analytics/event` from a tagged device, per link + event + UTC day, tagging call included. `detur_link` marker not counted; retention calls never. | Ours | What each link's users do after install. | link-analytics |
 | A7 | Retention: cohort = devices first tagged on one UTC day. D1/D7/D30 = retention call exactly N days later, once per device. Rate uses cohorts whose mark day is in range. Counts only, never purged (A2). All platforms. | Detour + ours | Detour's retention comparison. Mark-day range → every range shows all three marks. | link-analytics |
-| A8 | Tag deferred links: per app, off by default, admin. On → `match-link` + `resolve-short` destination gets `detur_link=<key>`, add-only (R3). | Ours | SDK 2.3.1 hands the app the destination, never the key. Off = destinations as stored. | link-analytics |
+| A8 | Tag deferred links: per app, off by default, admin. On → `match-link` + `resolve-short` destination gets `detur_link=<key>`, add-only (R3); visitor `?detur_link=` never forwarded. | Ours | SDK 2.3.1 hands the app the destination, never the key. Off = destinations as stored. | link-analytics |
 
 ## Fraud
 

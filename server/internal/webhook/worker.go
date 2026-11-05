@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
@@ -149,6 +150,12 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 	}
 
 	for range batchesPerCycle {
+		// re-read per batch: disable/delete/stream removal stops delivery now; URL/secret edits apply to the next POST
+		cur, err := w.st.GetWebhook(wh.ID)
+		if err != nil || !cur.Enabled || !slices.Contains(cur.Types, stream) {
+			return
+		}
+		wh.URL, wh.Secret = cur.URL, cur.Secret
 		// replaying: stop batches at replay_until -> every replayed row carries Detur-Replay, no live row does.
 		records, err := w.st.FetchPendingWebhookBatch(wh.AppID, stream, st.Cursor, st.ReplayUntil, batchSize)
 		if err != nil {
