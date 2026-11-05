@@ -9,6 +9,7 @@ Self-hosted, drop-in [godetour](https://godetour.dev) backend for any [Detour](h
 - **Link pages**: per-link social previews; desktop QR page for app-only links.
 - **Fraud**: flag/block click floods, bots, datacenter IPs, repeat devices.
 - **Analytics & webhooks**: per-link conversions, D1/D7/D30 retention, HMAC-signed webhooks.
+- **Data API + MCP**: read-only, per-app tokens → ask Claude/Cursor about installs, fraud, conversions.
 
 [DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
 
@@ -29,7 +30,7 @@ Self-hosted, drop-in [godetour](https://godetour.dev) backend for any [Detour](h
   </tr>
 </table>
 
-## Comparison (2026-10-07)
+## Comparison (2026-11-05)
 
 | | detur | godetour.dev | AppsFlyer |
 |---|---|---|---|
@@ -41,7 +42,7 @@ Self-hosted, drop-in [godetour](https://godetour.dev) backend for any [Detour](h
 | Fraud detection | ✅ Built-in | ❌ | ✅ Enterprise |
 | MMP & ad networks | ❌ | ❌ | ✅ |
 | Webhooks | ✅ HMAC-signed | ✅ | ✅ |
-| Data API | ❌ | ❌ | ✅ |
+| Data API | ✅ Read-only + MCP | Analytics API + export (full: paid) | ✅ |
 
 ## Quick start
 
@@ -129,6 +130,22 @@ Follow your SDK's Detour docs, swapping in:
 detur serves `apple-app-site-association` + `assetlinks.json` from app details (step 2).
 
 Example (Expo): [example/expo-app/](example/expo-app/).
+
+### 5. Data API + MCP (optional)
+
+Needs `ADMIN_PASSWORD`. Portal → API → create token, pick apps (token shown once; page has copyable setup).
+
+Any MCP client (Claude, Cursor, Codex, VS Code, …): remote Streamable HTTP server.
+
+```json
+{ "mcpServers": { "detur": { "type": "http", "url": "https://<DOMAIN>/api/mcp", "headers": { "Authorization": "Bearer dtr_..." } } } }
+```
+
+```sh
+curl -H "Authorization: Bearer dtr_..." "https://<DOMAIN>/api/v1/apps/<id>/analytics?days=7"
+```
+
+Read-only: apps, links, rules, variants, analytics, match quality, fraud counts, health.
 
 ## Dev run
 

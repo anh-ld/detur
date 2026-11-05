@@ -872,4 +872,16 @@ describe('portal client flows', () => {
     expect((await api.getApp(app.id)).id).toBe(app.id);
     await api.deleteApp(app.id);
   });
+
+  it('API page without ADMIN_PASSWORD: sidebar link lands on the notice, no create form', async () => {
+    location.hash = '#/';
+    render(<App />);
+    const side = within(screen.getByRole('navigation', { name: 'App sections' }));
+    fireEvent.click(await side.findByRole('link', { name: 'API' }));
+    go('#/api'); // happy-dom: link click does not move the hash
+    await screen.findByText(/API tokens need an admin password/);
+    expect(screen.queryByRole('button', { name: 'Create token' })).toBeNull();
+    expect(side.getByRole('link', { name: 'API' }).getAttribute('aria-current')).toBe('page');
+    expect(side.getByRole('link', { name: 'Apps' }).getAttribute('aria-current')).toBeNull();
+  });
 });

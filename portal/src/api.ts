@@ -241,7 +241,26 @@ export const api = {
   deleteWebhook: (id: string) => req<void>('DELETE', `/api/webhooks/${id}`),
   rotateWebhookSecret: (id: string) => req<{ secret: string }>('POST', `/api/webhooks/${id}/rotate-secret`),
   replayWebhook: (id: string, from: string) => req<{ ok: boolean }>('POST', `/api/webhooks/${id}/replay`, { from }),
+  listTokens: () => req<ApiToken[]>('GET', '/api/tokens'),
+  createToken: (t: { name: string; appIds: string[] }) => req<CreatedToken>('POST', '/api/tokens', t),
+  updateToken: (id: string, t: { name?: string; appIds?: string[] }) => req<ApiToken>('PATCH', `/api/tokens/${id}`, t),
+  deleteToken: (id: string) => req<void>('DELETE', `/api/tokens/${id}`),
 };
+
+// data-API / MCP bearer token. prefix only after creation; lastUsedAt null = never used
+export interface ApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  appIds: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+// POST reply: plaintext token, shown once
+export interface CreatedToken extends ApiToken {
+  token: string;
+}
 
 export type WebhookEventType = 'installs' | 'events' | 'clicks';
 

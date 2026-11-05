@@ -27,6 +27,12 @@ var (
 // aasaLag: Apple CDN AASA cache; newer links may open the browser.
 const aasaLag = 48 * time.Hour
 
+// Server-wide checks (not app-scoped); the data API drops them (Forwarded detail carries a peer IP).
+const (
+	checkProxy     = "Proxy"
+	checkForwarded = "Forwarded headers"
+)
+
 // minPeers: proxy check needs this many peers.
 const minPeers = 20
 
@@ -119,16 +125,16 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 	total, private := httpx.PeerStats()
 	switch {
 	case httpx.TrustProxy:
-		add("Proxy", "ok", "TRUST_PROXY=1: client IP from X-Forwarded-For.")
+		add(checkProxy, "ok", "TRUST_PROXY=1: client IP from X-Forwarded-For.")
 	case total < minPeers:
-		add("Proxy", "ok", "Not enough traffic yet to judge.")
+		add(checkProxy, "ok", "Not enough traffic yet to judge.")
 	case private*2 > total:
-		add("Proxy", "fail", fmt.Sprintf("%d of %d requests came from private IPs: every click shares one IP. Behind a proxy? Set TRUST_PROXY=1.", private, total))
+		add(checkProxy, "fail", fmt.Sprintf("%d of %d requests came from private IPs: every click shares one IP. Behind a proxy? Set TRUST_PROXY=1.", private, total))
 	default:
-		add("Proxy", "ok", "Client IPs look public.")
+		add(checkProxy, "ok", "Client IPs look public.")
 	}
 	if httpx.XFFIgnored() > 0 { // count is per header read (several per request): show the peer, not a number
-		add("Forwarded headers", "warn", fmt.Sprintf("X-Forwarded-For/X-Real-IP from %s ignored: outside TRUSTED_PROXIES, its clients share one IP. If that is your proxy, add its CIDR to TRUSTED_PROXIES; if not, firewall the origin.", httpx.LastXFFPeer()))
+		add(checkForwarded, "warn", fmt.Sprintf("X-Forwarded-For/X-Real-IP from %s ignored: outside TRUSTED_PROXIES, its clients share one IP. If that is your proxy, add its CIDR to TRUSTED_PROXIES; if not, firewall the origin.", httpx.LastXFFPeer()))
 	}
 	return out, nil
 }
