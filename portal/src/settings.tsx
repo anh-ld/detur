@@ -17,98 +17,108 @@ import {
   ToggleGroup,
 } from 'kinu';
 import { api, App, AppPage, CreatedApp, HealthCheck, HttpError, MatchQuality, PagePreview } from './api';
-import { AdminGateAborted, adminCall, AdminRequired, closeDialog, ConfirmDelete, CopyButton, gateOpen, getAdmin, getAdminSet, Loading, mono, muted, row, subscribeAdmin } from './ui';
+import { AdminGateAborted, adminCall, AdminRequired, closeDialog, ConfirmDelete, CopyButton, gateOpen, getAdmin, getAdminSet, Loading, mono, muted, refreshAdminSession, row, subscribeAdmin, useAdminLocked } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 import { CodeEditor } from './code';
 
 const sectionTitle = { margin: '40px 0 16px', fontSize: 20 };
 
 // Settings tab: health, app config (well-known files), API key, matching, match quality.
+// admin only: not elevated -> locked notice, nothing else. Session dying after the panel rendered
+// hides it instead (drafts + an in-flight save's retry survive the re-unlock).
 export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: App) => void; onReload: () => void }) {
   const [error, setError] = useState('');
+  const locked = useAdminLocked();
+  const shown = useRef(false);
+  const notice = <AdminRequired>Enter your admin password to view and change settings.</AdminRequired>;
+  if (locked && !shown.current) return notice;
+  shown.current = true;
 
   return (
     <div>
-      {error && <Alert variant="destructive">{error}</Alert>}
+      {locked && notice}
+      <div hidden={locked}>
+        {error && <Alert variant="destructive">{error}</Alert>}
 
-      <h2 style={{ ...sectionTitle, marginTop: 0 }}>Health</h2>
-      <p style={{ ...muted, marginBottom: 16 }}>Setup checks. Refreshes after you save.</p>
-      <HealthTable app={app} />
+        <h2 style={{ ...sectionTitle, marginTop: 0 }}>Health</h2>
+        <p style={{ ...muted, marginBottom: 16 }}>Setup checks. Refreshes after you save.</p>
+        <HealthTable app={app} />
 
-      <h2 style={sectionTitle}>App config</h2>
-      <p style={{ ...muted, marginBottom: 16 }}>Used to serve the iOS and Android well-known files.</p>
-      <AppConfigTable app={app} onSaved={onApp} />
+        <h2 style={sectionTitle}>App config</h2>
+        <p style={{ ...muted, marginBottom: 16 }}>Used to serve the iOS and Android well-known files.</p>
+        <AppConfigTable app={app} onSaved={onApp} />
 
-      <h2 style={sectionTitle}>API key</h2>
-      <Table>
-        <thead>
-          <tr>
-            <th>Credential</th>
-            <th>Value</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>App ID</td>
-            <td style={mono}>{app.id}</td>
-            <td>
-              <div style={{ ...row, justifyContent: 'flex-end' }}>
-                <CopyButton value={app.id} label="Copy ID" />
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td>API key</td>
-            <td>
-              {app.apiKeyHash ? (
-                <span style={row}>
-                  <span style={{ ...mono, letterSpacing: 2 }} aria-label="Hidden">••••••••••••</span>
-                  <span style={{ ...muted, fontSize: 13 }}>Shown once when created or rotated.</span>
-                </span>
-              ) : (
-                <span style={{ ...muted, color: 'hsl(var(--k-destructive))' }}>Revoked. SDK calls are rejected.</span>
-              )}
-            </td>
-            <td>
-              <div style={{ ...row, justifyContent: 'flex-end' }}>
-                <RotateKeyDialog app={app} onChanged={onReload} />
-                <ConfirmDelete
-                  id={`dlg-revoke-${app.id}`}
-                  requireAdmin
-                  title={`Remove the API key for ${app.name}?`}
-                  body="The SDK stops accepting it. Rotate a new key to get access back."
-                  onConfirm={async () => {
-                    setError('');
-                    try {
-                      await adminCall(() => api.revokeKey(app.id));
-                      onReload();
-                    } catch (e) {
-                      if (e instanceof AdminGateAborted) return;
-                      setError(String(e));
-                    }
-                  }}
-                />
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </Table>
+        <h2 style={sectionTitle}>API key</h2>
+        <Table>
+          <thead>
+            <tr>
+              <th>Credential</th>
+              <th>Value</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>App ID</td>
+              <td style={mono}>{app.id}</td>
+              <td>
+                <div style={{ ...row, justifyContent: 'flex-end' }}>
+                  <CopyButton value={app.id} label="Copy ID" />
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>API key</td>
+              <td>
+                {app.apiKeyHash ? (
+                  <span style={row}>
+                    <span style={{ ...mono, letterSpacing: 2 }} aria-label="Hidden">••••••••••••</span>
+                    <span style={{ ...muted, fontSize: 13 }}>Shown once when created or rotated.</span>
+                  </span>
+                ) : (
+                  <span style={{ ...muted, color: 'hsl(var(--k-destructive))' }}>Revoked. SDK calls are rejected.</span>
+                )}
+              </td>
+              <td>
+                <div style={{ ...row, justifyContent: 'flex-end' }}>
+                  <RotateKeyDialog app={app} onChanged={onReload} />
+                  <ConfirmDelete
+                    id={`dlg-revoke-${app.id}`}
+                    requireAdmin
+                    title={`Remove the API key for ${app.name}?`}
+                    body="The SDK stops accepting it. Rotate a new key to get access back."
+                    onConfirm={async () => {
+                      setError('');
+                      try {
+                        await adminCall(() => api.revokeKey(app.id));
+                        onReload();
+                      } catch (e) {
+                        if (e instanceof AdminGateAborted) return;
+                        setError(String(e));
+                      }
+                    }}
+                  />
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </Table>
 
-      <h2 style={sectionTitle}>Get-app page</h2>
-      <p style={{ ...muted, marginBottom: 16 }}>
-        What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
-      </p>
-      <PageEditor app={app} />
+        <h2 style={sectionTitle}>Get-app page</h2>
+        <p style={{ ...muted, marginBottom: 16 }}>
+          What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
+        </p>
+        <PageEditor app={app} />
 
-      <h2 style={sectionTitle}>Matching</h2>
-      <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
-      <MatchingTable app={app} onSaved={onApp} />
-      <TagLinksRow app={app} onSaved={onApp} />
+        <h2 style={sectionTitle}>Matching</h2>
+        <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
+        <MatchingTable app={app} onSaved={onApp} />
+        <TagLinksRow app={app} onSaved={onApp} />
 
-      <h2 style={sectionTitle}>Match quality</h2>
-      <p style={{ ...muted, marginBottom: 16 }}>Installs from the last 30 days: how each was attributed, and the score it got.</p>
-      <MatchQualityView app={app} />
+        <h2 style={sectionTitle}>Match quality</h2>
+        <p style={{ ...muted, marginBottom: 16 }}>Installs from the last 30 days: how each was attributed, and the score it got.</p>
+        <MatchQualityView app={app} />
+      </div>
     </div>
   );
 }
@@ -239,7 +249,7 @@ function PageEditor({ app }: { app: App }) {
       if (getAdminSet() && !getAdmin()) return setLocked(true);
       api.getPage(app.id).then(
         (d) => !stale && ((loaded.current = true), setLocked(false), setData(d), setText(d.html || d.defaultHtml)),
-        (e) => !stale && (e instanceof HttpError && e.status === 403 ? setLocked(true) : setError(String(e))),
+        (e) => !stale && (e instanceof HttpError && e.status === 403 ? (setLocked(true), refreshAdminSession()) : setError(String(e))),
       );
     };
     load();

@@ -203,6 +203,13 @@ export function gateOpen(dialogId: string) {
   }
 }
 
+// true while a password is set and the session isn't elevated; re-renders on admin change
+export function useAdminLocked() {
+  const [, bump] = useState(0);
+  useEffect(() => subscribeAdmin(() => bump((n) => n + 1)), []);
+  return adminSet && !elevated;
+}
+
 // locked-section notice: shared look for admin-gated panels before elevation.
 // elevating notifies subscribeAdmin -> panels reload.
 export function AdminRequired({ children }: { children: ComponentChildren }) {

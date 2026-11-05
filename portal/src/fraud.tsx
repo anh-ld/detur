@@ -1,8 +1,8 @@
 import { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Badge, Card, Empty, Input, Select, Table, toast, Toggle, ToggleGroup } from 'kinu';
-import { api, DateRangeFilter, FlaggedInstall, Fraud, FraudMode, FraudSettings } from './api';
-import { AdminGateAborted, adminCall, AdminRequired, getAdmin, Loading, mono, muted, row, subscribeAdmin } from './ui';
+import { api, DateRangeFilter, FlaggedInstall, HttpError, Fraud, FraudMode, FraudSettings } from './api';
+import { AdminGateAborted, adminCall, AdminRequired, getAdmin, getAdminSet, Loading, mono, muted, refreshAdminSession, row, subscribeAdmin } from './ui';
 import { FRAUD_RANGES, FraudNumKey, SIGNALS } from './matching';
 import { DateRangePicker, fmt, RANGE_OPTIONS, Skeleton } from './analytics';
 
@@ -33,38 +33,27 @@ export function FraudPanel({ appId, tick }: { appId: string; tick: number }) {
 }
 
 // each change saves alone: mode on press, threshold on blur/Enter. Toast per save; rejected -> revert + toast why.
-// admin-gated: viewer load 403s -> password prompt (elevate in place), not a raw error
+// admin-gated: not elevated -> locked notice, no prompt; top-bar unlock reloads
 function Signals({ appId, tick }: { appId: string; tick: number }) {
   const [view, setView] = useState<FraudSettings | null>(null);
   const [loadError, setLoadError] = useState('');
   const [locked, setLocked] = useState(false);
-  // viewer canceled this section's prompt: Refresh (tick) stays locked, no re-prompt.
-  // survives effect re-runs; FraudPanel remounts on app change.
-  const canceled = useRef(false);
+  const loaded = useRef(false); // unlock reloads only until settings are in
 
   useEffect(() => {
     let stale = false;
+    loaded.current = false;
     const load = () => {
-      if (canceled.current && !getAdmin()) return;
-      canceled.current = false;
       setLoadError('');
-      setLocked(false);
-      adminCall(() => api.getFraudSettings(appId)).then(
-        (v) => !stale && setView(v),
-        (e) => {
-          if (e instanceof AdminGateAborted) {
-            canceled.current = true;
-            !stale && setLocked(true);
-          } else if (!stale) setLoadError(String(e));
-        },
+      if (getAdminSet() && !getAdmin()) return setLocked(true);
+      api.getFraudSettings(appId).then(
+        (v) => !stale && ((loaded.current = true), setLocked(false), setView(v)),
+        // 403 while the UI thinks elevated = session died: lock + re-read session (chip clears), no prompt
+        (e) => !stale && (e instanceof HttpError && e.status === 403 ? (setLocked(true), refreshAdminSession()) : setLoadError(String(e))),
       );
     };
     load();
-    // top-bar elevation while locked reloads the section. Only when locked:
-    // an in-flight load's own prompt already retries after elevation.
-    const unsub = subscribeAdmin(() => {
-      if (canceled.current && getAdmin() && !stale) load();
-    });
+    const unsub = subscribeAdmin(() => !stale && !loaded.current && load());
     return () => {
       stale = true;
       unsub();
