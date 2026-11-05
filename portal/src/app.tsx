@@ -14,12 +14,14 @@ import {
   subscribeAdmin,
 } from './ui';
 import { AppsPage } from './apps';
+import { ApiTokensPage } from './api-tokens';
 import { AppPage, AppTab, tabHref, TABS } from './detail';
 import type { App as AppT } from './api';
 
-type Route = { name: 'apps' } | { name: 'app'; id: string; tab: AppTab };
+type Route = { name: 'apps' } | { name: 'api' } | { name: 'app'; id: string; tab: AppTab };
 
 export function parseHash(h: string = location.hash): Route {
+  if (/^#\/api(?:[/?#]|$)/.test(h)) return { name: 'api' };
   const m = h.match(/^#\/apps\/([^/?#]+)(?:\/(analytics|fraud|settings|webhooks))?/);
   if (m) {
     try {
@@ -142,10 +144,16 @@ export function App() {
               </a>
             ))
           ) : (
-            <a href="#/" aria-current="page">
-              <Icon d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" />
-              Apps
-            </a>
+            <>
+              <a href="#/" aria-current={route.name === 'apps' ? 'page' : undefined}>
+                <Icon d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" />
+                Apps
+              </a>
+              <a href="#/api" aria-current={route.name === 'api' ? 'page' : undefined}>
+                <Icon d="m8 6-6 6 6 6M16 6l6 6-6 6" />
+                API
+              </a>
+            </>
           )}
         </nav>
         <div class="side-foot">
@@ -186,6 +194,7 @@ export function App() {
       </aside>
       <main>
         {route.name === 'apps' && <AppsPage />}
+        {route.name === 'api' && <ApiTokensPage />}
         {route.name === 'app' && <AppPage id={route.id} tab={route.tab} onName={setAppName} />}
       </main>
       <AdminPasswordDialog />
