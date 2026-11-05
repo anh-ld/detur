@@ -156,9 +156,7 @@ describe('portal client flows', () => {
   it('detail flow: Links tab creates a link, then deletes it', async () => {
     const app = await api.createApp(uniq('detail-app'));
     render(<AppPage id={app.id} tab="links" />);
-    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
-
-    fireEvent.click(screen.getByRole('button', { name: 'New link' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New link' }));
     fireEvent.input(within(openDialog()).getByLabelText('Short link'), { target: { value: 'summer-sale' } });
     fireEvent.input(within(openDialog()).getByLabelText('Destination'), {
       target: { value: '/promo' },
@@ -209,7 +207,7 @@ describe('portal client flows', () => {
     expect(tileValue('Web fallbacks')).toBe(1);
     expect(tileValue('Installs via link')).toBe(1);
     expect(tileValue('Already installed opens')).toBe(0);
-    expect(screen.getByText('purchase').closest('tr')!.querySelector('[data-label="Count"]')!.textContent).toBe('1');
+    expect(screen.getByText('purchase').closest('li')!.querySelector('.num')!.textContent).toBe('1');
     screen.getByText('No in-app clicks');
 
     fireEvent.change(screen.getByLabelText('Platform'), { target: { value: 'ios' } });
@@ -576,9 +574,7 @@ describe('portal client flows', () => {
   it('link validation flow: empty fields rejected', async () => {
     const app = await api.createApp(uniq('link-val-app'));
     render(<AppPage id={app.id} tab="links" />);
-    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
-
-    fireEvent.click(screen.getByRole('button', { name: 'New link' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New link' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
     await screen.findByText('Key and destination are required');
 
@@ -743,12 +739,12 @@ describe('portal client flows', () => {
 
     location.hash = `#/apps/${a.id}/fraud`;
     render(<App />);
-    await screen.findByRole('heading', { name: a.name });
+    await screen.findByText(a.name, { selector: 'summary .app-switch-name' });
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('33'));
     expect(pressed('Bot traffic')).toEqual(['Active']);
 
     go(`#/apps/${b.id}/fraud`);
-    await screen.findByRole('heading', { name: b.name });
+    await screen.findByText(b.name, { selector: 'summary .app-switch-name' });
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('20'));
     await settle();
     expect(threshold('Max clicks per IP').value).toBe('20');
@@ -763,7 +759,7 @@ describe('portal client flows', () => {
 
     // and back to A: A's values again
     go(`#/apps/${a.id}/fraud`);
-    await screen.findByRole('heading', { name: a.name });
+    await screen.findByText(a.name, { selector: 'summary .app-switch-name' });
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('33'));
     expect(threshold('Max clicks per link').value).toBe('500');
     await api.deleteApp(a.id);
