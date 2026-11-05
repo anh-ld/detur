@@ -402,6 +402,9 @@ describe('portal admin flows (gated)', () => {
     go('#/api');
     render(<App />);
     await screen.findByText('Admin required');
+    // locked: no form, no setup guide
+    expect(screen.queryByRole('button', { name: 'Create token' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Connect' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
 
