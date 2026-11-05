@@ -1351,3 +1351,20 @@ main p code,
   overflow-x: auto;
   white-space: nowrap;
 }
+
+/* get-app page editor: HTML 2 cols, preview 1 col; stacked on narrow screens */
+.page-editor{display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:stretch}
+.page-box{min-width:0;border:1px solid hsl(var(--k-border));border-radius:var(--k-radius);overflow:hidden;display:flex;flex-direction:column}
+.page-box-head{display:flex;align-items:center;gap:8px;min-height:48px;box-sizing:border-box;padding:0 12px;border-bottom:1px solid hsl(var(--k-border))}
+@media (max-width:720px){.page-editor{grid-template-columns:1fr}}
+
+/* page editor code field: transparent textarea over highlighted pre, identical box + font metrics */
+.code-editor{position:relative;overflow:hidden;background:#fff}
+.code-editor pre,.code-editor textarea{position:absolute;inset:0;margin:0;padding:12px;border:0;box-sizing:border-box;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0;white-space:pre;tab-size:2;overflow:auto}
+.code-editor pre{overflow:hidden;pointer-events:none;color:#24292f}
+.code-editor textarea{width:100%;height:100%;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#24292f;resize:none;outline:none}
+.code-editor textarea::selection{background:rgba(9,105,218,.2)}
+.code-editor:focus-within{box-shadow:inset 0 0 0 2px hsl(var(--k-ring, 215 90% 50%) / .5)}
+.hl-tag{color:#116329}.hl-attr{color:#0550ae}.hl-str{color:#0a3069}.hl-comment{color:#6e7781;font-style:italic}
+.hl-punct{color:#57606a}.hl-sel{color:#6639ba}.hl-prop{color:#0550ae}.hl-val{color:#0a3069}
+.hl-ph{color:#8250df;background:rgba(130,80,223,.1);border-radius:3px}

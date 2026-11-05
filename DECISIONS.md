@@ -45,7 +45,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | C9 | Safety net: hop-1 page still visible after delay → reload with `_tap` → tap page. 1.5s generic webview, 4s real-browser UA, off for named apps. | Ours | Covers unnamed apps; 4s spares slow real browsers. Tune on devices. | in-app |
 | C10 | Click `source`: app name or `unknown-inapp` → stored on the click, rolled up per link (`click_sources`), sent in webhooks, shown in the portal. | Ours | Social traffic visible. Own table keeps the `click_days` key. | in-app |
 | C11 | Copy + tap page store icon: App Store (iTunes Lookup `artworkUrl512`, link's storefront), else Play (listing `og:image`; no API). Background fetch, in-memory 24h (1h after failure); first visit → generic glyph. | Ours | Recognizable app, no new field. Page never waits on a store. | in-app |
-| C12 | Per-app custom get-app page (`apps.page_html`): one HTML for the copy page + tap page, `{{placeholders}}`, admin-only. We own the button script (`id="detur-cta"`); user scripts blocked by CSP (nonce) + rejected on save. Empty = default design. | Detour-inspired | Detour has a template form; custom HTML covers it. A dead or scripted page would break installs. | custom-page |
+| C12 | Per-app custom get-app page (`apps.page_html`): one HTML for the copy page + tap page, `{{placeholders}}`, admin-only. We own the button script (`id="detur-cta"`, reserved); inserted markup styled via `.detur-cta`, `.detur-alt`, `.detur-hint`, `.detur-steps`; user scripts blocked by CSP (nonce) + rejected on save. Empty = default design. | Detour-inspired | Detour has a template form; custom HTML covers it. A dead or scripted page would break installs. | custom-page |
 
 ## Redirects
 

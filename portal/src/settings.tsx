@@ -16,9 +16,10 @@ import {
   Toggle,
   ToggleGroup,
 } from 'kinu';
-import { api, App, AppPage, CreatedApp, HealthCheck, MatchQuality, PagePreview } from './api';
-import { AdminGateAborted, adminCall, closeDialog, ConfirmDelete, CopyButton, gateOpen, Loading, mono, muted, row } from './ui';
+import { api, App, AppPage, CreatedApp, HealthCheck, HttpError, MatchQuality, PagePreview } from './api';
+import { AdminGateAborted, adminCall, AdminRequired, closeDialog, ConfirmDelete, CopyButton, gateOpen, getAdmin, getAdminSet, Loading, mono, muted, row, subscribeAdmin } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
+import { CodeEditor } from './code';
 
 const sectionTitle = { margin: '40px 0 16px', fontSize: 20 };
 
@@ -212,35 +213,44 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
 }
 
 const PAGE_MAX = 51200;
+// placeholder help: `backticks` -> <code>
+const codeSpans = (s: string) => s.split('`').map((t, i) => (i % 2 ? <code key={i}>{t}</code> : t));
 const PREVIEWS: { label: string; p: Pick<PagePreview, 'page' | 'platform'> }[] = [
   { label: 'iOS copy', p: { page: 'copy', platform: 'ios' } },
   { label: 'iOS in-app', p: { page: 'tap', platform: 'ios' } },
   { label: 'Android in-app', p: { page: 'tap', platform: 'android' } },
 ];
 
-// loads on demand (admin-gated GET, 50 KB kept out of the app list): Edit page -> mode, HTML, preview, save
+// loads on mount (admin-gated GET, 50 KB kept out of the app list), never prompts: viewer -> Unlock admin notice, reloads on elevation.
+// One HTML field (starts as the default), preview, save.
+// Text == default -> saved as "" (stays on the built-in page, picks up its future changes).
 function PageEditor({ app }: { app: App }) {
   const [data, setData] = useState<AppPage | null>(null);
-  const [custom, setCustom] = useState(false);
   const [text, setText] = useState('');
   const [view, setView] = useState(0);
   const [preview, setPreview] = useState('');
   const [error, setError] = useState('');
+  const [locked, setLocked] = useState(false);
+  const loaded = useRef(false); // unlock reloads only until the page is in (never clobbers edits)
 
-  const open = async () => {
-    setError('');
-    try {
-      const d = await adminCall(() => api.getPage(app.id));
-      setData(d);
-      setCustom(d.html !== '');
-      setText(d.html || d.defaultHtml);
-    } catch (e) {
-      if (e instanceof AdminGateAborted) return;
-      setError(String(e));
-    }
-  };
+  useEffect(() => {
+    let stale = false;
+    const load = () => {
+      if (getAdminSet() && !getAdmin()) return setLocked(true);
+      api.getPage(app.id).then(
+        (d) => !stale && ((loaded.current = true), setLocked(false), setData(d), setText(d.html || d.defaultHtml)),
+        (e) => !stale && (e instanceof HttpError && e.status === 403 ? setLocked(true) : setError(String(e))),
+      );
+    };
+    load();
+    const unsub = subscribeAdmin(() => !stale && !loaded.current && load());
+    return () => {
+      stale = true;
+      unsub();
+    };
+  }, [app.id]);
 
-  const html = custom ? text : '';
+  const html = !data || text === data.defaultHtml ? '' : text;
   // debounced: real renderer on the server; sandboxed frame (no scripts)
   useEffect(() => {
     if (!data) return;
@@ -261,7 +271,7 @@ function PageEditor({ app }: { app: App }) {
     setError('');
     try {
       await adminCall(() => api.savePage(app.id, html));
-      toast.show(custom ? 'Custom page saved' : 'Default page restored');
+      toast.show(html ? 'Custom page saved' : 'Default page saved');
     } catch (e) {
       if (e instanceof AdminGateAborted) return;
       setError(String(e));
@@ -269,60 +279,58 @@ function PageEditor({ app }: { app: App }) {
   };
 
   if (!data) {
-    return (
-      <div style={{ display: 'grid', gap: 16 }}>
-        {error && <Alert variant="destructive">{error}</Alert>}
-        <div>
-          <Button variant="outline" onClick={open}>
-            Edit page
-          </Button>
-        </div>
-      </div>
-    );
+    if (locked) return <AdminRequired>Enter your admin password to edit the page.</AdminRequired>;
+    return error ? <Alert variant="destructive">{error}</Alert> : <Loading />;
   }
   const bytes = new TextEncoder().encode(text).length;
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <ToggleGroup role="group" aria-label="Page source" class="seg" style={{ justifySelf: 'start' }}>
-        {[false, true].map((c) => (
-          <Toggle key={String(c)} type="button" size="sm" pressed={custom === c} onClickCapture={() => {}} onClick={() => setCustom(c)}>
-            {c ? 'Custom' : 'Default'}
-          </Toggle>
-        ))}
-      </ToggleGroup>
-      {custom && (
-        <Field>
-          <Label htmlFor="page-html">HTML</Label>
-          <Textarea id="page-html" rows={16} style={mono} value={text} onInput={(e) => setText(e.currentTarget.value)} />
-          <Field.Description style={bytes > PAGE_MAX ? { color: 'hsl(var(--k-destructive))' } : undefined}>
-            {bytes.toLocaleString()} / {PAGE_MAX.toLocaleString()} bytes
-          </Field.Description>
-          <ul style={{ ...muted, margin: '8px 0 0', paddingLeft: 18 }}>
-            {data.placeholders.map((p) => (
-              <li key={p.name}>
-                <code>{`{{${p.name}}}`}</code> {p.desc}
-              </li>
-            ))}
-          </ul>
-          <p style={{ ...muted, marginTop: 8 }}>No scripts or on* handlers (blocked). Images and fonts must be https.</p>
-        </Field>
-      )}
-      <ToggleGroup role="group" aria-label="Preview" class="seg" style={{ justifySelf: 'start' }}>
-        {PREVIEWS.map((v, i) => (
-          <Toggle key={v.label} type="button" size="sm" pressed={view === i} onClickCapture={() => {}} onClick={() => setView(i)}>
-            {v.label}
-          </Toggle>
-        ))}
-      </ToggleGroup>
-      <iframe
-        title="Page preview"
-        sandbox=""
-        srcdoc={preview}
-        style={{ width: 390, maxWidth: '100%', height: 844, border: '1px solid hsl(var(--k-border))', borderRadius: 'var(--k-radius)', background: '#fff' }}
-      />
+      {/* one toolbar line: reset, save */}
+      <div style={{ ...row, justifyContent: 'flex-end', gap: 12 }}>
+        <Button variant="outline" disabled={!html} onClick={() => setText(data.defaultHtml)}>
+          Reset to default
+        </Button>
+        <Button onClick={save}>
+          Save page
+        </Button>
+      </div>
       {error && <Alert variant="destructive">{error}</Alert>}
-      <div style={{ ...row, justifyContent: 'flex-end' }}>
-        <Button onClick={save}>Save page</Button>
+      {/* HTML 2 cols, preview 1 col; stacks below ~720px. Twin boxes: same header bar + 560px body -> equal height */}
+      <div class="page-editor">
+        <div class="page-box">
+          <div class="page-box-head" style={{ justifyContent: 'space-between' }}>
+            <Label htmlFor="page-html" style={{ margin: 0 }}>
+              HTML
+            </Label>
+            <small style={{ ...muted, ...(bytes > PAGE_MAX ? { color: 'hsl(var(--k-destructive))' } : {}) }}>
+              {html ? 'Custom' : 'Default'} page · {bytes.toLocaleString()} / {PAGE_MAX.toLocaleString()} bytes
+            </small>
+          </div>
+          <CodeEditor id="page-html" value={text} onInput={setText} height={560} />
+        </div>
+        {/* preview frame: its own target switch on top */}
+        <div class="page-box">
+          <div class="page-box-head" style={{ justifyContent: 'center' }}>
+            <ToggleGroup role="group" aria-label="Preview" class="seg">
+              {PREVIEWS.map((v, i) => (
+                <Toggle key={v.label} type="button" size="sm" pressed={view === i} onClickCapture={() => {}} onClick={() => setView(i)}>
+                  {v.label}
+                </Toggle>
+              ))}
+            </ToggleGroup>
+          </div>
+          <iframe title="Page preview" sandbox="" srcdoc={preview} style={{ display: 'block', width: '100%', height: 560, border: 0, background: '#fff' }} />
+        </div>
+      </div>
+      <div style={muted}>
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          {data.placeholders.map((p) => (
+            <li key={p.name}>
+              <code class="hl-ph">{`{{${p.name}}}`}</code> {codeSpans(p.desc)}
+            </li>
+          ))}
+        </ul>
+        <p style={{ marginTop: 8 }}>No scripts or on* handlers. Images and fonts: https only.</p>
       </div>
     </div>
   );
