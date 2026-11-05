@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -17,8 +18,8 @@ type Token struct {
 	LastUsedAt *time.Time
 }
 
-// touchEvery: min gap between last_used_at writes per token.
-const touchEvery = time.Minute
+// TouchEvery: min gap between last_used_at writes per token (one SQLite conn).
+const TouchEvery = time.Minute
 
 // CreateToken: new token for appIDs (deduped); unknown app -> ErrNotFound, nothing stored. Plaintext returned once.
 func (s *Store) CreateToken(name string, appIDs []string) (Token, string, error) {
@@ -89,6 +90,18 @@ func (s *Store) TokenByPlain(plain string) (Token, error) {
 	return ts[0], nil
 }
 
+// TokenByID: token by id; ErrNotFound on miss.
+func (s *Store) TokenByID(id string) (Token, error) {
+	ts, err := s.tokens(`WHERE id = ?`, id)
+	if err != nil {
+		return Token{}, err
+	}
+	if len(ts) == 0 {
+		return Token{}, ErrNotFound
+	}
+	return ts[0], nil
+}
+
 func (s *Store) tokens(tail string, args ...any) ([]Token, error) {
 	rows, err := s.db.Query(`SELECT id, name, prefix, created_at, last_used_at FROM api_tokens `+tail, args...)
 	if err != nil {
@@ -114,24 +127,30 @@ func (s *Store) tokens(tail string, args ...any) ([]Token, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list tokens: %w", err)
 	}
-	for i := range out {
-		ar, err := s.db.Query(`SELECT app_id FROM api_token_apps WHERE token_id = ? ORDER BY app_id`, out[i].ID)
-		if err != nil {
+	rows.Close() // one connection: free it before the app query
+	if len(out) == 0 {
+		return out, nil
+	}
+	idx := make(map[string]int, len(out))
+	args = make([]any, len(out))
+	for i, t := range out {
+		idx[t.ID] = i
+		args[i] = t.ID
+	}
+	ar, err := s.db.Query(`SELECT token_id, app_id FROM api_token_apps WHERE token_id IN (?`+strings.Repeat(",?", len(out)-1)+`) ORDER BY app_id`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tokens: %w", err)
+	}
+	defer ar.Close()
+	for ar.Next() {
+		var id, a string
+		if err := ar.Scan(&id, &a); err != nil {
 			return nil, fmt.Errorf("list tokens: %w", err)
 		}
-		for ar.Next() {
-			var a string
-			if err := ar.Scan(&a); err != nil {
-				ar.Close()
-				return nil, fmt.Errorf("list tokens: %w", err)
-			}
-			out[i].AppIDs = append(out[i].AppIDs, a)
-		}
-		if err := ar.Err(); err != nil {
-			ar.Close()
-			return nil, fmt.Errorf("list tokens: %w", err)
-		}
-		ar.Close()
+		out[idx[id]].AppIDs = append(out[idx[id]].AppIDs, a)
+	}
+	if err := ar.Err(); err != nil {
+		return nil, fmt.Errorf("list tokens: %w", err)
 	}
 	return out, nil
 }
@@ -170,10 +189,10 @@ func (s *Store) DeleteToken(id string) error {
 	return nil
 }
 
-// TouchToken: set last_used_at = now unless already set within the last minute (bounds writes on the single conn).
+// TouchToken: set last_used_at = now unless set within TouchEvery.
 func (s *Store) TouchToken(id string, now time.Time) error {
 	_, err := s.db.Exec(`UPDATE api_tokens SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)`,
-		rfc3339(now), id, rfc3339(now.Add(-touchEvery)))
+		rfc3339(now), id, rfc3339(now.Add(-TouchEvery)))
 	if err != nil {
 		return fmt.Errorf("touch token: %w", err)
 	}

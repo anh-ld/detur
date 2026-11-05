@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"detur.dev/server/internal/httpx"
@@ -22,6 +23,7 @@ type dataServer struct {
 	v1  *http.ServeMux // also served in-process to MCP tool calls
 	// adminPassword "" = every token refused: removing the password must not leave unrevocable credentials live.
 	adminPassword string
+	touched       sync.Map // token id -> last TouchToken: skip the write lock on most requests
 }
 
 type allowedKey struct{}
@@ -71,8 +73,12 @@ func (d *dataServer) auth(next http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if err := d.st.TouchToken(t.ID, time.Now()); err != nil {
-			d.log.Printf("data api touch: %v", err) // never blocks the read
+		now := time.Now()
+		if last, ok := d.touched.Load(t.ID); !ok || now.Sub(last.(time.Time)) >= store.TouchEvery {
+			d.touched.Store(t.ID, now)
+			if err := d.st.TouchToken(t.ID, now); err != nil {
+				d.log.Printf("data api touch: %v", err) // never blocks the read
+			}
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), allowedKey{}, t.AppIDs)))
 	}
@@ -169,7 +175,7 @@ func (d *dataServer) health(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]healthCheck, 0, len(checks))
 	for _, c := range checks {
-		if c.Check != "Proxy" && c.Check != "Forwarded headers" {
+		if c.Check != checkProxy && c.Check != checkForwarded {
 			out = append(out, c)
 		}
 	}

@@ -105,18 +105,12 @@ func (p *portalServer) updateToken(w http.ResponseWriter, r *http.Request) {
 		p.storeErr(w, err)
 		return
 	}
-	ts, err := p.st.ListTokens()
+	t, err := p.st.TokenByID(id)
 	if err != nil {
-		p.internal(w, err)
+		p.storeErr(w, err)
 		return
 	}
-	for _, t := range ts {
-		if t.ID == id {
-			httpx.WriteJSON(w, http.StatusOK, toTokenJSON(t))
-			return
-		}
-	}
-	http.Error(w, "not found", http.StatusNotFound)
+	httpx.WriteJSON(w, http.StatusOK, toTokenJSON(t))
 }
 
 func (p *portalServer) deleteToken(w http.ResponseWriter, r *http.Request) {

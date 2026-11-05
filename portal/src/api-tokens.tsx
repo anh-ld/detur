@@ -376,7 +376,8 @@ function Connect({ base }: { base: string }) {
         <ol style={{ ...muted, margin: 0, paddingLeft: 20, display: 'grid', gap: 4 }}>
           <li>Create a token below and pick its apps.</li>
           <li>
-            Add detur as a remote MCP server in your agent (Claude, Cursor, Codex, VS Code, …): URL + header, or paste the mcp.json block.
+            Add detur as a remote (Streamable HTTP) MCP server in your agent: URL + header works everywhere; the mcp.json block fits Claude
+            Code and Cursor (VS Code uses a "servers" key, Codex its config.toml).
           </li>
           <li>Ask: "Which links drove installs last week?" Agents start with list_apps.</li>
         </ol>

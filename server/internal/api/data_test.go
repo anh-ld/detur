@@ -86,6 +86,9 @@ func TestDataAPI(t *testing.T) {
 		_, body := get("/api/v1/apps", h)
 		var apps []map[string]any
 		mustJSON(t, []byte(body), &apps)
+		if tk, err := st.TokenByID(tokA.ID); err != nil || tk.LastUsedAt == nil {
+			t.Fatalf("last_used_at not recorded: %+v %v", tk, err)
+		}
 		if len(apps) != 1 || apps[0]["id"] != a.ID {
 			t.Fatalf("apps = %s; want only A", body)
 		}

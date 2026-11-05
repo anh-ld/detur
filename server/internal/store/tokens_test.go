@@ -38,6 +38,16 @@ func TestTokens(t *testing.T) {
 	if ts, _ := s.ListTokens(); len(ts) != 1 {
 		t.Fatalf("failed create left a row: %+v", ts)
 	}
+	tok2, _, err := s.CreateToken("second", []string{a.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts, _ := s.ListTokens(); len(ts) != 2 || len(ts[0].AppIDs) != 2 || len(ts[1].AppIDs) != 1 || ts[1].AppIDs[0] != a.ID {
+		t.Fatalf("batched app lookup mixed tokens: %+v", ts)
+	}
+	if err := s.DeleteToken(tok2.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := s.UpdateToken(tok.ID, "", []string{b.ID}); err != nil {
 		t.Fatal(err)
