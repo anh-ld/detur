@@ -395,4 +395,77 @@ describe('portal admin flows (gated)', () => {
 
     await adminCleanup(() => api.deleteApp(app.id));
   });
+
+  it('API tokens: viewer unlocks, creates a token (shown once with MCP config), edits its apps, revokes it', async () => {
+    const a = await makeApp('tok-a');
+    const b = await makeApp('tok-b');
+    go('#/api');
+    render(<App />);
+    await screen.findByText('Admin required');
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
+    await unlock();
+
+    const create = (await screen.findByRole('button', { name: 'Create token' })) as HTMLButtonElement;
+    const form = create.closest('form')!;
+    // setup guide stays on the page with a placeholder, never a real token
+    screen.getByRole('heading', { name: 'Connect' });
+    screen.getByText('Authorization: Bearer <token>');
+    fireEvent.input(within(form).getByLabelText('Name'), { target: { value: 'ci-agent' } });
+    expect(create.disabled).toBe(true); // no app picked
+    fireEvent.click(await within(form).findByLabelText(a.name));
+    fireEvent.click(within(form).getByLabelText(b.name));
+    await waitFor(() => expect(create.disabled).toBe(false));
+    fireEvent.click(create);
+
+    const dlg = await waitFor(() => {
+      const d = openDialog();
+      if (!within(d).queryByText(/won't be shown again/)) throw new Error('not the created dialog');
+      return d;
+    });
+    const token = [...dlg.querySelectorAll('input')].map((i) => i.value).find((v) => v.startsWith('dtr_'))!;
+    expect(token).toBeTruthy();
+    const cfg = JSON.parse(dlg.querySelector('pre')!.textContent!).mcpServers.detur;
+    expect(cfg.url).toMatch(/\/api\/mcp$/);
+    expect(cfg.headers).toEqual({ Authorization: `Bearer ${token}` });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(document.body.innerHTML).not.toContain(token));
+
+    const row = () => screen.getByText('ci-agent', { selector: 'td' }).closest('tr')!;
+    await screen.findByText('ci-agent', { selector: 'td' });
+    expect(row().textContent).toContain(token.slice(0, 8));
+    expect(row().textContent).toContain(a.name);
+    expect(row().textContent).toContain(b.name);
+
+    fireEvent.click(within(row()).getByRole('button', { name: 'Edit' }));
+    const edit = await waitFor(() => {
+      const d = openDialog();
+      if (!within(d).queryByRole('button', { name: 'Save' })) throw new Error('not the edit dialog');
+      return d;
+    });
+    const save = within(edit).getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    fireEvent.click(within(edit).getByLabelText(a.name));
+    fireEvent.click(within(edit).getByLabelText(b.name));
+    await waitFor(() => expect(save.disabled).toBe(true)); // no app left
+    fireEvent.click(within(edit).getByLabelText(b.name));
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    await waitFor(() => expect(row().textContent).not.toContain(a.name));
+    expect(row().textContent).toContain(b.name);
+    expect((await api.listTokens()).find((t) => t.name === 'ci-agent')!.appIds).toEqual([b.id]);
+
+    fireEvent.click(within(row()).getByRole('button', { name: 'Revoke' }));
+    const confirm = await waitFor(() => {
+      const d = openDialog();
+      if (!within(d).queryByText(/Anything using it stops/)) throw new Error('not the revoke dialog');
+      return d;
+    });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Revoke' }));
+    await waitFor(() => expect(screen.queryByText('ci-agent', { selector: 'td' })).toBeNull());
+    expect((await api.listTokens()).some((t) => t.name === 'ci-agent')).toBe(false);
+
+    await adminCleanup(async () => {
+      await api.deleteApp(a.id);
+      await api.deleteApp(b.id);
+    });
+  });
 });
