@@ -375,7 +375,7 @@ export function PageHeader({
         <h1 style={{ margin: 0, fontSize: 28 }}>{title}</h1>
         {description && <p style={muted}>{description}</p>}
       </div>
-      {actions && <div style={row}>{actions}</div>}
+      {actions && <div style={{ ...row, flexWrap: 'wrap' }}>{actions}</div>}
     </div>
   );
 }

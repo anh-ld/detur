@@ -1,6 +1,6 @@
 import { JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Alert, Badge, Button, Checkbox, Dialog, Empty, Field, Input, Label, Select, Table } from 'kinu';
+import { Alert, Badge, Button, Card, Checkbox, Dialog, Empty, Field, Input, Label, Select, Table } from 'kinu';
 import { api, App, HttpError, Webhook, WebhookEventType } from './api';
 import {
   adminCall,
@@ -176,9 +176,12 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
       </div>
 
       {!adminState.adminSet || !adminState.admin ? null : webhooks && webhooks.length === 0 ? (
-        <Empty style={{ padding: '48px 0' }}>
-          <p style={muted}>No webhooks yet. Add one to get installs, events and clicks pushed to your server.</p>
-        </Empty>
+        <Card>
+          <Empty>
+            <h3>No webhooks yet</h3>
+            Add one to get installs, events and clicks pushed to your server.
+          </Empty>
+        </Card>
       ) : (
         <Table>
           <thead>

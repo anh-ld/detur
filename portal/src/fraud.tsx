@@ -271,7 +271,10 @@ function Flagged({ appId, tick }: { appId: string; tick: number }) {
         <Skeleton h={120} />
       ) : data.installs.length === 0 ? (
         <Card>
-          <Empty>Nothing flagged in this range.</Empty>
+          <Empty>
+            <h3>All clear</h3>
+            Nothing flagged in this range.
+          </Empty>
         </Card>
       ) : (
         <>

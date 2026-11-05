@@ -7,7 +7,7 @@ import { api, setApiBase } from '../src/api';
 import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
-import { go, openDialog, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './integration';
+import { go, openDialog, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './integration';
 
 // client flows: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal :8091.
 const PORT = 8091;
@@ -95,13 +95,13 @@ const flaggedCounts = (section: HTMLElement): Record<string, number> => {
   );
 };
 
-// tile number by label (labels repeat in legends; tiles = padding=sm cards). First text node: some tiles append a share.
+// stat number by label (labels repeat in legends). First text node: some stats append a share.
 const tileValue = (label: string): number => {
-  const tile = screen
+  const stat = screen
     .getAllByText(label, { exact: true })
-    .map((e) => e.closest('[k=card][padding=sm]'))
+    .map((e) => e.closest('.stat'))
     .find(Boolean)!;
-  return parseInt(tile.querySelector(':scope > div')!.firstChild!.textContent!, 10);
+  return parseInt(stat.querySelector('.stat-value')!.firstChild!.textContent!, 10);
 };
 
 beforeAll(async () => {
@@ -156,7 +156,7 @@ describe('portal client flows', () => {
   it('detail flow: Links tab creates a link, then deletes it', async () => {
     const app = await api.createApp(uniq('detail-app'));
     render(<AppPage id={app.id} tab="links" />);
-    await screen.findByRole('heading', { name: app.name });
+    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
 
     fireEvent.click(screen.getByRole('button', { name: 'New link' }));
     fireEvent.input(within(openDialog()).getByLabelText('Short link'), { target: { value: 'summer-sale' } });
@@ -248,7 +248,7 @@ describe('portal client flows', () => {
     location.hash = `#/apps/${app.id}/analytics`;
     render(<App />);
     const name = await screen.findByText('Messenger');
-    expect(name.closest('tr')!.querySelector('[data-label="Clicks"]')!.textContent).toBe('1');
+    expect(name.closest('li')!.querySelector('.num')!.textContent).toBe('1');
     await api.deleteApp(app.id);
   });
 
@@ -306,15 +306,15 @@ describe('portal client flows', () => {
     const app = await api.createApp(uniq('tabs-app'));
     location.hash = `#/apps/${app.id}`;
     render(<App />);
-    await screen.findByRole('heading', { name: app.name });
-    expect(tabs().map((t) => t.textContent)).toEqual(['Links', 'Analytics', 'Fraud', 'Settings', 'Webhooks']);
+    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
+    expect(tabNames()).toEqual(['Links', 'Analytics', 'Fraud', 'Settings', 'Webhooks']);
     expect(selectedTab()).toEqual(['Links']);
     await screen.findByText('No links yet');
     screen.getByRole('button', { name: 'New link' });
     screen.getByLabelText('Platform');
 
     // tab click writes hash (refresh/back keep tab)
-    fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Analytics' }));
     expect(location.hash).toBe(`#/apps/${app.id}/analytics`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('heading', { name: 'Activity' });
@@ -322,7 +322,7 @@ describe('portal client flows', () => {
     expect(screen.queryByRole('button', { name: 'New link' })).toBeNull();
     screen.getByLabelText('Date range');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Fraud' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Fraud' }));
     expect(location.hash).toBe(`#/apps/${app.id}/fraud`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('region', { name: 'Fraud signals' });
@@ -331,7 +331,7 @@ describe('portal client flows', () => {
     expect(screen.queryByLabelText('Platform')).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Activity' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
     expect(location.hash).toBe(`#/apps/${app.id}/settings`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('heading', { name: 'API key' });
@@ -344,13 +344,13 @@ describe('portal client flows', () => {
     expect(screen.queryByRole('region', { name: 'Flagged installs' })).toBeNull();
     expect(screen.queryByText('Click flooding')).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Webhooks' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Webhooks' }));
     expect(location.hash).toBe(`#/apps/${app.id}/webhooks`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('heading', { name: 'Webhook endpoints' });
     expect(selectedTab()).toEqual(['Webhooks']);
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Links' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Links' }));
     expect(location.hash).toBe(`#/apps/${app.id}`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByText('No links yet');
@@ -576,7 +576,7 @@ describe('portal client flows', () => {
   it('link validation flow: empty fields rejected', async () => {
     const app = await api.createApp(uniq('link-val-app'));
     render(<AppPage id={app.id} tab="links" />);
-    await screen.findByRole('heading', { name: app.name });
+    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
 
     fireEvent.click(screen.getByRole('button', { name: 'New link' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
@@ -840,7 +840,7 @@ describe('portal client flows', () => {
     await screen.findByRole('heading', { name: 'Apps' });
 
     go(`#/apps/${app.id}`);
-    await screen.findByRole('heading', { name: app.name });
+    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
     expect(selectedTab()).toEqual(['Links']);
 
     go(`#/apps/${app.id}/settings`);

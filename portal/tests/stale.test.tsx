@@ -28,9 +28,9 @@ const app = {
 const clicksTileText = () =>
   screen
     .getAllByText('Clicks', { exact: true })
-    .map((e) => e.closest('[k=card][padding=sm]'))
+    .map((e) => e.closest('.stat'))
     .find(Boolean)!
-    .querySelector(':scope > div')!.textContent!;
+    .querySelector('.stat-value')!.textContent!;
 const clicksTile = () => parseInt(clicksTileText(), 10);
 
 afterEach(() => {
@@ -182,6 +182,8 @@ it('flagged installs table: per-signal counts, signal names and outcome wording 
 
 it('switching apps: the old app, its links and its numbers never show under the new id', async () => {
   const appB = { ...app, id: 'appB', name: 'Other App' };
+  let shown = ''; // name AppPage hands the sidebar
+  const onName = (n: string) => (shown = n);
   const pending: Record<string, (r: Response) => void> = {};
   const hold = (k: string) => new Promise<Response>((r) => (pending[k] = r));
   const release = (k: string, body: unknown) => pending[k](new Response(JSON.stringify(body)));
@@ -195,19 +197,19 @@ it('switching apps: the old app, its links and its numbers never show under the 
     return json(app);
   });
 
-  const { rerender } = render(<AppPage id="app1" tab="analytics" />);
+  const { rerender } = render(<AppPage id="app1" tab="analytics" onName={onName} />);
   await waitFor(() => expect(clicksTile()).toBe(7));
 
-  rerender(<AppPage id="appB" tab="analytics" />);
-  await waitFor(() => expect(screen.queryByRole('heading', { name: 'Stale App' })).toBeNull());
+  rerender(<AppPage id="appB" tab="analytics" onName={onName} />);
+  await waitFor(() => expect(shown).toBe(''));
 
   release('app', appB);
-  await screen.findByRole('heading', { name: 'Other App' });
+  await waitFor(() => expect(shown).toBe('Other App'));
   expect(clicksTileText()).toBe('');
   release('stats', stats(3));
   await waitFor(() => expect(clicksTile()).toBe(3));
 
-  rerender(<AppPage id="appB" tab="links" />);
+  rerender(<AppPage id="appB" tab="links" onName={onName} />);
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.queryByText('old-link')).toBeNull();
   release('links', []);
@@ -216,6 +218,8 @@ it('switching apps: the old app, its links and its numbers never show under the 
 
 it('switching apps mid-load: a slow reply for the app left behind never lands under the new id', async () => {
   const appB = { ...app, id: 'appB', name: 'Other App' };
+  let shown = ''; // name AppPage hands the sidebar
+  const onName = (n: string) => (shown = n);
   let releaseA!: () => void;
   vi.stubGlobal('fetch', (url: string) => {
     if (url.endsWith('/apps/app1')) return new Promise<Response>((r) => (releaseA = () => r(new Response(JSON.stringify(app)))));
@@ -224,14 +228,13 @@ it('switching apps mid-load: a slow reply for the app left behind never lands un
     return json(appB);
   });
 
-  const { rerender } = render(<AppPage id="app1" tab="analytics" />);
-  rerender(<AppPage id="appB" tab="analytics" />);
-  await screen.findByRole('heading', { name: 'Other App' });
+  const { rerender } = render(<AppPage id="app1" tab="analytics" onName={onName} />);
+  rerender(<AppPage id="appB" tab="analytics" onName={onName} />);
+  await waitFor(() => expect(shown).toBe('Other App'));
 
   releaseA();
   await new Promise((r) => setTimeout(r, 50));
-  expect(screen.queryByRole('heading', { name: 'Stale App' })).toBeNull();
-  expect(screen.getByRole('heading', { name: 'Other App' })).toBeTruthy();
+  expect(shown).toBe('Other App');
 });
 
 it('analytics error: a rejected range shows the alert; the next good range clears it, and so does switching apps', async () => {

@@ -4,7 +4,7 @@ import { execSync, spawn, ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { screen } from '@testing-library/preact';
+import { screen, within } from '@testing-library/preact';
 
 const repoRoot = resolve(process.cwd(), '..'); // vitest runs from portal/
 
@@ -42,11 +42,20 @@ export function go(hash: string) {
   window.dispatchEvent(new Event('hashchange'));
 }
 
-export const tabs = () => screen.getAllByRole('tab');
+// sidebar nav links; text minus the <kbd> shortcut hint
+const navText = (a: HTMLElement) =>
+  a.firstChild
+    ? [...a.childNodes]
+        .filter((n) => n.nodeName !== 'KBD')
+        .map((n) => n.textContent)
+        .join('')
+    : '';
+export const tabs = () => within(screen.getByRole('navigation', { name: 'App sections' })).getAllByRole('link');
+export const tabNames = () => tabs().map(navText);
 export const selectedTab = () =>
   tabs()
-    .filter((t) => t.getAttribute('aria-selected') === 'true')
-    .map((t) => t.textContent);
+    .filter((t) => t.getAttribute('aria-current') === 'page')
+    .map(navText);
 
 // build + spawn server: fresh SQLite, unique portal port
 export function startServer(opts: { port: number; bin: string; env?: Record<string, string> }) {
