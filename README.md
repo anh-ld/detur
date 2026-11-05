@@ -1,6 +1,6 @@
 # detur
 
-Self-hosted, drop-in [godetour](https://godetour.dev) backend for `@swmansion/react-native-detour`: deferred deep links (tap → install → first launch opens the link) + click, install, event analytics.
+Self-hosted, drop-in [godetour](https://godetour.dev) backend for any [Detour](https://detour.swmansion.com) SDK (React Native, iOS, Android, Flutter): deferred deep links (tap → install → first launch opens the link) + click, install, event analytics.
 
 - **Single binary**: Go + SQLite + Preact portal; ~30 MB RAM, <0.1 vCPU.
 - **Rules & A/B**: route by platform, language, query, date; sticky weighted splits.
@@ -34,7 +34,7 @@ Self-hosted, drop-in [godetour](https://godetour.dev) backend for `@swmansion/re
 | | detur | godetour.dev | AppsFlyer |
 |---|---|---|---|
 | Cost & data ownership | Free & unlimited · Yours | Tiered · Vendor-hosted | Volume-based · Vendor-hosted |
-| SDK | Detour (drop-in) | Detour (official) | AppsFlyer SDK |
+| SDK | Any Detour SDK (drop-in) | Detour (official) | AppsFlyer SDK |
 | Matching & attribution | Detour weights (tunable) · 1:1 install | Detour weights · 1:1 install | Proprietary · Multi-touch |
 | Routing rules & A/B splits | ✅ Rules & sticky splits | ❌ | ✅ Enterprise |
 | Analytics | Events tracking | Events tracking | Events, revenue, cohorts |
@@ -90,50 +90,44 @@ Portal: `:8081`.
 - App details (iOS app ID, Android package, cert fingerprint) → well-known files.
 - `ADMIN_PASSWORD` set → app changes need admin (top bar).
 
-### 3. Patch SDK
+### 3. Point SDK at detur
 
-SDK hardcodes 5 godetour.dev URLs (no `baseURL`), layout varies per version → give your AI agent:
+Every Detour SDK hardcodes 5 `https://godetour.dev/api/...` URLs. Swap the host, keep the paths.
+
+| SDK | URLs in | Persist via |
+|---|---|---|
+| [React Native](https://detour.swmansion.com/docs/sdk/react-native/sdk-installation/) | `src/` + `lib/module/` | `patch-package` + `postinstall`, or `bun patch` |
+| [iOS](https://detour.swmansion.com/docs/sdk/ios/sdk-installation/) | `Sources/Detour/DetourConstants.swift` | Fork → SPM URL or `pod 'Detour', :git =>` |
+| [Android](https://detour.swmansion.com/docs/sdk/android/sdk-installation/) | `detour-sdk/.../api/*ApiClient.kt` | Fork → `includeBuild` substituting `detour-sdk` |
+| [Flutter](https://detour.swmansion.com/docs/sdk/flutter/sdk-installation/) | iOS + Android SDKs (bridge) | Both forks: `ios/Podfile`, `android/settings.gradle` |
+
+Base URL: simulator `http://localhost:8080` · Android emulator `http://10.0.2.2:8080` · device → host LAN IP · prod `https://<DOMAIN>`.
+
+Give your AI agent:
 
 ```text
-Point the installed @swmansion/react-native-detour at your detur server.
+Point this app's Detour SDK at my detur server. BASE_URL=<url>.
 
-1. Patch node_modules/@swmansion/react-native-detour — BOTH copies:
-   src/links/api/* + src/analytics/api/* (TS) and lib/module/*.js (compiled).
-2. Replace the five endpoint base URLs with BASE_URL
-   (dev: :8080, prod: https://<DOMAIN>). Keep /api/... paths.
-3. Verify: grep -r "godetour.dev" node_modules/@swmansion/react-native-detour
-   → zero matches. package.json author line is metadata — ignore.
-4. Generate: npm/yarn app → npx patch-package @swmansion/react-native-detour;
-   Bun app → bun patch @swmansion/react-native-detour before editing, then
-   bun patch --commit node_modules/@swmansion/react-native-detour.
-5. Survive fresh installs: npm/yarn → add "postinstall": "patch-package";
-   Bun → patchedDependencies (written by bun patch --commit).
-6. Report: changed files + patch file path.
+1. Detect SDK: React Native, iOS, Android, or Flutter (→ its iOS + Android SDKs).
+2. Replace https://godetour.dev with BASE_URL in the 5 endpoint URLs
+   (RN: src/ and lib/module/). Keep /api/... paths.
+3. Persist per the detur README step 3 table.
+4. Verify: "godetour.dev" left only in author/homepage metadata.
+5. Report changed files + persistence.
 ```
 
-Example (2.3.1 only, not a pin): [example/patch/](example/patch/).
+Example (React Native 2.3.1): [example/patch/](example/patch/).
 
 ### 4. Wire app
 
-Full example: [example/expo-app/](example/expo-app/).
+Follow your SDK's Detour docs, swapping in:
 
-`+native-intent.tsx`, add your domain to `hosts`:
+- **Credentials:** `appID` + `apiKey` from the portal; keep out of git.
+- **Link host:** your domain. iOS `applinks:<DOMAIN>` · Android `autoVerify` intent filter `host="<DOMAIN>"` · Expo `+native-intent.tsx` `hosts`.
 
-```tsx
-import { createDetourNativeIntentHandler } from "@swmansion/react-native-detour/expo-router";
+detur serves `apple-app-site-association` + `assetlinks.json` from app details (step 2).
 
-export const redirectSystemPath = createDetourNativeIntentHandler({
-  fallbackPath: "",
-  hosts: ["localhost"], // dev; add deployed domain, e.g. ["links.example.com"]
-  config: {
-    apiKey: process.env.EXPO_PUBLIC_DETOUR_API_KEY!,
-    appID: process.env.EXPO_PUBLIC_DETOUR_APP_ID!,
-  },
-});
-```
-
-- Env: `EXPO_PUBLIC_DETOUR_API_KEY`, `EXPO_PUBLIC_DETOUR_APP_ID` (step 2).
-- Base URL: Android emulator `http://10.0.2.2:8080`; device → host LAN IP (trusted LAN, `-p 8080:8080`); prod `https://<DOMAIN>`.
+Example (Expo): [example/expo-app/](example/expo-app/).
 
 ## Dev run
 
@@ -150,4 +144,4 @@ Prerequisites: Go 1.27, Bun 1.4.4.
 
 - [dub.sh](https://dub.sh): link-funnel server logic.
 - [Detour matching docs](https://detour.swmansion.com/docs/platform/architecture/matching/): weights, threshold, window.
-- [@swmansion/react-native-detour](https://github.com/software-mansion-labs/react-native-detour): the SDK.
+- Detour SDKs: [React Native](https://github.com/software-mansion-labs/react-native-detour), [iOS](https://github.com/software-mansion-labs/ios-detour), [Android](https://github.com/software-mansion-labs/android-detour), [Flutter](https://github.com/software-mansion-labs/flutter-detour).
