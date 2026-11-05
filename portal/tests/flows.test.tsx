@@ -23,7 +23,8 @@ const SDK = 'http://127.0.0.1:8080';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
 // 2nd iPhone, same iOS + IP; own UA so server doesn't merge it into the first click
 const IPHONE_B = IPHONE.replace('15E148', '15E149');
-const MESSENGER = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBSN/iOS]';
+const MESSENGER =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBSN/iOS]';
 const DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36';
 
 async function click(key: string, ua: string, done = false): Promise<Response> {
@@ -34,8 +35,22 @@ async function click(key: string, ua: string, done = false): Promise<Response> {
 async function matchLink(app: { id: string; apiKey: string }, userAgent = IPHONE): Promise<Response> {
   return fetch(`${SDK}/api/link/match-link`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${app.apiKey}`, 'X-App-ID': app.id, 'X-SDK': 'react-native/2.3.1' },
-    body: JSON.stringify({ platform: 'ios', model: 'iPhone', systemVersion: '17.5', screenWidth: 393, screenHeight: 852, scale: 3, timezone: 'UTC', userAgent }),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${app.apiKey}`,
+      'X-App-ID': app.id,
+      'X-SDK': 'react-native/2.3.1',
+    },
+    body: JSON.stringify({
+      platform: 'ios',
+      model: 'iPhone',
+      systemVersion: '17.5',
+      screenWidth: 393,
+      screenHeight: 852,
+      scale: 3,
+      timezone: 'UTC',
+      userAgent,
+    }),
   });
 }
 
@@ -244,7 +259,12 @@ describe('portal client flows', () => {
     const sdk = (path: string, body: object) =>
       fetch(`${SDK}/api/analytics/${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${app.apiKey}`, 'X-App-ID': app.id, 'X-SDK': 'react-native/2.3.1' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${app.apiKey}`,
+          'X-App-ID': app.id,
+          'X-SDK': 'react-native/2.3.1',
+        },
         body: JSON.stringify(body),
       });
     expect((await sdk('event', { event_name: 'detur_link', data: { link: key }, device_id: 'dev-1' })).status).toBe(200);
@@ -542,7 +562,9 @@ describe('portal client flows', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
 
     // another teammate saves a rule meanwhile
-    await api.setLinkRules(app.id, link.id, [{ name: 'Saved Elsewhere', cond: { platform: 'ios' }, action: { targets: { fallback_url: 'https://example.com/x' } } }] as never);
+    await api.setLinkRules(app.id, link.id, [
+      { name: 'Saved Elsewhere', cond: { platform: 'ios' }, action: { targets: { fallback_url: 'https://example.com/x' } } },
+    ] as never);
 
     fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
     dlg = openDialog();
@@ -591,8 +613,13 @@ describe('portal client flows', () => {
       ].map(([label, k]) => [k, Number(threshold(label).value)]),
     );
     expect(shown).toEqual({
-      velocityIpMax: 20, velocityLinkMax: 500, velocityWindowMinutes: 60,
-      timingShortSeconds: 10, timingLongHours: 24, fingerprintMax: 5, fingerprintWindowDays: 7,
+      velocityIpMax: 20,
+      velocityLinkMax: 500,
+      velocityWindowMinutes: 60,
+      timingShortSeconds: 10,
+      timingLongHours: 24,
+      fingerprintMax: 5,
+      fingerprintWindowDays: 7,
     });
 
     // one press = one save, no confirm dialog
@@ -602,7 +629,11 @@ describe('portal client flows', () => {
     expect(t.title).toBe('');
     expect(pressed('Bot traffic')).toEqual(['Active']);
     expect(await api.getFraudSettings(app.id)).toMatchObject({
-      userAgentMode: 'active', velocityMode: 'tagged', timingMode: 'tagged', ipMode: 'tagged', velocityIpMax: 20,
+      userAgentMode: 'active',
+      velocityMode: 'tagged',
+      timingMode: 'tagged',
+      ipMode: 'tagged',
+      velocityIpMax: 20,
     });
 
     // re-press current mode: no save, no toast
@@ -692,7 +723,10 @@ describe('portal client flows', () => {
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('30'));
     expect(toasts().filter((x) => x.id > seen)).toHaveLength(1);
     expect(await api.getFraudSettings(app.id)).toMatchObject({
-      velocityIpMax: 30, velocityLinkMax: 12000, timingShortSeconds: 5, fingerprintMax: 5,
+      velocityIpMax: 30,
+      velocityLinkMax: 12000,
+      timingShortSeconds: 5,
+      fingerprintMax: 5,
     });
 
     // later save after rejection carries saved values, not the rejected one

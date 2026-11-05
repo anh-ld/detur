@@ -101,7 +101,10 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [statsError, setStatsError] = useState(''); // own slot: a fixed range clears it without hiding an app-load error
   const [linkBase, setLinkBase] = useState('');
   useEffect(() => {
-    api.getConfig().then((c) => setLinkBase(c.linkBase ?? ''), () => {});
+    api.getConfig().then(
+      (c) => setLinkBase(c.linkBase ?? ''),
+      () => {},
+    );
   }, []);
 
   // drop responses for an app already left
@@ -495,7 +498,9 @@ function LinkDialog({
                   onInput={(e) => setDraft({ ...draft, ogTitle: e.currentTarget.value })}
                   placeholder="Sam invited you"
                 />
-                <Field.Description>{draft.ogTitle.length}/{OG_TITLE_MAX}</Field.Description>
+                <Field.Description>
+                  {draft.ogTitle.length}/{OG_TITLE_MAX}
+                </Field.Description>
               </Field>
               <Field>
                 <Label htmlFor={`${id}-ogd`}>Description</Label>
@@ -506,7 +511,9 @@ function LinkDialog({
                   rows={2}
                   onInput={(e) => setDraft({ ...draft, ogDescription: e.currentTarget.value })}
                 />
-                <Field.Description>{draft.ogDescription.length}/{OG_DESC_MAX}</Field.Description>
+                <Field.Description>
+                  {draft.ogDescription.length}/{OG_DESC_MAX}
+                </Field.Description>
               </Field>
               <Field>
                 <Label htmlFor={`${id}-ogi`}>Image URL</Label>

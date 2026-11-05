@@ -63,10 +63,7 @@ export function RulesDialog({
     setLoading(true);
     setErr('');
     try {
-      const [r, s] = await Promise.all([
-        api.getLinkRules(appId, link.id),
-        api.getLinkVariantStats(appId, link.id, perfRange),
-      ]);
+      const [r, s] = await Promise.all([api.getLinkRules(appId, link.id), api.getLinkVariantStats(appId, link.id, perfRange)]);
       if (seq !== reqSeq.current) return;
       setRules(r);
       setStats(s);
@@ -321,9 +318,15 @@ export function RulesDialog({
                         <td>
                           <strong>{s.variant}</strong>
                         </td>
-                        <td data-label="Clicks" className="num">{s.clicks.toLocaleString()}</td>
-                        <td data-label="Installs" className="num">{s.installs.toLocaleString()}</td>
-                        <td data-label="Conversion" className="num">{(s.conversion_rate * 100).toFixed(1)}%</td>
+                        <td data-label="Clicks" className="num">
+                          {s.clicks.toLocaleString()}
+                        </td>
+                        <td data-label="Installs" className="num">
+                          {s.installs.toLocaleString()}
+                        </td>
+                        <td data-label="Conversion" className="num">
+                          {(s.conversion_rate * 100).toFixed(1)}%
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -415,7 +418,13 @@ export function RulesDialog({
                 <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
                   <h4>Then</h4>
                   <ToggleGroup role="group" aria-label="Action" class="seg">
-                    <Toggle type="button" size="sm" pressed={actionType === 'direct'} onClickCapture={() => {}} onClick={() => setActionType('direct')}>
+                    <Toggle
+                      type="button"
+                      size="sm"
+                      pressed={actionType === 'direct'}
+                      onClickCapture={() => {}}
+                      onClick={() => setActionType('direct')}
+                    >
                       Send to
                     </Toggle>
                     <Toggle
@@ -447,12 +456,7 @@ export function RulesDialog({
                 {actionType === 'direct' ? (
                   <>
                     <p style={muted}>Empty fields keep the link's own value, shown faded.</p>
-                    <TargetFields
-                      idp={fid('direct')}
-                      t={draftRule.action.targets}
-                      link={link}
-                      onChange={setTarget}
-                    />
+                    <TargetFields idp={fid('direct')} t={draftRule.action.targets} link={link} onChange={setTarget} />
                   </>
                 ) : (
                   <div style={{ display: 'grid', gap: 12 }}>
@@ -543,11 +547,16 @@ export function RulesDialog({
             </div>
           )}
 
-          {!loading && tab === 'rules' && !editing && (
-            rules.length === 0 ? (
+          {!loading &&
+            tab === 'rules' &&
+            !editing &&
+            (rules.length === 0 ? (
               <Empty>
                 <h3>No rules yet</h3>
-                <p style={muted}>Every visitor gets the link's own targets. Add a rule to route by platform, language, query or date, or to run an A/B split.</p>
+                <p style={muted}>
+                  Every visitor gets the link's own targets. Add a rule to route by platform, language, query or date, or to run an A/B
+                  split.
+                </p>
                 <Button disabled={saving} onClick={startAddRule}>
                   Add rule
                 </Button>
@@ -565,7 +574,15 @@ export function RulesDialog({
                           <strong>{r.name}</strong>
                           <div class="rule-line">
                             <span class="rule-kw">If</span>
-                            {conds.length ? conds.map((c) => <span key={c} class="cond">{c}</span>) : <span style={muted}>any visitor</span>}
+                            {conds.length ? (
+                              conds.map((c) => (
+                                <span key={c} class="cond">
+                                  {c}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={muted}>any visitor</span>
+                            )}
                           </div>
                           <div class="rule-line">
                             <span class="rule-kw">Then</span>
@@ -578,9 +595,20 @@ export function RulesDialog({
                         </div>
                         <div class="rule-actions">
                           <IconButton icon={ICONS.up} label="Move up" disabled={saving || idx === 0} onClick={() => moveRule(idx, -1)} />
-                          <IconButton icon={ICONS.down} label="Move down" disabled={saving || idx === rules.length - 1} onClick={() => moveRule(idx, 1)} />
+                          <IconButton
+                            icon={ICONS.down}
+                            label="Move down"
+                            disabled={saving || idx === rules.length - 1}
+                            onClick={() => moveRule(idx, 1)}
+                          />
                           <IconButton icon={ICONS.edit} label="Edit" disabled={saving} onClick={() => startEditRule(idx)} />
-                          <IconButton icon={ICONS.trash} label="Delete" class="icon-btn danger" disabled={saving} onClick={() => deleteRule(idx)} />
+                          <IconButton
+                            icon={ICONS.trash}
+                            label="Delete"
+                            class="icon-btn danger"
+                            disabled={saving}
+                            onClick={() => deleteRule(idx)}
+                          />
                         </div>
                       </li>
                     );
@@ -597,8 +625,7 @@ export function RulesDialog({
                   </li>
                 </ol>
               </div>
-            )
-          )}
+            ))}
 
           <div class="dialog-actions">
             {editing ? (
@@ -695,17 +722,7 @@ function SplitBar({ variants, compact }: { variants: SplitVariant[]; compact?: b
 }
 
 // 4 override fields; placeholders show what an empty field falls back to
-function TargetFields({
-  idp,
-  t,
-  link,
-  onChange,
-}: {
-  idp: string;
-  t?: RuleTargets;
-  link: Link;
-  onChange: (patch: RuleTargets) => void;
-}) {
+function TargetFields({ idp, t, link, onChange }: { idp: string; t?: RuleTargets; link: Link; onChange: (patch: RuleTargets) => void }) {
   const fields: { k: keyof RuleTargets; label: string; base: string; hint: string }[] = [
     { k: 'destination', label: 'App route', base: link.url, hint: '/promo/special' },
     { k: 'fallback_url', label: 'Web fallback', base: link.fallbackUrl, hint: 'https://example.com/landing' },

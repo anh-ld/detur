@@ -1,23 +1,25 @@
 import { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Dialog,
-  Field,
-  Input,
-  Label,
-  Switch,
-  Table,
-  Textarea,
-  toast,
-  Toggle,
-  ToggleGroup,
-} from 'kinu';
+import { Alert, Badge, Button, Card, Dialog, Field, Input, Label, Switch, Table, Textarea, toast, Toggle, ToggleGroup } from 'kinu';
 import { api, App, AppPage, CreatedApp, HealthCheck, HttpError, MatchQuality, PagePreview } from './api';
-import { AdminGateAborted, adminCall, AdminRequired, closeDialog, ConfirmDelete, CopyButton, gateOpen, getAdmin, getAdminSet, Loading, mono, muted, refreshAdminSession, row, subscribeAdmin, useAdminLocked } from './ui';
+import {
+  AdminGateAborted,
+  adminCall,
+  AdminRequired,
+  closeDialog,
+  ConfirmDelete,
+  CopyButton,
+  gateOpen,
+  getAdmin,
+  getAdminSet,
+  Loading,
+  mono,
+  muted,
+  refreshAdminSession,
+  row,
+  subscribeAdmin,
+  useAdminLocked,
+} from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 import { CodeEditor } from './code';
 
@@ -72,7 +74,9 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
               <td>
                 {app.apiKeyHash ? (
                   <span style={row}>
-                    <span style={{ ...mono, letterSpacing: 2 }} aria-label="Hidden">••••••••••••</span>
+                    <span style={{ ...mono, letterSpacing: 2 }} aria-label="Hidden">
+                      ••••••••••••
+                    </span>
                     <span style={{ ...muted, fontSize: 13 }}>Shown once when created or rotated.</span>
                   </span>
                 ) : (
@@ -139,7 +143,12 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
     try {
       const a = await adminCall(() => api.updateApp(app.id, draft));
       // server trims + strips "://" from the scheme: show what was stored
-      setDraft({ iosAppId: a.iosAppId, androidPackage: a.androidPackage, androidCertFingerprint: a.androidCertFingerprint, iosScheme: a.iosScheme });
+      setDraft({
+        iosAppId: a.iosAppId,
+        androidPackage: a.androidPackage,
+        androidCertFingerprint: a.androidCertFingerprint,
+        iosScheme: a.iosScheme,
+      });
       onSaved(a);
       setSaved(true);
     } catch (e) {
@@ -300,9 +309,7 @@ function PageEditor({ app }: { app: App }) {
         <Button variant="outline" disabled={!html} onClick={() => setText(data.defaultHtml)}>
           Reset to default
         </Button>
-        <Button onClick={save}>
-          Save page
-        </Button>
+        <Button onClick={save}>Save page</Button>
       </div>
       {error && <Alert variant="destructive">{error}</Alert>}
       {/* HTML 2 cols, preview 1 col; stacks below ~720px. Twin boxes: same header bar + 560px body -> equal height */}
@@ -329,7 +336,12 @@ function PageEditor({ app }: { app: App }) {
               ))}
             </ToggleGroup>
           </div>
-          <iframe title="Page preview" sandbox="" srcdoc={preview} style={{ display: 'block', width: '100%', height: 560, border: 0, background: '#fff' }} />
+          <iframe
+            title="Page preview"
+            sandbox=""
+            srcdoc={preview}
+            style={{ display: 'block', width: '100%', height: 560, border: 0, background: '#fff' }}
+          />
         </div>
       </div>
       <div style={muted}>
@@ -457,8 +469,8 @@ function TagLinksRow({ app, onSaved }: { app: App; onSaved: (a: App) => void }) 
       <div style={{ display: 'grid', gap: 4 }}>
         <Label htmlFor="set-tag">Tag deferred links</Label>
         <p style={muted}>
-          Adds <code>detur_link=&lt;key&gt;</code> to links the SDK hands your app. Send it back once for per-link
-          conversions and retention:
+          Adds <code>detur_link=&lt;key&gt;</code> to links the SDK hands your app. Send it back once for per-link conversions and
+          retention:
         </p>
         <div class="code-snippet">
           <code>{TAG_SNIPPET}</code>
@@ -615,7 +627,13 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
               <Field.Description>EXPO_PUBLIC_DETOUR_API_KEY in the SDK config.</Field.Description>
             </Field>
             <div style={{ ...row, justifyContent: 'flex-end' }}>
-              <Button variant="outline" onClick={() => { setRotated(null); closeDialog(id); }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setRotated(null);
+                  closeDialog(id);
+                }}
+              >
                 Done
               </Button>
               <CopyButton value={rotated.apiKey} label="Copy API key" />
@@ -636,7 +654,9 @@ function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () => void }
               <Button type="button" variant="outline" onClick={() => closeDialog(id)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy} aria-busy={busy}>Rotate key</Button>
+              <Button type="submit" disabled={busy} aria-busy={busy}>
+                Rotate key
+              </Button>
             </div>
           </form>
         )}

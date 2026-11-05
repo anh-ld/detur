@@ -8,12 +8,7 @@ import { screen } from '@testing-library/preact';
 
 const repoRoot = resolve(process.cwd(), '..'); // vitest runs from portal/
 
-export async function waitForServer(
-  url: string,
-  ms: number,
-  server: ChildProcess,
-  getStderr: () => string,
-): Promise<void> {
+export async function waitForServer(url: string, ms: number, server: ChildProcess, getStderr: () => string): Promise<void> {
   const start = Date.now();
   for (;;) {
     if (server.exitCode !== null) {

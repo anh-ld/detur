@@ -2,7 +2,19 @@ import { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Badge, Card, Empty, Input, Select, Table, toast, Toggle, ToggleGroup } from 'kinu';
 import { api, DateRangeFilter, FlaggedInstall, HttpError, Fraud, FraudMode, FraudSettings } from './api';
-import { AdminGateAborted, adminCall, AdminRequired, getAdmin, getAdminSet, Loading, mono, muted, refreshAdminSession, row, subscribeAdmin } from './ui';
+import {
+  AdminGateAborted,
+  adminCall,
+  AdminRequired,
+  getAdmin,
+  getAdminSet,
+  Loading,
+  mono,
+  muted,
+  refreshAdminSession,
+  row,
+  subscribeAdmin,
+} from './ui';
 import { FRAUD_RANGES, FraudNumKey, SIGNALS } from './matching';
 import { DateRangePicker, fmt, RANGE_OPTIONS, Skeleton } from './analytics';
 
@@ -92,9 +104,7 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
     <section aria-label="Fraud signals" style={{ display: 'grid', gap: 16 }}>
       <div style={{ display: 'grid', gap: 4 }}>
         <h2 style={{ margin: 0 }}>Signals</h2>
-        <p style={muted}>
-          Tagged: label only. Active: flagged clicks get no credit. Applies from the next install.
-        </p>
+        <p style={muted}>Tagged: label only. Active: flagged clicks get no credit. Applies from the next install.</p>
       </div>
       <ul class="signal-list">
         {SIGNALS.filter((s) => s.key !== 'install_ip').map((s) => (
@@ -109,14 +119,13 @@ function Signals({ appId, tick }: { appId: string; tick: number }) {
 const RULES: Record<string, (n: (k: FraudNumKey) => JSX.Element) => JSX.Element> = {
   velocity: (n) => (
     <>
-      Flag at {n('velocityIpMax')} clicks from one IP or {n('velocityLinkMax')} on one link, within {n('velocityWindowMinutes')}{' '}
-      minutes.
+      Flag at {n('velocityIpMax')} clicks from one IP or {n('velocityLinkMax')} on one link, within {n('velocityWindowMinutes')} minutes.
     </>
   ),
   timing: (n) => (
     <>
-      Flag opens under {n('timingShortSeconds')} seconds after the click, or over {n('timingLongHours')} hours after it (click
-      ID matches only).
+      Flag opens under {n('timingShortSeconds')} seconds after the click, or over {n('timingLongHours')} hours after it (click ID matches
+      only).
     </>
   ),
   fingerprint: (n) => (
@@ -181,17 +190,7 @@ function SignalRow({
 }
 
 // saves on blur/Enter, only if changed
-function Threshold({
-  k,
-  label,
-  saved,
-  onSave,
-}: {
-  k: FraudNumKey;
-  label: string;
-  saved: number;
-  onSave: (n: number) => void;
-}) {
+function Threshold({ k, label, saved, onSave }: { k: FraudNumKey; label: string; saved: number; onSave: (n: number) => void }) {
   const [v, setV] = useState(String(saved));
   useEffect(() => setV(String(saved)), [saved]);
   const r = FRAUD_RANGES[k];
@@ -219,8 +218,7 @@ function Threshold({
 
 const signalLabel = (k: string) => SIGNALS.find((s) => s.key === k)?.label ?? k;
 
-const fmtTime = (t: string) =>
-  new Date(t).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtTime = (t: string) => new Date(t).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 // outcome in plain words + flagged click's link when credit moved or dropped
 function Outcome({ i }: { i: FlaggedInstall }) {

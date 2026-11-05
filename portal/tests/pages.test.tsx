@@ -12,11 +12,16 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const SDK = 'http://127.0.0.1:8080';
 const bin = join(tmpdir(), 'detur-pages');
 
-const SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
-const CHROME_ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36';
-const WEBVIEW = 'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36';
-const MESSENGER_IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBSN/iOS]';
-const MESSENGER_ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 [FB_IAB/MESSENGER;FBAV/450.0.0.42.109;]';
+const SAFARI =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+const CHROME_ANDROID =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36';
+const WEBVIEW =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36';
+const MESSENGER_IOS =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBSN/iOS]';
+const MESSENGER_ANDROID =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 [FB_IAB/MESSENGER;FBAV/450.0.0.42.109;]';
 
 let server: ChildProcess;
 let dbDir: string;
@@ -108,7 +113,13 @@ function browser(search = '', copyWorks = true) {
       const navigator = { clipboard: { writeText: () => Promise.reject(new Error('denied')) } };
       const fetch = (u: string) => (b.fetched.push(u), Promise.resolve());
       new Function('document', 'window', 'location', 'history', 'navigator', 'fetch', 'screen', src)(
-        b.doc, window, location, history, navigator, fetch, { width: 390, height: 844 },
+        b.doc,
+        window,
+        location,
+        history,
+        navigator,
+        fetch,
+        { width: 390, height: 844 },
       );
     },
   };

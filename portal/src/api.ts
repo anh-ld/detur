@@ -96,7 +96,6 @@ export interface FraudSettings {
   fingerprintWindowDays: number;
 }
 
-
 // Flagged install. linkKey/fraudLinkKey '' = organic or link deleted; fraudAction '' = tagged only.
 export interface FlaggedInstall {
   id: string;
@@ -203,10 +202,7 @@ export const api = {
   createApp: (name: string) => req<CreatedApp>('POST', '/api/apps', { name }),
   rotateKey: (id: string) => req<CreatedApp>('POST', `/api/apps/${id}/rotate-key`),
   revokeKey: (id: string) => req<void>('DELETE', `/api/apps/${id}/key`),
-  updateApp: (
-    id: string,
-    d: { iosAppId: string; androidPackage: string; androidCertFingerprint: string; iosScheme: string },
-  ) =>
+  updateApp: (id: string, d: { iosAppId: string; androidPackage: string; androidCertFingerprint: string; iosScheme: string }) =>
     req<App>('PATCH', `/api/apps/${id}`, d),
   deleteApp: (id: string) => req<void>('DELETE', `/api/apps/${id}`),
   getPage: (id: string) => req<AppPage>('GET', `/api/apps/${id}/page`),
@@ -223,33 +219,23 @@ export const api = {
     return text;
   },
   listLinks: (appId: string) => req<Link[]>('GET', `/api/apps/${appId}/links`),
-  createLink: (appId: string, l: Omit<Link, 'id' | 'appId'>) =>
-    req<Link>('POST', `/api/apps/${appId}/links`, l),
-  updateLink: (id: string, l: Partial<Omit<Link, 'id' | 'appId' | 'key'>>) =>
-    req<Link>('PATCH', `/api/links/${id}`, l),
+  createLink: (appId: string, l: Omit<Link, 'id' | 'appId'>) => req<Link>('POST', `/api/apps/${appId}/links`, l),
+  updateLink: (id: string, l: Partial<Omit<Link, 'id' | 'appId' | 'key'>>) => req<Link>('PATCH', `/api/links/${id}`, l),
   deleteLink: (id: string) => req<void>('DELETE', `/api/links/${id}`),
-  getLinkRules: (appId: string, linkId: string) =>
-    req<LinkRule[]>('GET', `/api/apps/${appId}/links/${linkId}/rules`),
+  getLinkRules: (appId: string, linkId: string) => req<LinkRule[]>('GET', `/api/apps/${appId}/links/${linkId}/rules`),
   setLinkRules: (appId: string, linkId: string, rules: LinkRule[]) =>
     req<LinkRule[]>('PUT', `/api/apps/${appId}/links/${linkId}/rules`, rules),
   getLinkVariantStats: (appId: string, linkId: string, range?: DateRangeFilter | number) =>
-    req<VariantStat[]>(
-      'GET',
-      `/api/apps/${appId}/links/${linkId}/variants${range ? `?${dateRangeQuery(range)}` : ''}`
-    ),
-  saveMatching: (id: string, m: { threshold: number; windowMinutes: number }) =>
-    req<App>('PATCH', `/api/apps/${id}/matching`, m),
+    req<VariantStat[]>('GET', `/api/apps/${appId}/links/${linkId}/variants${range ? `?${dateRangeQuery(range)}` : ''}`),
+  saveMatching: (id: string, m: { threshold: number; windowMinutes: number }) => req<App>('PATCH', `/api/apps/${id}/matching`, m),
   saveTagging: (id: string, tagLinks: boolean) => req<App>('PATCH', `/api/apps/${id}/tagging`, { tagLinks }),
-  getFraud: (appId: string, range: DateRangeFilter | number) =>
-    req<Fraud>('GET', `/api/apps/${appId}/fraud?${dateRangeQuery(range)}`),
+  getFraud: (appId: string, range: DateRangeFilter | number) => req<Fraud>('GET', `/api/apps/${appId}/fraud?${dateRangeQuery(range)}`),
   getFraudSettings: (appId: string) => req<FraudSettings>('GET', `/api/apps/${appId}/fraud/settings`),
-  saveFraudSettings: (appId: string, s: FraudSettings) =>
-    req<FraudSettings>('PATCH', `/api/apps/${appId}/fraud/settings`, s),
+  saveFraudSettings: (appId: string, s: FraudSettings) => req<FraudSettings>('PATCH', `/api/apps/${appId}/fraud/settings`, s),
   getAnalytics: (appId: string, range: DateRangeFilter | number, platform?: Platform) =>
     req<Analytics>('GET', `/api/apps/${appId}/analytics?${dateRangeQuery(range)}${platform ? `&platform=${platform}` : ''}`),
   listWebhooks: (appId: string) => req<Webhook[]>('GET', `/api/apps/${appId}/webhooks`),
-  createWebhook: (appId: string, w: { url: string; types: string[] }) =>
-    req<Webhook>('POST', `/api/apps/${appId}/webhooks`, w),
+  createWebhook: (appId: string, w: { url: string; types: string[] }) => req<Webhook>('POST', `/api/apps/${appId}/webhooks`, w),
   updateWebhook: (id: string, patch: { url?: string; types?: string[]; enabled?: boolean }) =>
     req<Webhook>('PATCH', `/api/webhooks/${id}`, patch),
   deleteWebhook: (id: string) => req<void>('DELETE', `/api/webhooks/${id}`),

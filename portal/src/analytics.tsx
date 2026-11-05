@@ -40,8 +40,7 @@ const SOURCE_NAMES: Record<string, string> = {
   'unknown-inapp': 'Unknown in-app',
 };
 
-const fmtDay = (d: string) =>
-  new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const fmtDay = (d: string) => new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 const sum = (days: DayStat[], k: Metric) => days.reduce((n, d) => n + d[k], 0);
 
@@ -118,11 +117,7 @@ export function DateRangePicker({
 
   return (
     <div style={{ ...row, flexWrap: 'wrap', gap: 6 }}>
-      <Select
-        aria-label={ariaLabel}
-        value={selectVal}
-        onChange={(e) => handleSelect(e.currentTarget.value)}
-      >
+      <Select aria-label={ariaLabel} value={selectVal} onChange={(e) => handleSelect(e.currentTarget.value)}>
         {RANGE_OPTIONS.map((o) => (
           <option key={o.days} value={String(o.days)}>
             {o.label}
@@ -131,10 +126,7 @@ export function DateRangePicker({
         <option value="custom">Custom range</option>
       </Select>
       {customMode && (
-        <form
-          onSubmit={handleApply}
-          style={{ ...row, gap: 6, margin: 0, flexWrap: 'wrap' }}
-        >
+        <form onSubmit={handleApply} style={{ ...row, gap: 6, margin: 0, flexWrap: 'wrap' }}>
           <Input
             type="date"
             aria-label="Start date"
@@ -153,12 +145,7 @@ export function DateRangePicker({
             onInput={(e) => setTo(e.currentTarget.value)}
             style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }}
           />
-          <Button
-            type="submit"
-            size="sm"
-            variant="secondary"
-            disabled={!from || !to || from > to}
-          >
+          <Button type="submit" size="sm" variant="secondary" disabled={!from || !to || from > to}>
             Apply
           </Button>
         </form>
@@ -190,11 +177,7 @@ export function Filters({
 
   return (
     <div style={{ ...row, flexWrap: 'wrap' }}>
-      <Select
-        aria-label="Platform"
-        value={platform}
-        onChange={(e) => onPlatform(e.currentTarget.value as Platform)}
-      >
+      <Select aria-label="Platform" value={platform} onChange={(e) => onPlatform(e.currentTarget.value as Platform)}>
         <option value="">All platforms</option>
         <option value="ios">iOS</option>
         <option value="android">Android</option>
@@ -215,17 +198,7 @@ const ICONS: Partial<Record<Metric, string>> = {
 };
 
 // tile: icon + label, total, hint, sparkline in chart color
-function Tile({
-  data,
-  metric,
-  hint,
-  extra,
-}: {
-  data: Analytics | null;
-  metric: Metric;
-  hint: string;
-  extra?: ComponentChildren;
-}) {
+function Tile({ data, metric, hint, extra }: { data: Analytics | null; metric: Metric; hint: string; extra?: ComponentChildren }) {
   const s = LINES.find((l) => l.key === metric)!;
   const days = data?.days ?? [];
   const vals = days.map((d) => d[metric]);
@@ -235,8 +208,17 @@ function Tile({
     <Card padding="sm" class="tile">
       <p style={{ ...muted, ...row, gap: 6 }}>
         <span class="tile-icon" style={{ color: s.color }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
             <path d={ICONS[metric]} />
           </svg>
         </span>
@@ -285,7 +267,8 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
           metric="nonOrganic"
           hint="Installs matched to a click"
           extra={
-            data && clicks > 0 && (
+            data &&
+            clicks > 0 && (
               <Badge variant="secondary" style={{ letterSpacing: 'normal', whiteSpace: 'nowrap' }}>
                 {Math.round((viaLink / clicks) * 100)}% match
               </Badge>
@@ -334,7 +317,9 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
               <tbody>
                 {data.events.map((e) => (
                   <tr key={e.event}>
-                    <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.event || <span style={muted}>(no name)</span>}</td>
+                    <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                      {e.event || <span style={muted}>(no name)</span>}
+                    </td>
                     <td data-label="Count" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {fmt(e.count)}
                     </td>
@@ -466,7 +451,8 @@ const EmptySection = ({ title, children }: { title: string; children: ComponentC
 
 // share of mark's devices that returned; – = no cohort reached the mark in range
 const rate = (m: Mark) => (m.devices === 0 ? '–' : `${Math.round((m.returned / m.devices) * 100)}%`);
-const markTitle = (m: Mark) => (m.devices === 0 ? 'No cohort reached this day in range' : `${fmt(m.returned)} of ${fmt(m.devices)} devices`);
+const markTitle = (m: Mark) =>
+  m.devices === 0 ? 'No cohort reached this day in range' : `${fmt(m.returned)} of ${fmt(m.devices)} devices`;
 
 // measure container so SVG axis text stays real pixel size
 function useWidth() {
@@ -500,15 +486,7 @@ function ChartOr({ data, series, kind, empty }: { data: Analytics | null; series
 const H = 200;
 const PAD = { l: 32, r: 8, t: 8, b: 24 };
 
-function Chart({
-  days,
-  series,
-  kind,
-}: {
-  days: DayStat[];
-  series: Series;
-  kind: 'line' | 'bar';
-}) {
+function Chart({ days, series, kind }: { days: DayStat[]; series: Series; kind: 'line' | 'bar' }) {
   const [ref, w] = useWidth();
   const [hoverAt, setHover] = useState<number | null>(null);
   // range shrank under a resting pointer: index past the new data would throw and blank the page
@@ -518,9 +496,7 @@ function Chart({
   const plotH = H - PAD.t - PAD.b;
   const peak = Math.max(
     1,
-    ...days.map((d) =>
-      kind === 'bar' ? series.reduce((s, x) => s + d[x.key], 0) : Math.max(...series.map((x) => d[x.key])),
-    ),
+    ...days.map((d) => (kind === 'bar' ? series.reduce((s, x) => s + d[x.key], 0) : Math.max(...series.map((x) => d[x.key])))),
   );
   const top = Math.ceil(peak / 4) * 4; // 4 even gridlines
   const slot = plotW / n;
@@ -540,13 +516,7 @@ function Chart({
       >
         {[0, 1, 2, 3, 4].map((g) => (
           <g key={g}>
-            <line
-              x1={PAD.l}
-              x2={w - PAD.r}
-              y1={y((top * g) / 4)}
-              y2={y((top * g) / 4)}
-              stroke="hsl(var(--k-border))"
-            />
+            <line x1={PAD.l} x2={w - PAD.r} y1={y((top * g) / 4)} y2={y((top * g) / 4)} stroke="hsl(var(--k-border))" />
             <text x={PAD.l - 6} y={y((top * g) / 4) + 4} text-anchor="end" font-size="11" fill="hsl(var(--k-muted-foreground))">
               {fmt((top * g) / 4)}
             </text>
@@ -560,7 +530,8 @@ function Chart({
           ) : null,
         )}
         {kind === 'line'
-          ? [...series].reverse().map((s) => ( // first series drawn last = on top
+          ? [...series].reverse().map((s) => (
+              // first series drawn last = on top
               <polyline
                 key={s.key}
                 fill="none"
@@ -595,7 +566,15 @@ function Chart({
             <line x1={x(hover)} x2={x(hover)} y1={PAD.t} y2={PAD.t + plotH} stroke="hsl(var(--k-input))" stroke-dasharray="3 3" />
             {kind === 'line' &&
               series.map((s) => (
-                <circle key={s.key} cx={x(hover)} cy={y(days[hover][s.key])} r="3.5" fill="hsl(var(--k-card))" stroke={s.color} stroke-width="2" />
+                <circle
+                  key={s.key}
+                  cx={x(hover)}
+                  cy={y(days[hover][s.key])}
+                  r="3.5"
+                  fill="hsl(var(--k-card))"
+                  stroke={s.color}
+                  stroke-width="2"
+                />
               ))}
           </g>
         )}

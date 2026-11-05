@@ -1,7 +1,18 @@
 import { useEffect, useState } from 'preact/hooks';
 import { ToastContainer } from 'kinu';
 import { api } from './api';
-import { AdminPasswordDialog, ensureAdmin, getAdmin, getAdminSet, getAdminUntil, refreshAdminSession, row, setAdminAvailable, setElevated, subscribeAdmin } from './ui';
+import {
+  AdminPasswordDialog,
+  ensureAdmin,
+  getAdmin,
+  getAdminSet,
+  getAdminUntil,
+  refreshAdminSession,
+  row,
+  setAdminAvailable,
+  setElevated,
+  subscribeAdmin,
+} from './ui';
 import { AppsPage } from './apps';
 import { AppPage, AppTab } from './detail';
 
@@ -35,10 +46,13 @@ export function App() {
   const [ui, setUi] = useState(adminSnapshot);
   useEffect(() => subscribeAdmin(() => setUi(adminSnapshot())), []);
   useEffect(() => {
-    api.getConfig().then((c) => {
-      setLogoutUrl(c.logoutUrl);
-      setAdminAvailable(c.adminSet);
-    }, () => {});
+    api.getConfig().then(
+      (c) => {
+        setLogoutUrl(c.logoutUrl);
+        setAdminAvailable(c.adminSet);
+      },
+      () => {},
+    );
     refreshAdminSession();
   }, []);
   // chip = local estimate: clear at session expiry; mid-use 403 clears earlier (refreshAdminSession)
@@ -80,8 +94,17 @@ export function App() {
           <div style={{ ...row, gap: 20 }}>
             {ui.adminSet && !ui.admin && (
               <button type="button" class="nav-link" aria-label="Enter admin" onClick={() => ensureAdmin()}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
                   <rect x="4" y="11" width="16" height="10" rx="2" />
                   <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                 </svg>
@@ -93,8 +116,17 @@ export function App() {
                 <span class="admin-chip-dot" aria-hidden="true" />
                 Admin · until {fmtUntil(ui.until)}
                 <button type="button" aria-label="Exit" title="Exit admin" onClick={exitAdmin}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
                     <path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0" />
                   </svg>
                 </button>
@@ -102,8 +134,17 @@ export function App() {
             )}
             {logoutUrl && (
               <a class="nav-link" href={logoutUrl}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
                 </svg>
                 Log out

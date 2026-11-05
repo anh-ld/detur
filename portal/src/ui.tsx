@@ -41,8 +41,18 @@ export const ICONS = {
 };
 
 export const Icon = ({ d, spin, size = 16 }: { d: string; spin?: boolean; size?: number }) => (
-  <svg class={spin ? 'spin' : undefined} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg
+    class={spin ? 'spin' : undefined}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
     <path d={d} />
   </svg>
 );
@@ -98,7 +108,13 @@ export function ShortLink({ base, linkKey }: { base: string; linkKey: string }) 
       {base && (
         <>
           <CopyButton icon value={url} label="Copy link" />
-          <IconButton icon={ICONS.open} label="Open link (not counted as a click)" href={previewUrl(url)} target="_blank" rel="noreferrer" />
+          <IconButton
+            icon={ICONS.open}
+            label="Open link (not counted as a click)"
+            href={previewUrl(url)}
+            target="_blank"
+            rel="noreferrer"
+          />
         </>
       )}
     </span>
@@ -317,7 +333,14 @@ export function AdminPasswordDialog() {
             </Alert>
           )}
           <div style={{ ...row, justifyContent: 'flex-end' }}>
-            <Button type="button" variant="outline" onClick={() => { settleAdminGate(false); closeDialog(ADMIN_PW_DIALOG); }}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                settleAdminGate(false);
+                closeDialog(ADMIN_PW_DIALOG);
+              }}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={busy} aria-busy={busy}>
@@ -386,7 +409,13 @@ export function ConfirmDelete({
             <Button variant="outline" onClick={() => closeDialog(id)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={() => { onConfirm(); closeDialog(id); }}>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                onConfirm();
+                closeDialog(id);
+              }}
+            >
               Delete
             </Button>
           </div>
