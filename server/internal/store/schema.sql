@@ -260,3 +260,19 @@ CREATE TRIGGER IF NOT EXISTS installs_row_seq AFTER INSERT ON installs
 BEGIN UPDATE row_seq SET n = MAX(n, NEW.rowid) WHERE name = 'installs'; END;
 CREATE TRIGGER IF NOT EXISTS events_row_seq AFTER INSERT ON events
 BEGIN UPDATE row_seq SET n = MAX(n, NEW.rowid) WHERE name = 'events'; END;
+
+-- Data API / MCP bearer tokens: SHA-256 of the token only; allowed apps explicit, FK cascade drops deleted apps.
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    token_hash   TEXT NOT NULL UNIQUE,
+    prefix       TEXT NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_used_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS api_token_apps (
+    token_id TEXT NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
+    app_id   TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    PRIMARY KEY (token_id, app_id)
+);
