@@ -146,3 +146,4 @@ Prerequisites: Go 1.27, Bun 1.4.4.
 - [dub.sh](https://dub.sh): link-funnel server logic.
 - [Detour matching docs](https://detour.swmansion.com/docs/platform/architecture/matching/): weights, threshold, window.
 - Detour SDKs: [React Native](https://github.com/software-mansion-labs/react-native-detour), [iOS](https://github.com/software-mansion-labs/ios-detour), [Android](https://github.com/software-mansion-labs/android-detour), [Flutter](https://github.com/software-mansion-labs/flutter-detour).
+- [Seline](https://seline.com): portal design.
