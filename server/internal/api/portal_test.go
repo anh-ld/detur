@@ -1285,3 +1285,50 @@ func TestPortalLinkRulesAndVariants(t *testing.T) {
 		t.Fatalf("wrong app rules: want 404, got %d", resp.StatusCode)
 	}
 }
+
+// Custom get-app page: admin saves, GET returns it with default + placeholders, bad HTML = 400, "" resets.
+func TestPortalAppPage(t *testing.T) {
+	ts, _, st := newPortalEnv(t)
+	app, _ := st.CreateApp("pg", "key")
+	path := "/api/apps/" + app.ID + "/page"
+	good := `{"html":"<p>{{app_name}}</p>{{cta}}"}`
+	if resp, b := portalReq(t, ts, "PUT", path, good, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT = %d %s", resp.StatusCode, b)
+	}
+	var got struct {
+		HTML, DefaultHTML string
+		Placeholders      []struct{ Name string }
+	}
+	_, b := portalReq(t, ts, "GET", path, "", nil)
+	mustJSON(t, b, &got)
+	if got.HTML != "<p>{{app_name}}</p>{{cta}}" || got.DefaultHTML == "" || len(got.Placeholders) == 0 {
+		t.Errorf("GET = %s", b)
+	}
+	for _, bad := range []string{`{"html":"{{cta}}<SCRIPT>1</SCRIPT>"}`, `{"html":"<p>no button</p>"}`, `{"html":"{{cta}}{{icon}}"}`} {
+		if resp, _ := portalReq(t, ts, "PUT", path, bad, nil); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("PUT %s = %d; want 400", bad, resp.StatusCode)
+		}
+	}
+	_, b = portalReq(t, ts, "POST", path+"/preview", `{"html":"<i>{{app_name}}</i>{{cta}}","page":"tap","platform":"android"}`, nil)
+	if !strings.Contains(string(b), "<i>pg</i>") || strings.Contains(string(b), "<script") {
+		t.Errorf("preview = %s", b)
+	}
+	if resp, _ := portalReq(t, ts, "PUT", path, `{"html":""}`, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reset = %d", resp.StatusCode)
+	}
+	if a, _ := st.GetApp(app.ID); a.PageHTML != "" {
+		t.Errorf("page after reset = %q", a.PageHTML)
+	}
+}
+
+// Viewer (no admin session) can't read, save or preview a page.
+func TestPortalAppPageViewerForbidden(t *testing.T) {
+	ts, _, st := newPortalEnvAdmin(t, "s3cret", 12)
+	app, _ := st.CreateApp("pg", "key")
+	path := "/api/apps/" + app.ID + "/page"
+	for _, c := range [][2]string{{"PUT", path}, {"POST", path + "/preview"}, {"GET", path}} {
+		if resp, _ := portalReq(t, ts, c[0], c[1], `{"html":"{{cta}}"}`, nil); resp.StatusCode != http.StatusForbidden {
+			t.Errorf("%s %s = %d; want 403", c[0], c[1], resp.StatusCode)
+		}
+	}
+}

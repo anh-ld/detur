@@ -154,7 +154,7 @@ func TestTapPageIcon(t *testing.T) {
 	delete(appIcons.m, "a:us:123")
 	appIcons.mu.Unlock()
 	_, body := doGET(t, ts, "/"+link.Key+"?_dt=1", hdr)
-	if !strings.Contains(string(body), `<svg class="icon"`) {
+	if !strings.Contains(string(body), `<img class="icon" src="data:image/svg+xml,`) {
 		t.Errorf("first visit: want fallback icon:\n%s", body)
 	}
 	waitIcon(t, []string{"a:us:123"})

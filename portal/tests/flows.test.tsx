@@ -372,6 +372,28 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
+  it('page flow: Edit page loads default, Custom saves HTML, a bad page shows the server error, Default resets', async () => {
+    const app = await api.createApp(uniq('page-app'));
+    location.hash = `#/apps/${app.id}/settings`;
+    render(<App />); // toasts live in App's ToastContainer
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit page' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Custom' }));
+    const html = screen.getByLabelText('HTML') as HTMLTextAreaElement;
+    expect(html.value).toContain('{{cta}}'); // pre-filled with the default
+    fireEvent.input(html, { target: { value: '<p>hi</p>' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save page' }));
+    await screen.findByText(/needs the button/);
+    fireEvent.input(html, { target: { value: '<p>hi</p>{{cta}}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save page' }));
+    await findToast('Custom page saved');
+    expect((await api.getPage(app.id)).html).toBe('<p>hi</p>{{cta}}');
+    fireEvent.click(screen.getByRole('button', { name: 'Default' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save page' }));
+    await findToast('Default page restored');
+    expect((await api.getPage(app.id)).html).toBe('');
+    await api.deleteApp(app.id);
+  });
+
   it('rotate key flow: new key is shown once', async () => {
     const app = await api.createApp(uniq('rotate-app'));
     render(<AppPage id={app.id} tab="settings" />);

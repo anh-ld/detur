@@ -139,7 +139,8 @@ type App struct {
 	IOSScheme              string // custom URL scheme ("myapp"): iOS tap page tries <scheme>://<route> before the App Store
 	MatchThreshold         int
 	MatchWindowMinutes     int
-	TagLinks               bool // match-link + resolve-short destinations carry detur_link=<key>
+	TagLinks               bool   // match-link + resolve-short destinations carry detur_link=<key>
+	PageHTML               string // custom get-app page ("" = default); loaded by GetApp only, not ListApps
 }
 
 // CreateApp: insert app; apiKey returned once from portal, only hash stored.
@@ -158,9 +159,9 @@ func (s *Store) CreateApp(name, apiKey string) (App, error) {
 func (s *Store) GetApp(id string) (App, error) {
 	var a App
 	err := s.db.QueryRow(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), COALESCE(ios_scheme, ''), match_threshold, match_window_minutes, tag_links
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), COALESCE(ios_scheme, ''), match_threshold, match_window_minutes, tag_links, COALESCE(page_html, '')
 		 FROM apps WHERE id = ?`, id,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.IOSScheme, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks)
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.IOSScheme, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks, &a.PageHTML)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -178,6 +179,18 @@ func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint, 
 	)
 	if err != nil {
 		return fmt.Errorf("update app details: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateAppPage: set custom get-app page; "" = default (nullable); ErrNotFound if app unknown.
+func (s *Store) UpdateAppPage(id, pageHTML string) error {
+	res, err := s.db.Exec(`UPDATE apps SET page_html = ? WHERE id = ?`, nullStr(pageHTML), id)
+	if err != nil {
+		return fmt.Errorf("update app page: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
@@ -1139,6 +1152,7 @@ func addMissingColumns(db *sql.DB) error {
 		{"links", "og_description", "TEXT"},
 		{"links", "og_image", "TEXT"},
 		{"apps", "ios_scheme", "TEXT"},
+		{"apps", "page_html", "TEXT"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {

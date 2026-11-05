@@ -35,7 +35,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
 | C1 | Mobile hop 1: one-reload interstitial (screen, timezone) + `Accept-CH` (model, OS). Mac Safari too: touch screen → iPad (UA rewritten for rules, redirect, click, scoring). | Dub + ours | Dub deeplink preview; Detour fingerprints immediately. iPadOS Safari sends a Mac UA → got the web fallback, never matched. | — |
-| C2 | iOS + App Store target → tap-to-copy page (feeds M9), always on; copy + reload in one tap. | Detour + ours | Detour's per-app toggle skipped. One tap: webviews block hand-off after an async copy. | 008, in-app |
+| C2 | iOS + App Store target → tap-to-copy page (feeds M9), always on; copy + reload in one tap. Same get-app page design as C8 (C12). | Detour + ours | Detour's per-app toggle skipped. One tap: webviews block hand-off after an async copy. | 008, in-app |
 | C3 | Bots: Dub `UA_BOTS`, HEAD, `?bot=`. Exempt: Google webview, TikTok `Channel/googleplay`. | Dub + ours | Detour has no list. TikTok's webview tripped "google". | in-app |
 | C4 | Dedup: link + IP + UA, 1h; re-tap refreshes time + signals, keeps id + matched. Also merged: real-browser click (no in-app source, same platform, link, IP) within 1h of an in-app click → keeps the in-app destination. Pasteboard: latest copy wins; no browser copy → in-app one kept (M15). SDK opens + other in-app browsers never merge. | Dub + ours | Dub click cache. "Open in browser" changes the UA. | in-app |
 | C5 | Clicks kept `RETENTION_HOURS` (24–8760), purged hourly; `click_id` + `paste_token` live `CLICK_ID_DAYS` (M5, M15). | Ours | Bounded storage; deterministic match needs ≥24h. | 005 |
@@ -44,7 +44,8 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | C8 | In-app browsers (Messenger, Facebook, Instagram, Threads, Zalo, TikTok, LinkedIn, Snapchat, LINE, X, Telegram, WeChat) → tap page at hop 2, not 302: Get the app, Android `intent://` + Play backup, "Open in browser" steps. No store target → 302. | Ours | Webviews block automatic store hand-offs; a tap gets through. Detour docs: nothing. | in-app |
 | C9 | Safety net: hop-1 page still visible after delay → reload with `_tap` → tap page. 1.5s generic webview, 4s real-browser UA, off for named apps. | Ours | Covers unnamed apps; 4s spares slow real browsers. Tune on devices. | in-app |
 | C10 | Click `source`: app name or `unknown-inapp` → stored on the click, rolled up per link (`click_sources`), sent in webhooks, shown in the portal. | Ours | Social traffic visible. Own table keeps the `click_days` key. | in-app |
-| C11 | Tap page store icon: App Store (iTunes Lookup `artworkUrl512`, link's storefront), else Play (listing `og:image`; no API). Background fetch, in-memory 24h (1h after failure); first visit → generic glyph. | Ours | Recognizable app, no new field. Page never waits on a store. | in-app |
+| C11 | Copy + tap page store icon: App Store (iTunes Lookup `artworkUrl512`, link's storefront), else Play (listing `og:image`; no API). Background fetch, in-memory 24h (1h after failure); first visit → generic glyph. | Ours | Recognizable app, no new field. Page never waits on a store. | in-app |
+| C12 | Per-app custom get-app page (`apps.page_html`): one HTML for the copy page + tap page, `{{placeholders}}`, admin-only. We own the button script (`id="detur-cta"`); user scripts blocked by CSP (nonce) + rejected on save. Empty = default design. | Detour-inspired | Detour has a template form; custom HTML covers it. A dead or scripted page would break installs. | custom-page |
 
 ## Redirects
 
@@ -144,7 +145,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | Platform API | Portal API + webhooks cover it. |
 | Billing | Self-hosted; no tiers. |
 | Revenue sums, organic-cohort retention, marks beyond D1/D7/D30 | No request yet. |
-| Return-to-web after store dismiss, App Preview page, custom redirect HTML, fallback param strategies, Smart Banners | Detour features, no request yet. |
+| Return-to-web after store dismiss, App Preview page, fallback param strategies, Smart Banners | Detour features, no request yet. |
 
 ## Security, ops
 

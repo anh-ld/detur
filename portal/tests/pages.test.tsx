@@ -21,6 +21,7 @@ const MESSENGER_ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.23
 let server: ChildProcess;
 let dbDir: string;
 let key: string;
+let schemeKey: string;
 
 beforeAll(async () => {
   const s = startServer({ port: PORT, bin });
@@ -37,6 +38,11 @@ beforeAll(async () => {
     android: 'https://play.google.com/store/apps/details?id=com.example',
     fallbackUrl: '',
   });
+  // own app: iOS scheme set -> tap page opens myapp://<route> first
+  const schemeApp = await api.createApp(uniq('pages-scheme'));
+  await api.updateApp(schemeApp.id, { iosAppId: '', androidPackage: '', androidCertFingerprint: '', iosScheme: 'myapp' });
+  schemeKey = uniq('scheme');
+  await api.createLink(schemeApp.id, { key: schemeKey, url: '/p', ios: 'https://apps.apple.com/app/id123', android: '', fallbackUrl: '' });
 });
 
 afterAll(() => {
@@ -48,10 +54,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function scripts(query: string, ua: string): Promise<string[]> {
-  const res = await fetch(`${SDK}/${key}${query}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
+// page scripts (nonce'd on the get-app pages) in order
+async function scripts(query: string, ua: string, k = key): Promise<string[]> {
+  const res = await fetch(`${SDK}/${k}${query}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
   expect(res.status).toBe(200);
-  return [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  return [...(await res.text()).matchAll(/<script(?: nonce="[0-9a-f]+")?>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 }
 
 // fake browser: records navigations, replaceState, fetches; tests fire page events + pick copy success
@@ -62,15 +69,13 @@ function browser(search = '', copyWorks = true) {
   const button: {
     onclick: null | (() => void);
     click?: Click;
-    open: string | null; // data-open (app scheme URL)
     href: string;
-    getAttribute: () => string | null;
+    getAttribute: (n: string) => string | null;
     addEventListener: (t: string, f: Click) => void;
   } = {
     onclick: null,
-    open: null,
     href: 'https://apps.apple.com/app/id123',
-    getAttribute: () => button.open,
+    getAttribute: (n) => (n === 'href' ? button.href : null),
     addEventListener: (_t, f) => (button.click = f),
   };
   const b = {
@@ -178,7 +183,9 @@ describe('iOS copy page', () => {
       const b = browser('', copyWorks);
       b.run(src);
       expect(b.replaced).toHaveLength(0); // waits for the tap
-      b.button.onclick!();
+      let prevented = false;
+      b.button.click!({ preventDefault: () => (prevented = true) });
+      expect(prevented).toBe(true); // href = no-JS fallback; script reloads itself
       expect(b.replaced).toHaveLength(1);
       // copied link carries the paste token (server-minted, 16 chars)
       const pasted = params(b.replaced[0]).get('pasted_link');
@@ -200,11 +207,11 @@ describe('tap page', () => {
   });
 
   it('iOS tap reports pasted_link only when the copy worked', async () => {
-    const [, ios] = await scripts('?_dt=1', MESSENGER_IOS);
+    const [ios] = await scripts('?_dt=1', MESSENGER_IOS);
     for (const copyWorks of [true, false]) {
       const b = browser('?_dt=1', copyWorks);
       b.run(ios);
-      b.button.click!();
+      b.button.click!({ preventDefault() {} });
       const pasted = b.fetched.map((u) => params(u).get('pasted_link'));
       if (copyWorks) expect(pasted).toEqual([expect.stringMatching(new RegExp(`^https://links\\.example/${key}\\?_dc=[0-9A-Za-z]{16}$`))]);
       else expect(pasted).toEqual([]);
@@ -212,11 +219,10 @@ describe('tap page', () => {
   });
 
   it('iOS app scheme: opens the app first, App Store only if the page is still up after 1.5s', async () => {
-    const [, ios] = await scripts('?_dt=1', MESSENGER_IOS);
+    const [ios] = await scripts('?_dt=1&x=1', MESSENGER_IOS, schemeKey);
     const tap = (stay: boolean) => {
       vi.useFakeTimers();
-      const b = browser('?_dt=1');
-      b.button.open = 'myapp://p?x=1';
+      const b = browser('?_dt=1&x=1');
       b.run(ios);
       let prevented = false;
       b.button.click!({ preventDefault: () => (prevented = true) });

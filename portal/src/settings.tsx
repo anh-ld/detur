@@ -11,9 +11,12 @@ import {
   Label,
   Switch,
   Table,
+  Textarea,
   toast,
+  Toggle,
+  ToggleGroup,
 } from 'kinu';
-import { api, App, CreatedApp, HealthCheck, MatchQuality } from './api';
+import { api, App, AppPage, CreatedApp, HealthCheck, MatchQuality, PagePreview } from './api';
 import { AdminGateAborted, adminCall, closeDialog, ConfirmDelete, CopyButton, gateOpen, Loading, mono, muted, row } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 
@@ -90,6 +93,12 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
           </tr>
         </tbody>
       </Table>
+
+      <h2 style={sectionTitle}>Get-app page</h2>
+      <p style={{ ...muted, marginBottom: 16 }}>
+        What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
+      </p>
+      <PageEditor app={app} />
 
       <h2 style={sectionTitle}>Matching</h2>
       <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
@@ -199,6 +208,123 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
         <Button type="submit">Save config</Button>
       </div>
     </form>
+  );
+}
+
+const PAGE_MAX = 51200;
+const PREVIEWS: { label: string; p: Pick<PagePreview, 'page' | 'platform'> }[] = [
+  { label: 'iOS copy', p: { page: 'copy', platform: 'ios' } },
+  { label: 'iOS in-app', p: { page: 'tap', platform: 'ios' } },
+  { label: 'Android in-app', p: { page: 'tap', platform: 'android' } },
+];
+
+// loads on demand (admin-gated GET, 50 KB kept out of the app list): Edit page -> mode, HTML, preview, save
+function PageEditor({ app }: { app: App }) {
+  const [data, setData] = useState<AppPage | null>(null);
+  const [custom, setCustom] = useState(false);
+  const [text, setText] = useState('');
+  const [view, setView] = useState(0);
+  const [preview, setPreview] = useState('');
+  const [error, setError] = useState('');
+
+  const open = async () => {
+    setError('');
+    try {
+      const d = await adminCall(() => api.getPage(app.id));
+      setData(d);
+      setCustom(d.html !== '');
+      setText(d.html || d.defaultHtml);
+    } catch (e) {
+      if (e instanceof AdminGateAborted) return;
+      setError(String(e));
+    }
+  };
+
+  const html = custom ? text : '';
+  // debounced: real renderer on the server; sandboxed frame (no scripts)
+  useEffect(() => {
+    if (!data) return;
+    let stale = false;
+    const t = setTimeout(() => {
+      api.previewPage(app.id, { html, ...PREVIEWS[view].p }).then(
+        (h) => !stale && (setPreview(h), setError('')),
+        (e) => !stale && setError(String(e)),
+      );
+    }, 400);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [data, html, view, app.id]);
+
+  const save = async () => {
+    setError('');
+    try {
+      await adminCall(() => api.savePage(app.id, html));
+      toast.show(custom ? 'Custom page saved' : 'Default page restored');
+    } catch (e) {
+      if (e instanceof AdminGateAborted) return;
+      setError(String(e));
+    }
+  };
+
+  if (!data) {
+    return (
+      <div style={{ display: 'grid', gap: 16 }}>
+        {error && <Alert variant="destructive">{error}</Alert>}
+        <div>
+          <Button variant="outline" onClick={open}>
+            Edit page
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  const bytes = new TextEncoder().encode(text).length;
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <ToggleGroup role="group" aria-label="Page source" class="seg" style={{ justifySelf: 'start' }}>
+        {[false, true].map((c) => (
+          <Toggle key={String(c)} type="button" size="sm" pressed={custom === c} onClickCapture={() => {}} onClick={() => setCustom(c)}>
+            {c ? 'Custom' : 'Default'}
+          </Toggle>
+        ))}
+      </ToggleGroup>
+      {custom && (
+        <Field>
+          <Label htmlFor="page-html">HTML</Label>
+          <Textarea id="page-html" rows={16} style={mono} value={text} onInput={(e) => setText(e.currentTarget.value)} />
+          <Field.Description style={bytes > PAGE_MAX ? { color: 'hsl(var(--k-destructive))' } : undefined}>
+            {bytes.toLocaleString()} / {PAGE_MAX.toLocaleString()} bytes
+          </Field.Description>
+          <ul style={{ ...muted, margin: '8px 0 0', paddingLeft: 18 }}>
+            {data.placeholders.map((p) => (
+              <li key={p.name}>
+                <code>{`{{${p.name}}}`}</code> {p.desc}
+              </li>
+            ))}
+          </ul>
+          <p style={{ ...muted, marginTop: 8 }}>No scripts or on* handlers (blocked). Images and fonts must be https.</p>
+        </Field>
+      )}
+      <ToggleGroup role="group" aria-label="Preview" class="seg" style={{ justifySelf: 'start' }}>
+        {PREVIEWS.map((v, i) => (
+          <Toggle key={v.label} type="button" size="sm" pressed={view === i} onClickCapture={() => {}} onClick={() => setView(i)}>
+            {v.label}
+          </Toggle>
+        ))}
+      </ToggleGroup>
+      <iframe
+        title="Page preview"
+        sandbox=""
+        srcdoc={preview}
+        style={{ width: 390, maxWidth: '100%', height: 844, border: '1px solid hsl(var(--k-border))', borderRadius: 'var(--k-radius)', background: '#fff' }}
+      />
+      {error && <Alert variant="destructive">{error}</Alert>}
+      <div style={{ ...row, justifyContent: 'flex-end' }}>
+        <Button onClick={save}>Save page</Button>
+      </div>
+    </div>
   );
 }
 
