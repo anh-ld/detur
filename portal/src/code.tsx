@@ -26,7 +26,11 @@ function css(src: string): string {
     src,
     /(\/\*[\s\S]*?(?:\*\/|$))|([^{};]+)(?=\{)|([\w-]+)(\s*:)([^;{}]*)/g,
     (m) =>
-      m[1] ? span('comment', m[1]) : m[2] ? span('sel', m[2]) : span('prop', m[3]) + span('punct', m[4]) + `<span class="hl-val">${ph(m[5])}</span>`,
+      m[1]
+        ? span('comment', m[1])
+        : m[2]
+          ? span('sel', m[2])
+          : span('prop', m[3]) + span('punct', m[4]) + `<span class="hl-val">${ph(m[5])}</span>`,
     (s) => span('punct', s),
   );
 }

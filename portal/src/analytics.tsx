@@ -4,23 +4,23 @@ import { Badge, Button, Card, Empty, Input, Select, Table } from 'kinu';
 import { Analytics, DateRangeFilter, DayStat, Mark, Platform } from './api';
 import { mono, muted, row } from './ui';
 
-// blue ramp around brand cyan + one warm gray
-const CYAN = 'hsl(205 87% 59%)';
+// blue ramp (theme --chart-*) + one warm gray
+const BLUE = 'hsl(var(--chart-1))';
 
 // Detour overview parity: filters, totals, daily charts, top events. Plain SVG charts.
 
 type Metric = keyof Omit<DayStat, 'day'>;
 
 const LINES: { key: Metric; label: string; color: string }[] = [
-  { key: 'clicks', label: 'Clicks', color: CYAN },
-  { key: 'nonOrganic', label: 'Installs via link', color: 'hsl(212 72% 34%)' },
-  { key: 'webFallbacks', label: 'Web fallbacks', color: 'hsl(192 70% 52%)' },
-  { key: 'opens', label: 'Already installed opens', color: 'hsl(25 6% 55%)' },
+  { key: 'clicks', label: 'Clicks', color: BLUE },
+  { key: 'nonOrganic', label: 'Installs via link', color: 'hsl(var(--chart-2))' },
+  { key: 'webFallbacks', label: 'Web fallbacks', color: 'hsl(var(--chart-3))' },
+  { key: 'opens', label: 'Already installed opens', color: 'hsl(240 4% 62%)' },
 ];
 
 const BARS: { key: Metric; label: string; color: string }[] = [
-  { key: 'nonOrganic', label: 'Non-organic', color: CYAN },
-  { key: 'organic', label: 'Organic', color: 'hsl(204 77% 86%)' },
+  { key: 'nonOrganic', label: 'Non-organic', color: BLUE },
+  { key: 'organic', label: 'Organic', color: 'hsl(var(--chart-wash))' },
 ];
 
 // server ua.InApp ids → display names
@@ -40,8 +40,7 @@ const SOURCE_NAMES: Record<string, string> = {
   'unknown-inapp': 'Unknown in-app',
 };
 
-const fmtDay = (d: string) =>
-  new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const fmtDay = (d: string) => new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 const sum = (days: DayStat[], k: Metric) => days.reduce((n, d) => n + d[k], 0);
 
@@ -118,11 +117,7 @@ export function DateRangePicker({
 
   return (
     <div style={{ ...row, flexWrap: 'wrap', gap: 6 }}>
-      <Select
-        aria-label={ariaLabel}
-        value={selectVal}
-        onChange={(e) => handleSelect(e.currentTarget.value)}
-      >
+      <Select aria-label={ariaLabel} value={selectVal} onChange={(e) => handleSelect(e.currentTarget.value)}>
         {RANGE_OPTIONS.map((o) => (
           <option key={o.days} value={String(o.days)}>
             {o.label}
@@ -131,10 +126,7 @@ export function DateRangePicker({
         <option value="custom">Custom range</option>
       </Select>
       {customMode && (
-        <form
-          onSubmit={handleApply}
-          style={{ ...row, gap: 6, margin: 0, flexWrap: 'wrap' }}
-        >
+        <form onSubmit={handleApply} style={{ ...row, gap: 6, margin: 0, flexWrap: 'wrap' }}>
           <Input
             type="date"
             aria-label="Start date"
@@ -153,12 +145,7 @@ export function DateRangePicker({
             onInput={(e) => setTo(e.currentTarget.value)}
             style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }}
           />
-          <Button
-            type="submit"
-            size="sm"
-            variant="secondary"
-            disabled={!from || !to || from > to}
-          >
+          <Button type="submit" size="sm" variant="secondary" disabled={!from || !to || from > to}>
             Apply
           </Button>
         </form>
@@ -190,11 +177,7 @@ export function Filters({
 
   return (
     <div style={{ ...row, flexWrap: 'wrap' }}>
-      <Select
-        aria-label="Platform"
-        value={platform}
-        onChange={(e) => onPlatform(e.currentTarget.value as Platform)}
-      >
+      <Select aria-label="Platform" value={platform} onChange={(e) => onPlatform(e.currentTarget.value as Platform)}>
         <option value="">All platforms</option>
         <option value="ios">iOS</option>
         <option value="android">Android</option>
@@ -214,57 +197,110 @@ const ICONS: Partial<Record<Metric, string>> = {
   webFallbacks: 'M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 2a14.5 14.5 0 0 0 0 20a14.5 14.5 0 0 0 0-20M2 12h20',
 };
 
-// tile: icon + label, total, hint, sparkline in chart color
-function Tile({
-  data,
-  metric,
-  hint,
-  extra,
-}: {
-  data: Analytics | null;
-  metric: Metric;
-  hint: string;
-  extra?: ComponentChildren;
-}) {
+// stat: icon + label, total; hint as tooltip
+function Stat({ data, metric, hint, extra }: { data: Analytics | null; metric: Metric; hint: string; extra?: ComponentChildren }) {
   const s = LINES.find((l) => l.key === metric)!;
-  const days = data?.days ?? [];
-  const vals = days.map((d) => d[metric]);
-  const top = Math.max(1, ...vals);
-  const pts = vals.map((v, i) => `${(i / Math.max(1, vals.length - 1)) * 100},${30 - (v / top) * 28}`).join(' ');
   return (
-    <Card padding="sm" class="tile">
-      <p style={{ ...muted, ...row, gap: 6 }}>
-        <span class="tile-icon" style={{ color: s.color }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <div class="stat" title={hint}>
+      <p class="stat-label">
+        <span style={{ color: s.color, display: 'inline-grid' }}>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
             <path d={ICONS[metric]} />
           </svg>
         </span>
         {s.label}
       </p>
-      <div style={{ ...row, fontSize: 28, fontWeight: 400 }}>
-        {data ? fmt(sum(days, metric)) : <Skeleton w={56} h={28} />}
+      <div class="stat-value">
+        {data ? fmt(sum(data.days, metric)) : <Skeleton w={56} h={26} />}
         {extra}
       </div>
-      <p style={{ ...muted, fontSize: 12 }}>{hint}</p>
-      <svg viewBox="0 0 100 32" preserveAspectRatio="none" width="100%" height="32" aria-hidden="true">
-        <line x1="0" x2="100" y1="30" y2="30" stroke="hsl(var(--k-border))" vector-effect="non-scaling-stroke" />
-        {!data && <rect x="0" y="4" width="100" height="26" rx="2" class="skeleton-fill" />}
-        {vals.length > 1 && (
-          <>
-            <polygon points={`0,30 ${pts} 100,30`} fill={s.color} opacity="0.18" />
-            <polyline
-              points={pts}
-              fill="none"
-              stroke={s.color}
-              stroke-width="2"
-              stroke-linejoin="round"
-              vector-effect="non-scaling-stroke"
-            />
-          </>
-        )}
-      </svg>
+    </div>
+  );
+}
+
+// chart card: title + subtitle left, big total right
+function ChartCard({
+  title,
+  sub,
+  data,
+  total,
+  unit,
+  children,
+}: {
+  title: string;
+  sub: string;
+  data: Analytics | null;
+  total: number;
+  unit: string;
+  children: ComponentChildren;
+}) {
+  return (
+    <Card class="chart-card">
+      <div class="chart-head">
+        <div>
+          <h3>{title}</h3>
+          <p style={muted}>{sub}</p>
+        </div>
+        <div class="chart-total">
+          {data ? <strong>{fmt(total)}</strong> : <Skeleton w={72} h={36} />}
+          <span style={muted}>{unit}</span>
+        </div>
+      </div>
+      {children}
     </Card>
+  );
+}
+
+// ranked rows, tinted bar behind each = share of top row
+function BarList({
+  label,
+  items,
+  empty,
+  mono: isMono,
+}: {
+  label: string;
+  items: { name: ComponentChildren; count: number; key: string }[] | null;
+  empty: [string, string];
+  mono?: boolean;
+}) {
+  if (!items)
+    return (
+      <div style={{ display: 'grid', gap: 8 }}>
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} h={36} />
+        ))}
+      </div>
+    );
+  if (items.length === 0)
+    return (
+      <div class="chart-empty" style={{ height: 160 }}>
+        <strong>{empty[0]}</strong>
+        {empty[1]}
+      </div>
+    );
+  const top = Math.max(1, ...items.map((i) => i.count));
+  return (
+    <ul class="bar-list" aria-label={label}>
+      {items.map((i) => (
+        <li key={i.key}>
+          <span class="bar-fill" style={{ width: `${(i.count / top) * 100}%` }} />
+          <span class="bar-name" style={isMono ? mono : undefined}>
+            {i.name}
+          </span>
+          <span class="num">{fmt(i.count)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -272,110 +308,71 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
   const days = data?.days ?? [];
   const clicks = sum(days, 'clicks');
   const viaLink = sum(days, 'nonOrganic');
+  const installs = viaLink + sum(days, 'organic');
   const sources = data?.sources ?? []; // older servers / fixtures omit it
   const retention = data?.retention ?? [];
   const conversions = data?.conversions ?? [];
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <div className="stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16 }}>
-        <Tile data={data} metric="clicks" hint="Link opens on any platform" />
-        <Tile data={data} metric="opens" hint="Opened straight in the app" />
-        <Tile
+      <Card class="stats">
+        <Stat data={data} metric="clicks" hint="Link opens on any platform" />
+        <Stat data={data} metric="opens" hint="Opened straight in the app" />
+        <Stat
           data={data}
           metric="nonOrganic"
           hint="Installs matched to a click"
           extra={
-            data && clicks > 0 && (
+            data &&
+            clicks > 0 && (
               <Badge variant="secondary" style={{ letterSpacing: 'normal', whiteSpace: 'nowrap' }}>
                 {Math.round((viaLink / clicks) * 100)}% match
               </Badge>
             )
           }
         />
-        <Tile data={data} metric="webFallbacks" hint="Sent to the web URL" />
-      </div>
-
-      <Card style={{ display: 'grid', gap: 12 }}>
-        <h3 style={{ margin: 0 }}>Activity</h3>
-        <ChartOr data={data} series={LINES} kind="line" empty="No activity in this range." />
+        <Stat data={data} metric="webFallbacks" hint="Sent to the web URL" />
       </Card>
 
-      <div className="split" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
-        <Card style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
-          <div style={{ display: 'grid', gap: 4 }}>
-            <h3 style={{ margin: 0 }}>Organic vs. non-organic</h3>
-            <p style={muted}>Installs matched to a link vs. installs with no click.</p>
-          </div>
-          <ChartOr data={data} series={BARS} kind="bar" empty="No installs in this range." />
-        </Card>
-        <Card style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
-          <div style={{ display: 'grid', gap: 4 }}>
-            <h3 style={{ margin: 0 }}>Top events</h3>
-            <p style={muted}>Most common events sent by the SDK.</p>
-          </div>
-          {!data ? (
-            <div style={{ display: 'grid', gap: 10 }}>
-              {[0, 1, 2].map((i) => (
-                <Skeleton key={i} h={36} />
-              ))}
-            </div>
-          ) : data.events.length === 0 ? (
-            <div class="chart-empty" style={{ height: H + 28 }}>
-              No events in this range.
-            </div>
-          ) : (
-            <Table>
-              <thead>
-                <tr>
-                  <th>Event</th>
-                  <th style={{ textAlign: 'right' }}>Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.events.map((e) => (
-                  <tr key={e.event}>
-                    <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{e.event || <span style={muted}>(no name)</span>}</td>
-                    <td data-label="Count" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {fmt(e.count)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </Card>
+      <div className="duo">
+        <ChartCard title="Activity" sub="Clicks, opens, installs per day" data={data} total={clicks} unit="clicks">
+          <ChartOr data={data} series={LINES} kind="line" empty={['No activity', 'Clicks, opens and installs show here.']} />
+        </ChartCard>
+        <ChartCard title="Organic vs. non-organic" sub="Installs with and without a click" data={data} total={installs} unit="installs">
+          <ChartOr data={data} series={BARS} kind="bar" empty={['No installs', 'Installs with and without a click show here.']} />
+        </ChartCard>
       </div>
 
-      <section aria-label="In-app sources" style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-        <div style={{ display: 'grid', gap: 4 }}>
-          <h3 style={{ margin: 0 }}>In-app sources</h3>
-          <p style={muted}>Clicks from in-app browsers such as Messenger or Zalo, on all platforms.</p>
-        </div>
-        {!data ? (
-          <Skeleton h={36} />
-        ) : sources.length === 0 ? (
-          <EmptySection title="No in-app clicks">Taps from Messenger, Zalo, TikTok and other in-app browsers show here.</EmptySection>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <th>App</th>
-                <th style={{ textAlign: 'right' }}>Clicks</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sources.map((s) => (
-                <tr key={s.source}>
-                  <td>{SOURCE_NAMES[s.source] ?? s.source}</td>
-                  <td data-label="Clicks" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmt(s.count)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </section>
+      <div className="duo">
+        <Card class="chart-card">
+          <div class="chart-head">
+            <div>
+              <h3>Top events</h3>
+              <p style={muted}>{data ? `${fmt(data.events.length)} event names from the SDK` : 'Events from the SDK'}</p>
+            </div>
+          </div>
+          <BarList
+            label="Top events"
+            mono
+            items={
+              data && data.events.map((e) => ({ key: e.event, name: e.event || <span style={muted}>(no name)</span>, count: e.count }))
+            }
+            empty={['No events', 'Events sent by the SDK show here.']}
+          />
+        </Card>
+        <Card class="chart-card">
+          <div class="chart-head">
+            <div>
+              <h3>In-app sources</h3>
+              <p style={muted}>Clicks from in-app browsers, all platforms</p>
+            </div>
+          </div>
+          <BarList
+            label="In-app sources"
+            items={data && sources.map((s) => ({ key: s.source, name: SOURCE_NAMES[s.source] ?? s.source, count: s.count }))}
+            empty={['No in-app clicks', 'Taps from Messenger, Zalo, TikTok and other in-app browsers show here.']}
+          />
+        </Card>
+      </div>
 
       <section aria-label="Retention by link" style={{ display: 'grid', gap: 12, marginTop: 16 }}>
         <div style={{ display: 'grid', gap: 4 }}>
@@ -466,7 +463,8 @@ const EmptySection = ({ title, children }: { title: string; children: ComponentC
 
 // share of mark's devices that returned; – = no cohort reached the mark in range
 const rate = (m: Mark) => (m.devices === 0 ? '–' : `${Math.round((m.returned / m.devices) * 100)}%`);
-const markTitle = (m: Mark) => (m.devices === 0 ? 'No cohort reached this day in range' : `${fmt(m.returned)} of ${fmt(m.devices)} devices`);
+const markTitle = (m: Mark) =>
+  m.devices === 0 ? 'No cohort reached this day in range' : `${fmt(m.returned)} of ${fmt(m.devices)} devices`;
 
 // measure container so SVG axis text stays real pixel size
 function useWidth() {
@@ -485,13 +483,14 @@ function useWidth() {
 type Series = { key: Metric; label: string; color: string }[];
 
 // chart | skeleton while loading | message when all 0
-function ChartOr({ data, series, kind, empty }: { data: Analytics | null; series: Series; kind: 'line' | 'bar'; empty: string }) {
+function ChartOr({ data, series, kind, empty }: { data: Analytics | null; series: Series; kind: 'line' | 'bar'; empty: [string, string] }) {
   if (!data) return <Skeleton h={H + 28} />;
   const total = series.reduce((n, s) => n + sum(data.days, s.key), 0);
   if (total === 0)
     return (
       <div class="chart-empty" style={{ height: H + 28 }}>
-        {empty}
+        <strong>{empty[0]}</strong>
+        {empty[1]}
       </div>
     );
   return <Chart days={data.days} series={series} kind={kind} />;
@@ -500,15 +499,7 @@ function ChartOr({ data, series, kind, empty }: { data: Analytics | null; series
 const H = 200;
 const PAD = { l: 32, r: 8, t: 8, b: 24 };
 
-function Chart({
-  days,
-  series,
-  kind,
-}: {
-  days: DayStat[];
-  series: Series;
-  kind: 'line' | 'bar';
-}) {
+function Chart({ days, series, kind }: { days: DayStat[]; series: Series; kind: 'line' | 'bar' }) {
   const [ref, w] = useWidth();
   const [hoverAt, setHover] = useState<number | null>(null);
   // range shrank under a resting pointer: index past the new data would throw and blank the page
@@ -518,9 +509,7 @@ function Chart({
   const plotH = H - PAD.t - PAD.b;
   const peak = Math.max(
     1,
-    ...days.map((d) =>
-      kind === 'bar' ? series.reduce((s, x) => s + d[x.key], 0) : Math.max(...series.map((x) => d[x.key])),
-    ),
+    ...days.map((d) => (kind === 'bar' ? series.reduce((s, x) => s + d[x.key], 0) : Math.max(...series.map((x) => d[x.key])))),
   );
   const top = Math.ceil(peak / 4) * 4; // 4 even gridlines
   const slot = plotW / n;
@@ -540,13 +529,7 @@ function Chart({
       >
         {[0, 1, 2, 3, 4].map((g) => (
           <g key={g}>
-            <line
-              x1={PAD.l}
-              x2={w - PAD.r}
-              y1={y((top * g) / 4)}
-              y2={y((top * g) / 4)}
-              stroke="hsl(var(--k-border))"
-            />
+            <line x1={PAD.l} x2={w - PAD.r} y1={y((top * g) / 4)} y2={y((top * g) / 4)} stroke="hsl(var(--k-border))" />
             <text x={PAD.l - 6} y={y((top * g) / 4) + 4} text-anchor="end" font-size="11" fill="hsl(var(--k-muted-foreground))">
               {fmt((top * g) / 4)}
             </text>
@@ -560,7 +543,8 @@ function Chart({
           ) : null,
         )}
         {kind === 'line'
-          ? [...series].reverse().map((s) => ( // first series drawn last = on top
+          ? [...series].reverse().map((s) => (
+              // first series drawn last = on top
               <polyline
                 key={s.key}
                 fill="none"
@@ -595,7 +579,15 @@ function Chart({
             <line x1={x(hover)} x2={x(hover)} y1={PAD.t} y2={PAD.t + plotH} stroke="hsl(var(--k-input))" stroke-dasharray="3 3" />
             {kind === 'line' &&
               series.map((s) => (
-                <circle key={s.key} cx={x(hover)} cy={y(days[hover][s.key])} r="3.5" fill="hsl(var(--k-card))" stroke={s.color} stroke-width="2" />
+                <circle
+                  key={s.key}
+                  cx={x(hover)}
+                  cy={y(days[hover][s.key])}
+                  r="3.5"
+                  fill="hsl(var(--k-card))"
+                  stroke={s.color}
+                  stroke-width="2"
+                />
               ))}
           </g>
         )}

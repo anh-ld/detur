@@ -68,9 +68,7 @@ export function AppsPage() {
         {created ? (
           <div style={{ display: 'grid', gap: 16 }}>
             <h2 style={{ margin: 0 }}>App created</h2>
-            <Alert variant="warning">
-              Copy both now — the API key is shown only once.
-            </Alert>
+            <Alert variant="warning">Copy both now — the API key is shown only once.</Alert>
             <Field>
               <Label>App ID</Label>
               <Input readOnly value={created.id} style={mono} />
@@ -110,7 +108,9 @@ export function AppsPage() {
               <Button type="button" variant="outline" onClick={() => closeDialog(CREATE_ID)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy} aria-busy={busy}>Create</Button>
+              <Button type="submit" disabled={busy} aria-busy={busy}>
+                Create
+              </Button>
             </div>
           </form>
         )}

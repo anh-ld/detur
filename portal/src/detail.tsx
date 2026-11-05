@@ -1,26 +1,6 @@
 import { cloneElement, JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import {
-  Alert,
-  Badge,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  Button,
-  Card,
-  Dialog,
-  Empty,
-  Field,
-  Input,
-  InputGroup,
-  Label,
-  Separator,
-  Tab,
-  Table,
-  TabList,
-  Textarea,
-} from 'kinu';
+import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, InputGroup, Label, Separator, Table, Textarea } from 'kinu';
 import { Analytics, api, App, DateRangeFilter, Link, Platform } from './api';
 import { closeDialog, ConfirmDelete, Icon, Loading, mono, muted, PageHeader, row, ShortLink } from './ui';
 import { AnalyticsView, Filters, fmt } from './analytics';
@@ -80,18 +60,39 @@ const draftFrom = (l: Link): LinkDraft => ({
 
 export type AppTab = 'links' | 'analytics' | 'fraud' | 'settings' | 'webhooks';
 
-const TABS: { tab: AppTab; label: string }[] = [
-  { tab: 'links', label: 'Links' },
-  { tab: 'analytics', label: 'Analytics' },
-  { tab: 'fraud', label: 'Fraud' },
-  { tab: 'settings', label: 'Settings' },
-  { tab: 'webhooks', label: 'Webhooks' },
+// sidebar nav: label, single-key shortcut, Lucide icon path (ISC)
+export const TABS: { tab: AppTab; label: string; key: string; icon: string }[] = [
+  {
+    tab: 'links',
+    label: 'Links',
+    key: 'L',
+    icon: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
+  },
+  { tab: 'analytics', label: 'Analytics', key: 'A', icon: 'M3 3v18h18M18 17V9M13 17V5M8 17v-3' },
+  {
+    tab: 'fraud',
+    label: 'Fraud',
+    key: 'F',
+    icon: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z',
+  },
+  {
+    tab: 'settings',
+    label: 'Settings',
+    key: 'S',
+    icon: 'M20 7h-9M14 17H5M17 20a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM7 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  },
+  {
+    tab: 'webhooks',
+    label: 'Webhooks',
+    key: 'W',
+    icon: 'M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2M6 17l3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06M12 6l3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8',
+  },
 ];
 
-const tabHref = (id: string, tab: AppTab) => `#/apps/${encodeURIComponent(id)}${tab === 'links' ? '' : '/' + tab}`;
+export const tabHref = (id: string, tab: AppTab) => `#/apps/${encodeURIComponent(id)}${tab === 'links' ? '' : '/' + tab}`;
 
 // App page: one header, tab per job. Links first: most touched.
-export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
+export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?: (name: string) => void }) {
   const [app, setApp] = useState<App | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
   const [stats, setStats] = useState<Analytics | null>(null);
@@ -101,7 +102,10 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
   const [statsError, setStatsError] = useState(''); // own slot: a fixed range clears it without hiding an app-load error
   const [linkBase, setLinkBase] = useState('');
   useEffect(() => {
-    api.getConfig().then((c) => setLinkBase(c.linkBase ?? ''), () => {});
+    api.getConfig().then(
+      (c) => setLinkBase(c.linkBase ?? ''),
+      () => {},
+    );
   }, []);
 
   // drop responses for an app already left
@@ -150,6 +154,8 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
     setTick((t) => t + 1);
     Promise.all([loadAll(), new Promise((r) => setTimeout(r, 600))]).then(() => setRefreshing(false));
   };
+  // sidebar switcher follows renames too
+  useEffect(() => onName?.(app?.name ?? ''), [app?.name]);
   useEffect(() => {
     setApp(null);
     setLinks(null);
@@ -185,40 +191,26 @@ export function AppPage({ id, tab }: { id: string; tab: AppTab }) {
 
   return (
     <div>
-      <Breadcrumb style={{ ...muted, marginTop: 24, marginBottom: -16 }}>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="#/">Apps</BreadcrumbLink>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
       <PageHeader
-        title={app.name}
+        title={TABS.find((t) => t.tab === tab)!.label}
         actions={
-          tab !== 'settings' && (
-            <Button variant="secondary" onClick={refresh} aria-busy={refreshing || statsLoading}>
-              <Icon d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" spin={refreshing || statsLoading} />
-              Refresh
-            </Button>
-          )
+          <>
+            {filtered && <Filters range={range} platform={platform} onRange={setRange} onPlatform={setPlatform} />}
+            {tab !== 'settings' && (
+              <Button variant="outline" onClick={refresh} aria-busy={refreshing || statsLoading}>
+                <Icon d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" spin={refreshing || statsLoading} />
+                Refresh
+              </Button>
+            )}
+          </>
         }
       />
-      <div class="tab-bar">
-        <TabList role="tablist" aria-label="App sections">
-          {TABS.map((t) => (
-            <Tab key={t.tab} role="tab" aria-selected={t.tab === tab} onClick={() => (location.hash = tabHref(app.id, t.tab))}>
-              {t.label}
-            </Tab>
-          ))}
-        </TabList>
-        {filtered && <Filters range={range} platform={platform} onRange={setRange} onPlatform={setPlatform} />}
-      </div>
       {(error || (filtered && statsError)) && <Alert variant="destructive">{error || statsError}</Alert>}
 
       {tab === 'links' && (
         <section aria-label="Links" style={{ display: 'grid', gap: 16 }}>
           <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-            <p style={muted}>Clicks and matches follow the filters above.</p>
+            <p style={muted}>Clicks and matches follow the filters.</p>
             <LinkDialog appId={app.id} link={null} linkBase={linkBase} onSaved={refresh} trigger={<Button>New link</Button>} />
           </div>
           {links === null ? (
@@ -495,7 +487,9 @@ function LinkDialog({
                   onInput={(e) => setDraft({ ...draft, ogTitle: e.currentTarget.value })}
                   placeholder="Sam invited you"
                 />
-                <Field.Description>{draft.ogTitle.length}/{OG_TITLE_MAX}</Field.Description>
+                <Field.Description>
+                  {draft.ogTitle.length}/{OG_TITLE_MAX}
+                </Field.Description>
               </Field>
               <Field>
                 <Label htmlFor={`${id}-ogd`}>Description</Label>
@@ -506,7 +500,9 @@ function LinkDialog({
                   rows={2}
                   onInput={(e) => setDraft({ ...draft, ogDescription: e.currentTarget.value })}
                 />
-                <Field.Description>{draft.ogDescription.length}/{OG_DESC_MAX}</Field.Description>
+                <Field.Description>
+                  {draft.ogDescription.length}/{OG_DESC_MAX}
+                </Field.Description>
               </Field>
               <Field>
                 <Label htmlFor={`${id}-ogi`}>Image URL</Label>

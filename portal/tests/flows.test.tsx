@@ -7,7 +7,7 @@ import { api, setApiBase } from '../src/api';
 import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
-import { go, openDialog, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './integration';
+import { go, openDialog, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './integration';
 
 // client flows: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal :8091.
 const PORT = 8091;
@@ -23,7 +23,8 @@ const SDK = 'http://127.0.0.1:8080';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
 // 2nd iPhone, same iOS + IP; own UA so server doesn't merge it into the first click
 const IPHONE_B = IPHONE.replace('15E148', '15E149');
-const MESSENGER = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBSN/iOS]';
+const MESSENGER =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBSN/iOS]';
 const DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36';
 
 async function click(key: string, ua: string, done = false): Promise<Response> {
@@ -34,8 +35,22 @@ async function click(key: string, ua: string, done = false): Promise<Response> {
 async function matchLink(app: { id: string; apiKey: string }, userAgent = IPHONE): Promise<Response> {
   return fetch(`${SDK}/api/link/match-link`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${app.apiKey}`, 'X-App-ID': app.id, 'X-SDK': 'react-native/2.3.1' },
-    body: JSON.stringify({ platform: 'ios', model: 'iPhone', systemVersion: '17.5', screenWidth: 393, screenHeight: 852, scale: 3, timezone: 'UTC', userAgent }),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${app.apiKey}`,
+      'X-App-ID': app.id,
+      'X-SDK': 'react-native/2.3.1',
+    },
+    body: JSON.stringify({
+      platform: 'ios',
+      model: 'iPhone',
+      systemVersion: '17.5',
+      screenWidth: 393,
+      screenHeight: 852,
+      scale: 3,
+      timezone: 'UTC',
+      userAgent,
+    }),
   });
 }
 
@@ -80,13 +95,13 @@ const flaggedCounts = (section: HTMLElement): Record<string, number> => {
   );
 };
 
-// tile number by label (labels repeat in legends; tiles = padding=sm cards). First text node: some tiles append a share.
+// stat number by label (labels repeat in legends). First text node: some stats append a share.
 const tileValue = (label: string): number => {
-  const tile = screen
+  const stat = screen
     .getAllByText(label, { exact: true })
-    .map((e) => e.closest('[k=card][padding=sm]'))
+    .map((e) => e.closest('.stat'))
     .find(Boolean)!;
-  return parseInt(tile.querySelector(':scope > div')!.firstChild!.textContent!, 10);
+  return parseInt(stat.querySelector('.stat-value')!.firstChild!.textContent!, 10);
 };
 
 beforeAll(async () => {
@@ -141,7 +156,7 @@ describe('portal client flows', () => {
   it('detail flow: Links tab creates a link, then deletes it', async () => {
     const app = await api.createApp(uniq('detail-app'));
     render(<AppPage id={app.id} tab="links" />);
-    await screen.findByRole('heading', { name: app.name });
+    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
 
     fireEvent.click(screen.getByRole('button', { name: 'New link' }));
     fireEvent.input(within(openDialog()).getByLabelText('Short link'), { target: { value: 'summer-sale' } });
@@ -233,7 +248,7 @@ describe('portal client flows', () => {
     location.hash = `#/apps/${app.id}/analytics`;
     render(<App />);
     const name = await screen.findByText('Messenger');
-    expect(name.closest('tr')!.querySelector('[data-label="Clicks"]')!.textContent).toBe('1');
+    expect(name.closest('li')!.querySelector('.num')!.textContent).toBe('1');
     await api.deleteApp(app.id);
   });
 
@@ -244,7 +259,12 @@ describe('portal client flows', () => {
     const sdk = (path: string, body: object) =>
       fetch(`${SDK}/api/analytics/${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${app.apiKey}`, 'X-App-ID': app.id, 'X-SDK': 'react-native/2.3.1' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${app.apiKey}`,
+          'X-App-ID': app.id,
+          'X-SDK': 'react-native/2.3.1',
+        },
         body: JSON.stringify(body),
       });
     expect((await sdk('event', { event_name: 'detur_link', data: { link: key }, device_id: 'dev-1' })).status).toBe(200);
@@ -286,15 +306,15 @@ describe('portal client flows', () => {
     const app = await api.createApp(uniq('tabs-app'));
     location.hash = `#/apps/${app.id}`;
     render(<App />);
-    await screen.findByRole('heading', { name: app.name });
-    expect(tabs().map((t) => t.textContent)).toEqual(['Links', 'Analytics', 'Fraud', 'Settings', 'Webhooks']);
+    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
+    expect(tabNames()).toEqual(['Links', 'Analytics', 'Fraud', 'Settings', 'Webhooks']);
     expect(selectedTab()).toEqual(['Links']);
     await screen.findByText('No links yet');
     screen.getByRole('button', { name: 'New link' });
     screen.getByLabelText('Platform');
 
     // tab click writes hash (refresh/back keep tab)
-    fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Analytics' }));
     expect(location.hash).toBe(`#/apps/${app.id}/analytics`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('heading', { name: 'Activity' });
@@ -302,7 +322,7 @@ describe('portal client flows', () => {
     expect(screen.queryByRole('button', { name: 'New link' })).toBeNull();
     screen.getByLabelText('Date range');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Fraud' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Fraud' }));
     expect(location.hash).toBe(`#/apps/${app.id}/fraud`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('region', { name: 'Fraud signals' });
@@ -311,7 +331,7 @@ describe('portal client flows', () => {
     expect(screen.queryByLabelText('Platform')).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Activity' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
     expect(location.hash).toBe(`#/apps/${app.id}/settings`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('heading', { name: 'API key' });
@@ -324,13 +344,13 @@ describe('portal client flows', () => {
     expect(screen.queryByRole('region', { name: 'Flagged installs' })).toBeNull();
     expect(screen.queryByText('Click flooding')).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Webhooks' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Webhooks' }));
     expect(location.hash).toBe(`#/apps/${app.id}/webhooks`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('heading', { name: 'Webhook endpoints' });
     expect(selectedTab()).toEqual(['Webhooks']);
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Links' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Links' }));
     expect(location.hash).toBe(`#/apps/${app.id}`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByText('No links yet');
@@ -542,7 +562,9 @@ describe('portal client flows', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
 
     // another teammate saves a rule meanwhile
-    await api.setLinkRules(app.id, link.id, [{ name: 'Saved Elsewhere', cond: { platform: 'ios' }, action: { targets: { fallback_url: 'https://example.com/x' } } }] as never);
+    await api.setLinkRules(app.id, link.id, [
+      { name: 'Saved Elsewhere', cond: { platform: 'ios' }, action: { targets: { fallback_url: 'https://example.com/x' } } },
+    ] as never);
 
     fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
     dlg = openDialog();
@@ -554,7 +576,7 @@ describe('portal client flows', () => {
   it('link validation flow: empty fields rejected', async () => {
     const app = await api.createApp(uniq('link-val-app'));
     render(<AppPage id={app.id} tab="links" />);
-    await screen.findByRole('heading', { name: app.name });
+    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
 
     fireEvent.click(screen.getByRole('button', { name: 'New link' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
@@ -591,8 +613,13 @@ describe('portal client flows', () => {
       ].map(([label, k]) => [k, Number(threshold(label).value)]),
     );
     expect(shown).toEqual({
-      velocityIpMax: 20, velocityLinkMax: 500, velocityWindowMinutes: 60,
-      timingShortSeconds: 10, timingLongHours: 24, fingerprintMax: 5, fingerprintWindowDays: 7,
+      velocityIpMax: 20,
+      velocityLinkMax: 500,
+      velocityWindowMinutes: 60,
+      timingShortSeconds: 10,
+      timingLongHours: 24,
+      fingerprintMax: 5,
+      fingerprintWindowDays: 7,
     });
 
     // one press = one save, no confirm dialog
@@ -602,7 +629,11 @@ describe('portal client flows', () => {
     expect(t.title).toBe('');
     expect(pressed('Bot traffic')).toEqual(['Active']);
     expect(await api.getFraudSettings(app.id)).toMatchObject({
-      userAgentMode: 'active', velocityMode: 'tagged', timingMode: 'tagged', ipMode: 'tagged', velocityIpMax: 20,
+      userAgentMode: 'active',
+      velocityMode: 'tagged',
+      timingMode: 'tagged',
+      ipMode: 'tagged',
+      velocityIpMax: 20,
     });
 
     // re-press current mode: no save, no toast
@@ -692,7 +723,10 @@ describe('portal client flows', () => {
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('30'));
     expect(toasts().filter((x) => x.id > seen)).toHaveLength(1);
     expect(await api.getFraudSettings(app.id)).toMatchObject({
-      velocityIpMax: 30, velocityLinkMax: 12000, timingShortSeconds: 5, fingerprintMax: 5,
+      velocityIpMax: 30,
+      velocityLinkMax: 12000,
+      timingShortSeconds: 5,
+      fingerprintMax: 5,
     });
 
     // later save after rejection carries saved values, not the rejected one
@@ -806,7 +840,7 @@ describe('portal client flows', () => {
     await screen.findByRole('heading', { name: 'Apps' });
 
     go(`#/apps/${app.id}`);
-    await screen.findByRole('heading', { name: app.name });
+    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
     expect(selectedTab()).toEqual(['Links']);
 
     go(`#/apps/${app.id}/settings`);

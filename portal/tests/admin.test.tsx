@@ -370,7 +370,7 @@ describe('portal admin flows (gated)', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
 
     // elevated: empty state + Add webhook
-    await screen.findByText(/^No webhooks yet\./);
+    await screen.findByText('No webhooks yet');
     expect(screen.getByRole('button', { name: 'Add webhook' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add webhook' }));

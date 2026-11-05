@@ -13,17 +13,24 @@ const stats = (clicks: number) => ({
   events: [],
 });
 const app = {
-  id: 'app1', name: 'Stale App', apiKeyHash: 'h', iosAppId: '', androidPackage: '',
-  androidCertFingerprint: '', iosScheme: '', matchThreshold: 850, matchWindowMinutes: 15,
+  id: 'app1',
+  name: 'Stale App',
+  apiKeyHash: 'h',
+  iosAppId: '',
+  androidPackage: '',
+  androidCertFingerprint: '',
+  iosScheme: '',
+  matchThreshold: 850,
+  matchWindowMinutes: 15,
 };
 
 // Clicks tile value ('' while skeleton up)
 const clicksTileText = () =>
   screen
     .getAllByText('Clicks', { exact: true })
-    .map((e) => e.closest('[k=card][padding=sm]'))
+    .map((e) => e.closest('.stat'))
     .find(Boolean)!
-    .querySelector(':scope > div')!.textContent!;
+    .querySelector('.stat-value')!.textContent!;
 const clicksTile = () => parseInt(clicksTileText(), 10);
 
 afterEach(() => {
@@ -51,16 +58,33 @@ it('stale analytics response: a slow 7-day reply after switching to 30 days is d
 });
 
 const settings = {
-  velocityMode: 'tagged', timingMode: 'tagged', userAgentMode: 'tagged', ipMode: 'tagged',
-  velocityIpMax: 20, velocityLinkMax: 500, velocityWindowMinutes: 60,
-  timingShortSeconds: 10, timingLongHours: 24, fingerprintMax: 5, fingerprintWindowDays: 7,
+  velocityMode: 'tagged',
+  timingMode: 'tagged',
+  userAgentMode: 'tagged',
+  ipMode: 'tagged',
+  velocityIpMax: 20,
+  velocityLinkMax: 500,
+  velocityWindowMinutes: 60,
+  timingShortSeconds: 10,
+  timingLongHours: 24,
+  fingerprintMax: 5,
+  fingerprintWindowDays: 7,
 };
 const flagged = (linkKey: string) => ({
   signals: { timing: 1 },
-  installs: [{
-    id: linkKey, createdAt: '2026-10-04T10:00:00Z', attribution: 'non_organic', method: 'ip', linkKey,
-    platform: 'ios', fraud: ['timing'], fraudAction: '', fraudLinkKey: '',
-  }],
+  installs: [
+    {
+      id: linkKey,
+      createdAt: '2026-10-04T10:00:00Z',
+      attribution: 'non_organic',
+      method: 'ip',
+      linkKey,
+      platform: 'ios',
+      fraud: ['timing'],
+      fraudAction: '',
+      fraudLinkKey: '',
+    },
+  ],
 });
 
 it('stale flagged installs response: a slow 7-day reply after switching to 30 days is dropped', async () => {
@@ -86,8 +110,15 @@ it('stale flagged installs response: a slow 7-day reply after switching to 30 da
 });
 
 const install = (o: Record<string, unknown>) => ({
-  createdAt: '2026-10-04T10:00:00Z', attribution: 'organic', method: '', linkKey: '', platform: 'ios',
-  fraud: [], fraudAction: '', fraudLinkKey: '', ...o,
+  createdAt: '2026-10-04T10:00:00Z',
+  attribution: 'organic',
+  method: '',
+  linkKey: '',
+  platform: 'ios',
+  fraud: [],
+  fraudAction: '',
+  fraudLinkKey: '',
+  ...o,
 });
 
 it('flagged installs table: per-signal counts, signal names and outcome wording for every case', async () => {
@@ -96,7 +127,14 @@ it('flagged installs table: per-signal counts, signal names and outcome wording 
       return json({
         signals: { velocity: 1, timing: 2, user_agent: 3, ip: 4, install_ip: 5, fingerprint: 6 },
         installs: [
-          install({ id: 'r', linkKey: 'moved-to', attribution: 'non_organic', fraud: ['velocity'], fraudAction: 'reattributed', fraudLinkKey: 'flood-link' }),
+          install({
+            id: 'r',
+            linkKey: 'moved-to',
+            attribution: 'non_organic',
+            fraud: ['velocity'],
+            fraudAction: 'reattributed',
+            fraudLinkKey: 'flood-link',
+          }),
           install({ id: 'e', fraud: ['timing', 'install_ip'], fraudAction: 'excluded', fraudLinkKey: 'fast-link' }),
           install({ id: 'g', fraud: ['ip'], fraudAction: 'excluded' }), // flagged click's link since deleted
           install({ id: 'a', linkKey: 'tagged-link', attribution: 'non_organic', fraud: ['user_agent', 'fingerprint'] }),
@@ -115,15 +153,24 @@ it('flagged installs table: per-signal counts, signal names and outcome wording 
 
   const dl = within(section).getByLabelText('Flagged installs per signal');
   expect(Array.from(dl.querySelectorAll('dt')).map((dt) => [dt.textContent, dt.nextElementSibling!.textContent])).toEqual([
-    ['Click flooding', '1'], ['Suspicious timing', '2'], ['Bot traffic', '3'],
-    ['Datacenter IP', '4'], ['Datacenter install IP', '5'], ['Repeated device', '6'],
+    ['Click flooding', '1'],
+    ['Suspicious timing', '2'],
+    ['Bot traffic', '3'],
+    ['Datacenter IP', '4'],
+    ['Datacenter install IP', '5'],
+    ['Repeated device', '6'],
   ]);
 
-  const rows = within(section).getAllByRole('row').slice(1).map((r) => ({
-    link: r.querySelector('[data-label="Link"]')!.textContent,
-    signals: Array.from(r.querySelectorAll('[data-label="Signals"] [k=badge]')).map((b) => b.textContent),
-    outcome: Array.from(r.querySelector('[data-label="Outcome"] > div')!.childNodes).map((n) => n.textContent).filter(Boolean),
-  }));
+  const rows = within(section)
+    .getAllByRole('row')
+    .slice(1)
+    .map((r) => ({
+      link: r.querySelector('[data-label="Link"]')!.textContent,
+      signals: Array.from(r.querySelectorAll('[data-label="Signals"] [k=badge]')).map((b) => b.textContent),
+      outcome: Array.from(r.querySelector('[data-label="Outcome"] > div')!.childNodes)
+        .map((n) => n.textContent)
+        .filter(Boolean),
+    }));
   expect(rows).toEqual([
     { link: 'moved-to', signals: ['Click flooding'], outcome: ['Credit moved to another click', 'Flagged click on flood-link'] },
     { link: '—', signals: ['Suspicious timing', 'Datacenter install IP'], outcome: ['Kept as organic', 'Flagged click on fast-link'] },
@@ -135,6 +182,8 @@ it('flagged installs table: per-signal counts, signal names and outcome wording 
 
 it('switching apps: the old app, its links and its numbers never show under the new id', async () => {
   const appB = { ...app, id: 'appB', name: 'Other App' };
+  let shown = ''; // name AppPage hands the sidebar
+  const onName = (n: string) => (shown = n);
   const pending: Record<string, (r: Response) => void> = {};
   const hold = (k: string) => new Promise<Response>((r) => (pending[k] = r));
   const release = (k: string, body: unknown) => pending[k](new Response(JSON.stringify(body)));
@@ -143,23 +192,24 @@ it('switching apps: the old app, its links and its numbers never show under the 
     if (url.endsWith('/apps/appB/links')) return hold('links');
     if (url.endsWith('/apps/appB')) return hold('app');
     if (url.includes('/analytics?')) return json({ ...stats(7), links: [{ linkId: 'l1', key: 'old-link', clicks: 7, matches: 0 }] });
-    if (url.endsWith('/links')) return json([{ id: 'l1', appId: 'app1', key: 'old-link', url: '/home', ios: '', android: '', fallbackUrl: '' }]);
+    if (url.endsWith('/links'))
+      return json([{ id: 'l1', appId: 'app1', key: 'old-link', url: '/home', ios: '', android: '', fallbackUrl: '' }]);
     return json(app);
   });
 
-  const { rerender } = render(<AppPage id="app1" tab="analytics" />);
+  const { rerender } = render(<AppPage id="app1" tab="analytics" onName={onName} />);
   await waitFor(() => expect(clicksTile()).toBe(7));
 
-  rerender(<AppPage id="appB" tab="analytics" />);
-  await waitFor(() => expect(screen.queryByRole('heading', { name: 'Stale App' })).toBeNull());
+  rerender(<AppPage id="appB" tab="analytics" onName={onName} />);
+  await waitFor(() => expect(shown).toBe(''));
 
   release('app', appB);
-  await screen.findByRole('heading', { name: 'Other App' });
+  await waitFor(() => expect(shown).toBe('Other App'));
   expect(clicksTileText()).toBe('');
   release('stats', stats(3));
   await waitFor(() => expect(clicksTile()).toBe(3));
 
-  rerender(<AppPage id="appB" tab="links" />);
+  rerender(<AppPage id="appB" tab="links" onName={onName} />);
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.queryByText('old-link')).toBeNull();
   release('links', []);
@@ -168,6 +218,8 @@ it('switching apps: the old app, its links and its numbers never show under the 
 
 it('switching apps mid-load: a slow reply for the app left behind never lands under the new id', async () => {
   const appB = { ...app, id: 'appB', name: 'Other App' };
+  let shown = ''; // name AppPage hands the sidebar
+  const onName = (n: string) => (shown = n);
   let releaseA!: () => void;
   vi.stubGlobal('fetch', (url: string) => {
     if (url.endsWith('/apps/app1')) return new Promise<Response>((r) => (releaseA = () => r(new Response(JSON.stringify(app)))));
@@ -176,14 +228,13 @@ it('switching apps mid-load: a slow reply for the app left behind never lands un
     return json(appB);
   });
 
-  const { rerender } = render(<AppPage id="app1" tab="analytics" />);
-  rerender(<AppPage id="appB" tab="analytics" />);
-  await screen.findByRole('heading', { name: 'Other App' });
+  const { rerender } = render(<AppPage id="app1" tab="analytics" onName={onName} />);
+  rerender(<AppPage id="appB" tab="analytics" onName={onName} />);
+  await waitFor(() => expect(shown).toBe('Other App'));
 
   releaseA();
   await new Promise((r) => setTimeout(r, 50));
-  expect(screen.queryByRole('heading', { name: 'Stale App' })).toBeNull();
-  expect(screen.getByRole('heading', { name: 'Other App' })).toBeTruthy();
+  expect(shown).toBe('Other App');
 });
 
 it('analytics error: a rejected range shows the alert; the next good range clears it, and so does switching apps', async () => {
@@ -205,7 +256,14 @@ it('analytics error: a rejected range shows the alert; the next good range clear
   expect(screen.queryByText(/730 days/)).toBeNull();
 });
 
-const day = (i: number) => ({ day: `2026-10-${String(i + 1).padStart(2, '0')}`, clicks: i, webFallbacks: 0, opens: 0, organic: 0, nonOrganic: 0 });
+const day = (i: number) => ({
+  day: `2026-10-${String(i + 1).padStart(2, '0')}`,
+  clicks: i,
+  webFallbacks: 0,
+  opens: 0,
+  organic: 0,
+  nonOrganic: 0,
+});
 const days = (n: number) => ({ days: Array.from({ length: n }, (_, i) => day(i)), links: [], events: [], sources: [] });
 
 it('chart hover: range shrinks under a resting pointer -> no crash, tooltip gone', async () => {
@@ -237,7 +295,11 @@ it('copy fallback inside an open modal: textarea lives in the dialog (rest is in
   let parent: Element | null = null;
   const exec = vi.fn(() => ((parent = document.activeElement?.parentElement ?? null), true));
   (document as unknown as { execCommand: typeof exec }).execCommand = exec;
-  const { container } = render(<dialog open><CopyButton value="dk_secret" label="Copy API key" /></dialog>);
+  const { container } = render(
+    <dialog open>
+      <CopyButton value="dk_secret" label="Copy API key" />
+    </dialog>,
+  );
   const btn = screen.getByRole('button', { name: 'Copy API key' });
   btn.focus();
   fireEvent.click(btn);

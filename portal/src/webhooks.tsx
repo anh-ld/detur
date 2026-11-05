@@ -1,18 +1,6 @@
 import { JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import {
-  Alert,
-  Badge,
-  Button,
-  Checkbox,
-  Dialog,
-  Empty,
-  Field,
-  Input,
-  Label,
-  Select,
-  Table,
-} from 'kinu';
+import { Alert, Badge, Button, Card, Checkbox, Dialog, Empty, Field, Input, Label, Select, Table } from 'kinu';
 import { api, App, HttpError, Webhook, WebhookEventType } from './api';
 import {
   adminCall,
@@ -109,9 +97,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
   const toggleEnabled = async (wh: Webhook) => {
     setError('');
     try {
-      const updated = await adminCall(() =>
-        api.updateWebhook(wh.id, { enabled: !wh.enabled })
-      );
+      const updated = await adminCall(() => api.updateWebhook(wh.id, { enabled: !wh.enabled }));
       setWebhooks((prev) => (prev ? prev.map((w) => (w.id === wh.id ? updated : w)) : null));
     } catch (e) {
       fail(e);
@@ -177,30 +163,25 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
         </Alert>
       ) : !adminState.admin ? (
         <div style={{ marginBottom: 20 }}>
-          <AdminRequired>
-            Enter your admin password to view signing secrets, manage endpoints, or replay historical events.
-          </AdminRequired>
+          <AdminRequired>Enter your admin password to view signing secrets, manage endpoints, or replay historical events.</AdminRequired>
         </div>
       ) : null}
 
       <div style={{ ...row, flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ flex: '1 1 320px' }}>
           <h2 style={{ margin: 0, fontSize: 20 }}>Webhook endpoints</h2>
-          <p style={{ ...muted, margin: '4px 0 0' }}>
-            Signed POSTs of installs, events and clicks to your URLs.
-          </p>
+          <p style={{ ...muted, margin: '4px 0 0' }}>Signed POSTs of installs, events and clicks to your URLs.</p>
         </div>
-        {adminState.adminSet && (
-          <Button onClick={() => gateOpen('dlg-add-webhook')}>
-            Add webhook
-          </Button>
-        )}
+        {adminState.adminSet && <Button onClick={() => gateOpen('dlg-add-webhook')}>Add webhook</Button>}
       </div>
 
       {!adminState.adminSet || !adminState.admin ? null : webhooks && webhooks.length === 0 ? (
-        <Empty style={{ padding: '48px 0' }}>
-          <p style={muted}>No webhooks yet. Add one to get installs, events and clicks pushed to your server.</p>
-        </Empty>
+        <Card>
+          <Empty>
+            <h3>No webhooks yet</h3>
+            Add one to get installs, events and clicks pushed to your server.
+          </Empty>
+        </Card>
       ) : (
         <Table>
           <thead>
@@ -215,7 +196,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
           <tbody>
             {webhooks?.map((wh) => {
               const inBackoff = [wh.backoffInstalls, wh.backoffClicks, wh.backoffEvents].some(
-                (b) => b && new Date(b).getTime() > Date.now()
+                (b) => b && new Date(b).getTime() > Date.now(),
               );
 
               return (
@@ -230,7 +211,9 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
                     )}
                   </td>
                   <td style={{ verticalAlign: 'middle' }}>
-                    <div class="wh-url" title={wh.url}>{wh.url}</div>
+                    <div class="wh-url" title={wh.url}>
+                      {wh.url}
+                    </div>
                     <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>
                       Created {new Date(wh.createdAt).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </div>
@@ -247,9 +230,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
                   <td data-label="Secret" style={{ verticalAlign: 'middle' }}>
                     {adminState.admin ? (
                       <div style={{ ...row, gap: 8 }}>
-                        <span style={{ ...mono, fontSize: 12 }}>
-                          {wh.secret ? wh.secret.slice(0, 10) + '…' : '—'}
-                        </span>
+                        <span style={{ ...mono, fontSize: 12 }}>{wh.secret ? wh.secret.slice(0, 10) + '…' : '—'}</span>
                         <CopyButton value={wh.secret} label="Copy" />
                         <Button
                           size="sm"
@@ -269,11 +250,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
                   </td>
                   <td style={{ verticalAlign: 'middle', textAlign: 'right' }}>
                     <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => toggleEnabled(wh)}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => toggleEnabled(wh)}>
                         {wh.enabled ? 'Pause' : 'Resume'}
                       </Button>
                       <Button
@@ -316,7 +293,8 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
           <div style={{ display: 'grid', gap: 16 }}>
             <h2 style={{ margin: 0 }}>Webhook Created</h2>
             <p style={muted}>
-              Your endpoint has been configured. Save this signing secret now to verify incoming <code>Detur-Signature</code> headers on your destination server.
+              Your endpoint has been configured. Save this signing secret now to verify incoming <code>Detur-Signature</code> headers on
+              your destination server.
             </p>
             {createdSecret && (
               <Field>
@@ -339,18 +317,16 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
           <div style={{ display: 'grid', gap: 16 }}>
             <h2 style={{ margin: 0 }}>Replay Historical Events</h2>
             <p style={muted}>
-              Rewind cursors for <strong>{replayTarget?.url}</strong> to re-deliver past events. Requests sent during replay include the <code>Detur-Replay: true</code> header.
+              Rewind cursors for <strong>{replayTarget?.url}</strong> to re-deliver past events. Requests sent during replay include the{' '}
+              <code>Detur-Replay: true</code> header.
             </p>
             <p style={{ ...muted, fontSize: 13, ...surface, padding: 10 }}>
-              <strong>Note:</strong> Raw clicks and custom events older than <code>RETENTION_HOURS</code> (default 24h) are purged and cannot be replayed. Installs are kept permanently.
+              <strong>Note:</strong> Raw clicks and custom events older than <code>RETENTION_HOURS</code> (default 24h) are purged and
+              cannot be replayed. Installs are kept permanently.
             </p>
             <Field>
               <Label htmlFor="replay-preset">Replay from</Label>
-              <Select
-                id="replay-preset"
-                value={replayHours}
-                onChange={(e) => setReplayHours(e.currentTarget.value)}
-              >
+              <Select id="replay-preset" value={replayHours} onChange={(e) => setReplayHours(e.currentTarget.value)}>
                 <option value="1">1 hour ago</option>
                 <option value="6">6 hours ago</option>
                 <option value="12">12 hours ago</option>
@@ -377,7 +353,8 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
           <div style={{ display: 'grid', gap: 16 }}>
             <h2 style={{ margin: 0 }}>Rotate Signing Secret</h2>
             <p style={muted}>
-              Rotating the secret invalidates the old secret immediately. Existing signature verification on your receiver will fail until updated with the new secret.
+              Rotating the secret invalidates the old secret immediately. Existing signature verification on your receiver will fail until
+              updated with the new secret.
             </p>
             {newSecret ? (
               <Field>
@@ -412,22 +389,14 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
   );
 }
 
-function AddWebhookDialog({
-  appId,
-  onCreated,
-}: {
-  appId: string;
-  onCreated: (wh: Webhook) => void;
-}) {
+function AddWebhookDialog({ appId, onCreated }: { appId: string; onCreated: (wh: Webhook) => void }) {
   const [url, setUrl] = useState('');
   const [types, setTypes] = useState<WebhookEventType[]>(DEFAULT_TYPES);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
   const toggleType = (t: WebhookEventType) => {
-    setTypes((prev) =>
-      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
-    );
+    setTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
   };
 
   const submit = async (e: JSX.TargetedEvent<HTMLFormElement>) => {
@@ -443,9 +412,7 @@ function AddWebhookDialog({
     }
     setBusy(true);
     try {
-      const created = await adminCall(() =>
-        api.createWebhook(appId, { url: url.trim(), types })
-      );
+      const created = await adminCall(() => api.createWebhook(appId, { url: url.trim(), types }));
       closeDialog('dlg-add-webhook');
       setUrl('');
       setTypes(DEFAULT_TYPES);
