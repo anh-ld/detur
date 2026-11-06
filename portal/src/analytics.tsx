@@ -1,7 +1,7 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, Empty, Input, Select, Table } from 'kinu';
-import { Analytics, DateRangeFilter, DayStat, Mark, Platform } from './api';
+import { Analytics, DateRangeFilter, DayStat, Link, Mark, Platform, VariantStat } from './api';
 import { mono, muted, row } from './ui';
 
 // blue ramp (theme --chart-*) + one warm gray
@@ -40,7 +40,13 @@ const SOURCE_NAMES: Record<string, string> = {
   'unknown-inapp': 'Unknown in-app',
 };
 
-const fmtDay = (d: string) => new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const fmtDay = (d: string) => {
+  if (d.includes('T')) {
+    const date = new Date(d);
+    return date.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' });
+  }
+  return new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+};
 
 const sum = (days: DayStat[], k: Metric) => days.reduce((n, d) => n + d[k], 0);
 
@@ -51,7 +57,14 @@ export const Skeleton = ({ w = '100%', h }: { w?: number | string; h: number }) 
   <span class="skeleton" style={{ width: w, height: h }} />
 );
 
-export const RANGE_OPTIONS = [
+export type RangePreset =
+  { window: '15m' | '1h' | '3h' | '12h'; label: string; days?: never } | { days: number; label: string; window?: never };
+
+export const RANGE_OPTIONS: readonly RangePreset[] = [
+  { window: '15m', label: 'Last 15 minutes' },
+  { window: '1h', label: 'Last 1 hour' },
+  { window: '3h', label: 'Last 3 hours' },
+  { window: '12h', label: 'Last 12 hours' },
   { days: 7, label: 'Last 7 days' },
   { days: 14, label: 'Last 14 days' },
   { days: 30, label: 'Last 30 days' },
@@ -87,12 +100,12 @@ export function DateRangePicker({
       setCustomMode(true);
       setFrom(range.from);
       setTo(range.to);
-    } else if (range.days) {
+    } else {
       setCustomMode(false);
     }
-  }, [range.days, range.from, range.to]);
+  }, [range.days, range.window, range.from, range.to]);
 
-  const selectVal = customMode ? 'custom' : String(range.days ?? 7);
+  const selectVal = customMode ? 'custom' : range.window ? range.window : String(range.days ?? 7);
 
   const handleSelect = (val: string) => {
     if (val === 'custom') {
@@ -101,17 +114,20 @@ export function DateRangePicker({
       const t = to || todayStr();
       setFrom(f);
       setTo(t);
-      onRange({ from: f, to: t });
+      onRange({ from: f, to: t, linkId: range.linkId });
+    } else if (val === '15m' || val === '1h' || val === '3h' || val === '12h') {
+      setCustomMode(false);
+      onRange({ window: val, linkId: range.linkId });
     } else {
       setCustomMode(false);
-      onRange({ days: Number(val) });
+      onRange({ days: Number(val), linkId: range.linkId });
     }
   };
 
   const handleApply = (e?: Event) => {
     e?.preventDefault();
     if (from && to && from <= to) {
-      onRange({ from, to });
+      onRange({ from, to, linkId: range.linkId });
     }
   };
 
@@ -119,7 +135,7 @@ export function DateRangePicker({
     <div style={{ ...row, flexWrap: 'wrap', gap: 6 }}>
       <Select aria-label={ariaLabel} value={selectVal} onChange={(e) => handleSelect(e.currentTarget.value)}>
         {RANGE_OPTIONS.map((o) => (
-          <option key={o.days} value={String(o.days)}>
+          <option key={o.window ?? o.days} value={o.window ?? String(o.days)}>
             {o.label}
           </option>
         ))}
@@ -158,16 +174,24 @@ export function Filters({
   range,
   days,
   platform,
+  links,
+  linkId,
+  children,
   onRange,
   onDays,
   onPlatform,
+  onLinkId,
 }: {
   range?: DateRangeFilter;
   days?: number;
   platform: Platform;
+  links?: Link[];
+  linkId?: string;
+  children?: ComponentChildren;
   onRange?: (r: DateRangeFilter) => void;
   onDays?: (d: number) => void;
   onPlatform: (p: Platform) => void;
+  onLinkId?: (id: string) => void;
 }) {
   const currentRange: DateRangeFilter = range ?? { days: days ?? 7 };
   const handleRange = (r: DateRangeFilter) => {
@@ -176,7 +200,17 @@ export function Filters({
   };
 
   return (
-    <div style={{ ...row, flexWrap: 'wrap' }}>
+    <div style={{ ...row, flexWrap: 'wrap', gap: 6 }}>
+      {links && onLinkId && (
+        <Select aria-label="Link" value={linkId ?? ''} onChange={(e) => onLinkId(e.currentTarget.value)}>
+          <option value="">All links</option>
+          {links.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.title ? `${l.title} (/${l.key})` : `/${l.key}`}
+            </option>
+          ))}
+        </Select>
+      )}
       <Select aria-label="Platform" value={platform} onChange={(e) => onPlatform(e.currentTarget.value as Platform)}>
         <option value="">All platforms</option>
         <option value="ios">iOS</option>
@@ -184,6 +218,7 @@ export function Filters({
         <option value="desktop">Desktop</option>
       </Select>
       <DateRangePicker range={currentRange} onRange={handleRange} />
+      {children}
     </div>
   );
 }
@@ -304,7 +339,7 @@ function BarList({
   );
 }
 
-export function AnalyticsView({ data }: { data: Analytics | null }) {
+export function AnalyticsView({ data, variants }: { data: Analytics | null; variants?: VariantStat[] | null }) {
   const days = data?.days ?? [];
   const clicks = sum(days, 'clicks');
   const viaLink = sum(days, 'nonOrganic');
@@ -332,6 +367,52 @@ export function AnalyticsView({ data }: { data: Analytics | null }) {
         />
         <Stat data={data} metric="webFallbacks" hint="Sent to the web URL" />
       </Card>
+
+      {variants && (
+        <Card class="chart-card">
+          <div class="chart-head">
+            <div>
+              <h3>Variants</h3>
+              <p style={muted}>Clicks, installs and conversion per A/B variant</p>
+            </div>
+          </div>
+          {variants.length === 0 ? (
+            <Empty>
+              <h3>No variant stats yet</h3>
+              <p style={muted}>Variant clicks and matched installs appear here after taps.</p>
+            </Empty>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <th>Variant</th>
+                  <th style={{ textAlign: 'right' }}>Clicks</th>
+                  <th style={{ textAlign: 'right' }}>Installs</th>
+                  <th style={{ textAlign: 'right' }}>Conversion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {variants.map((v) => (
+                  <tr key={v.variant}>
+                    <td>
+                      <strong>{v.variant}</strong>
+                    </td>
+                    <td data-label="Clicks" className="num">
+                      {v.clicks.toLocaleString()}
+                    </td>
+                    <td data-label="Installs" className="num">
+                      {v.installs.toLocaleString()}
+                    </td>
+                    <td data-label="Conversion" className="num">
+                      {(v.conversion_rate * 100).toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </Card>
+      )}
 
       <div className="duo">
         <ChartCard title="Activity" sub="Clicks, opens, installs per day" data={data} total={clicks} unit="clicks">

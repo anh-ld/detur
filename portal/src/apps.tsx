@@ -99,11 +99,11 @@ export function AppsPage() {
               <h2 style={{ margin: 0 }}>Create app</h2>
               <p style={muted}>One app per mobile app. The server mints its API key.</p>
             </div>
+            {error && <Alert variant="destructive">{error}</Alert>}
             <Field>
               <Label htmlFor="new-name">Name</Label>
               <Input id="new-name" value={name} onInput={(e) => setName(e.currentTarget.value)} placeholder="My app" />
             </Field>
-            {error && <Alert variant="destructive">{error}</Alert>}
             <div style={{ ...row, justifyContent: 'flex-end' }}>
               <Button type="button" variant="outline" onClick={() => closeDialog(CREATE_ID)}>
                 Cancel

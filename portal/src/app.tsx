@@ -16,16 +16,61 @@ import {
 import { AppsPage } from './apps';
 import { ApiTokensPage } from './api-tokens';
 import { AppPage, AppTab, tabHref, TABS } from './detail';
-import type { App as AppT } from './api';
+import type { App as AppT, DateRangeFilter, Platform } from './api';
 
-type Route = { name: 'apps' } | { name: 'api' } | { name: 'app'; id: string; tab: AppTab };
+type Route =
+  | { name: 'apps' }
+  | { name: 'api' }
+  | {
+      name: 'app';
+      id: string;
+      tab: AppTab;
+      linkId?: string;
+      platform?: Platform;
+      range?: DateRangeFilter;
+      hasQuery?: boolean;
+    };
 
 export function parseHash(h: string = location.hash): Route {
   if (/^#\/api(?:[/?#]|$)/.test(h)) return { name: 'api' };
-  const m = h.match(/^#\/apps\/([^/?#]+)(?:\/(analytics|fraud|settings|webhooks))?/);
+  const m = h.match(/^#\/apps\/([^/?#]+)(?:\/(analytics|fraud|settings|webhooks))?(?:\?(.*))?/);
   if (m) {
     try {
-      return { name: 'app', id: decodeURIComponent(m[1]), tab: (m[2] as AppTab | undefined) ?? 'links' };
+      const id = decodeURIComponent(m[1]);
+      const tab = (m[2] as AppTab | undefined) ?? 'links';
+      let linkId: string | undefined;
+      let platform: Platform | undefined;
+      let range: DateRangeFilter | undefined;
+      const hasQuery = Boolean(m[3]);
+
+      if (m[3]) {
+        const q = new URLSearchParams(m[3]);
+        linkId = q.get('link') ?? q.get('link_id') ?? undefined;
+
+        const p = (q.get('platform') ?? '').toLowerCase();
+        if (p === 'ios' || p === 'android' || p === 'desktop') {
+          platform = p as Platform;
+        }
+
+        const win = q.get('window') ?? q.get('period');
+        const from = q.get('from') ?? undefined;
+        const to = q.get('to') ?? undefined;
+        const daysParam = q.get('days') ?? q.get('range');
+
+        if (win === '15m' || win === '1h' || win === '3h' || win === '12h') {
+          range = { window: win };
+        } else if (daysParam === '15m' || daysParam === '1h' || daysParam === '3h' || daysParam === '12h') {
+          range = { window: daysParam };
+        } else if (from && to) {
+          range = { from, to };
+        } else if (daysParam) {
+          const d = parseInt(daysParam.replace(/d$/, ''), 10);
+          if (!isNaN(d) && d > 0) {
+            range = { days: d };
+          }
+        }
+      }
+      return { name: 'app', id, tab, linkId, platform, range, hasQuery };
     } catch {
       // bad %-encoding: unknown route
     }
@@ -195,7 +240,17 @@ export function App() {
       <main>
         {route.name === 'apps' && <AppsPage />}
         {route.name === 'api' && <ApiTokensPage />}
-        {route.name === 'app' && <AppPage id={route.id} tab={route.tab} onName={setAppName} />}
+        {route.name === 'app' && (
+          <AppPage
+            id={route.id}
+            tab={route.tab}
+            linkId={route.linkId}
+            platform={route.platform}
+            range={route.range}
+            hasQuery={route.hasQuery}
+            onName={setAppName}
+          />
+        )}
       </main>
       <AdminPasswordDialog />
       <ToastContainer />

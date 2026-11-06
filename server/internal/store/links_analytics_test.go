@@ -207,3 +207,99 @@ func TestInstallDateRangeBounds(t *testing.T) {
 		t.Errorf("AnalyticsRange organic = %d; want 2", organic)
 	}
 }
+
+func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+
+	linkA, err := s.CreateLink(Link{AppID: app.ID, Key: "alice", URL: "/alice", Title: "Alice Promo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkB, err := s.CreateLink(Link{AppID: app.ID, Key: "bob", URL: "/bob", Title: "Bob Promo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Clicks: linkA (2 clicks with distinct IPs), linkB (1 click)
+	cA1, _ := s.RecordClick(Click{AppID: app.ID, LinkID: linkA.ID, Destination: linkA.URL, Platform: "ios", Fingerprint: Fingerprint{IP: "1.1.1.1"}}, 24)
+	cA2, _ := s.RecordClick(Click{AppID: app.ID, LinkID: linkA.ID, Destination: linkA.URL, Platform: "ios", Source: "messenger", Fingerprint: Fingerprint{IP: "2.2.2.2"}}, 24)
+	cB, _ := s.RecordClick(Click{AppID: app.ID, LinkID: linkB.ID, Destination: linkB.URL, Platform: "android", Fingerprint: Fingerprint{IP: "3.3.3.3"}}, 24)
+
+	// Installs: linkA (1 non-organic), 1 organic
+	iA, _ := s.RecordInstall(Install{AppID: app.ID, LinkID: linkA.ID, DeviceHash: "dev-a", Platform: "ios", Attribution: AttributionNonOrganic})
+	iOrg, _ := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "dev-org", Attribution: AttributionOrganic})
+
+	now := time.Now().UTC()
+	// Set exact timestamps within the last 5 minutes
+	s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-4*time.Minute)), cA1.ID)
+	s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-2*time.Minute)), cA2.ID)
+	s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-3*time.Minute)), cB.ID)
+	s.db.Exec(`UPDATE installs SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-2*time.Minute)), iA.ID)
+	s.db.Exec(`UPDATE installs SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-1*time.Minute)), iOrg.ID)
+
+	// Events
+	s.RecordEvent(app.ID, "app_open", `{}`)
+
+	// 1. Sub-day 15m (all links)
+	a15, err := s.AnalyticsSubDay(app.ID, "15m", "", "", now)
+	if err != nil {
+		t.Fatalf("AnalyticsSubDay 15m: %v", err)
+	}
+	if len(a15.Days) != 15 {
+		t.Fatalf("15m len(Days) = %d; want 15", len(a15.Days))
+	}
+	var c15, o15, no15 int64
+	for _, d := range a15.Days {
+		c15 += d.Clicks
+		o15 += d.Organic
+		no15 += d.NonOrganic
+	}
+	if c15 != 3 || o15 != 1 || no15 != 1 {
+		t.Errorf("15m totals: clicks=%d (want 3), organic=%d (want 1), nonOrganic=%d (want 1)", c15, o15, no15)
+	}
+	if len(a15.Links) != 3 || a15.Links[0].Title != "Alice Promo" || a15.Links[0].Clicks != 2 || a15.Links[0].Matches != 1 {
+		t.Errorf("15m links = %+v", a15.Links)
+	}
+	if len(a15.Sources) != 1 || a15.Sources[0].Source != "messenger" || a15.Sources[0].Count != 1 {
+		t.Errorf("15m sources = %+v", a15.Sources)
+	}
+
+	// 2. Sub-day 15m filtered by linkA
+	a15A, err := s.AnalyticsSubDay(app.ID, "15m", "", linkA.ID, now)
+	if err != nil {
+		t.Fatalf("AnalyticsSubDay 15m linkA: %v", err)
+	}
+	var c15A, o15A, no15A int64
+	for _, d := range a15A.Days {
+		c15A += d.Clicks
+		o15A += d.Organic
+		no15A += d.NonOrganic
+	}
+	if c15A != 2 || o15A != 0 || no15A != 1 {
+		t.Errorf("15m linkA totals: clicks=%d (want 2), organic=%d (want 0), nonOrganic=%d (want 1)", c15A, o15A, no15A)
+	}
+	if len(a15A.Links) != 1 || a15A.Links[0].Key != "alice" {
+		t.Errorf("15m linkA links = %+v; want only alice", a15A.Links)
+	}
+
+	// 3. Other sub-day windows bucket counts
+	for _, win := range []struct {
+		w string
+		b int
+	}{{"1h", 12}, {"3h", 18}, {"12h", 24}} {
+		aw, err := s.AnalyticsSubDay(app.ID, win.w, "", "", now)
+		if err != nil || len(aw.Days) != win.b {
+			t.Errorf("window %s len(Days) = %d, err = %v; want %d", win.w, len(aw.Days), err, win.b)
+		}
+	}
+
+	// 4. AnalyticsRange filtered by linkA
+	arA, err := s.AnalyticsRange(app.ID, now.AddDate(0, 0, -1), now, "", linkA.ID)
+	if err != nil {
+		t.Fatalf("AnalyticsRange linkA: %v", err)
+	}
+	if len(arA.Links) != 1 || arA.Links[0].Key != "alice" || arA.Links[0].Title != "Alice Promo" {
+		t.Errorf("AnalyticsRange linkA links = %+v", arA.Links)
+	}
+}
