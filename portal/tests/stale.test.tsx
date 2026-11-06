@@ -48,8 +48,9 @@ it('stale analytics response: a slow 7-day reply after switching to 30 days is d
     return json(app);
   });
 
-  render(<AppPage id="app1" tab="analytics" />);
+  const { rerender } = render(<AppPage id="app1" tab="analytics" />);
   fireEvent.change(await screen.findByLabelText('Date range'), { target: { value: '30' } });
+  rerender(<AppPage id="app1" tab="analytics" range={{ days: 30 }} />); // router re-render after the hash write
   await waitFor(() => expect(clicksTile()).toBe(30));
 
   releaseSlow();
@@ -246,10 +247,13 @@ it('analytics error: a rejected range shows the alert; the next good range clear
   });
   const { rerender } = render(<AppPage id="app1" tab="analytics" />);
   await screen.findByText(/730 days/);
+  // filters live in the route: picking a range rewrites the hash, the router re-renders with it
   fireEvent.change(await screen.findByLabelText('Date range'), { target: { value: '30' } });
+  expect(location.hash).toBe('#/apps/app1/analytics?days=30');
+  rerender(<AppPage id="app1" tab="analytics" range={{ days: 30 }} />);
   await waitFor(() => expect(screen.queryByText(/730 days/)).toBeNull());
 
-  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: '7' } });
+  rerender(<AppPage id="app1" tab="analytics" />);
   await screen.findByText(/730 days/);
   rerender(<AppPage id="app2" tab="settings" />);
   await screen.findByRole('heading', { name: 'API key' }); // past the loading screen, page rendered

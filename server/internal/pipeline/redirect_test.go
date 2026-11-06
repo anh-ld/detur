@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/ua"
 )
 
 func TestWithParams(t *testing.T) {
@@ -63,8 +64,8 @@ func TestClickLabels(t *testing.T) {
 		{"Mozilla/5.0 (Linux; Android 14; Pixel 7)", "android"},
 		{"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)", "desktop"},
 	} {
-		if got := clickPlatform(tc.agent); got != tc.platform {
-			t.Errorf("clickPlatform(%q) = %q; want %q", tc.agent, got, tc.platform)
+		if got := ua.ClickPlatform(tc.agent); got != tc.platform {
+			t.Errorf("ClickPlatform(%q) = %q; want %q", tc.agent, got, tc.platform)
 		}
 	}
 	for _, tc := range []struct{ dest, kind string }{

@@ -15,7 +15,7 @@ import {
 } from './ui';
 import { AppsPage } from './apps';
 import { ApiTokensPage } from './api-tokens';
-import { AppPage, AppTab, tabHref, TABS } from './detail';
+import { AppPage, AppTab, buildAppHash, tabHref, TABS } from './detail';
 import type { App as AppT, DateRangeFilter, Platform } from './api';
 
 type Route =
@@ -28,7 +28,6 @@ type Route =
       linkId?: string;
       platform?: Platform;
       range?: DateRangeFilter;
-      hasQuery?: boolean;
     };
 
 export function parseHash(h: string = location.hash): Route {
@@ -41,42 +40,45 @@ export function parseHash(h: string = location.hash): Route {
       let linkId: string | undefined;
       let platform: Platform | undefined;
       let range: DateRangeFilter | undefined;
-      const hasQuery = Boolean(m[3]);
-
       if (m[3]) {
         const q = new URLSearchParams(m[3]);
-        linkId = q.get('link') ?? q.get('link_id') ?? undefined;
+        linkId = q.get('link') ?? undefined;
 
         const p = (q.get('platform') ?? '').toLowerCase();
         if (p === 'ios' || p === 'android' || p === 'desktop') {
           platform = p as Platform;
         }
 
-        const win = q.get('window') ?? q.get('period');
+        const win = q.get('window');
         const from = q.get('from') ?? undefined;
         const to = q.get('to') ?? undefined;
-        const daysParam = q.get('days') ?? q.get('range');
+        const daysParam = q.get('days');
 
         if (win === '15m' || win === '1h' || win === '3h' || win === '12h') {
           range = { window: win };
-        } else if (daysParam === '15m' || daysParam === '1h' || daysParam === '3h' || daysParam === '12h') {
-          range = { window: daysParam };
         } else if (from && to) {
           range = { from, to };
         } else if (daysParam) {
-          const d = parseInt(daysParam.replace(/d$/, ''), 10);
+          const d = parseInt(daysParam, 10);
           if (!isNaN(d) && d > 0) {
             range = { days: d };
           }
         }
       }
-      return { name: 'app', id, tab, linkId, platform, range, hasQuery };
+      return { name: 'app', id, tab, linkId, platform, range };
     } catch {
       // bad %-encoding: unknown route
     }
   }
   return { name: 'apps' };
 }
+
+// tab link: Links <-> Analytics keep the filter query
+type AppRoute = Extract<Route, { name: 'app' }>;
+const navHref = (r: AppRoute, tab: AppTab) =>
+  (r.tab === 'links' || r.tab === 'analytics') && (tab === 'links' || tab === 'analytics')
+    ? buildAppHash(r.id, tab, { platform: r.platform, range: r.range, linkId: tab === 'analytics' ? r.linkId : undefined })
+    : tabHref(r.id, tab);
 
 // top-bar "Admin · until HH:MM"; local clock, server enforces expiry
 const fmtUntil = (iso: string) => {
@@ -132,11 +134,11 @@ export function App() {
       const el = e.target as HTMLElement;
       if (el.closest('input, textarea, select, [contenteditable], dialog[open]')) return;
       const t = TABS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
-      if (t) location.hash = tabHref(route.id, t.tab);
+      if (t) location.hash = navHref(route, t.tab);
     };
     addEventListener('keydown', on);
     return () => removeEventListener('keydown', on);
-  }, [route.name === 'app' ? route.id : '']);
+  }, [route]);
 
   const exitAdmin = async () => {
     try {
@@ -176,11 +178,11 @@ export function App() {
             TABS.map((t) => (
               <a
                 key={t.tab}
-                href={tabHref(route.id, t.tab)}
+                href={navHref(route, t.tab)}
                 aria-current={t.tab === route.tab ? 'page' : undefined}
                 onClick={(e) => {
                   e.preventDefault();
-                  location.hash = tabHref(route.id, t.tab);
+                  location.hash = navHref(route, t.tab);
                 }}
               >
                 <Icon d={t.icon} />
@@ -247,7 +249,6 @@ export function App() {
             linkId={route.linkId}
             platform={route.platform}
             range={route.range}
-            hasQuery={route.hasQuery}
             onName={setAppName}
           />
         )}

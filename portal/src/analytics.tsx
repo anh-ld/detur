@@ -86,8 +86,10 @@ export function DateRangePicker({
   ariaLabel = 'Date range',
   range,
   onRange,
+  allowWindows = true,
 }: {
   ariaLabel?: string;
+  allowWindows?: boolean;
   range: DateRangeFilter;
   onRange: (r: DateRangeFilter) => void;
 }) {
@@ -134,7 +136,7 @@ export function DateRangePicker({
   return (
     <div style={{ ...row, flexWrap: 'wrap', gap: 6 }}>
       <Select aria-label={ariaLabel} value={selectVal} onChange={(e) => handleSelect(e.currentTarget.value)}>
-        {RANGE_OPTIONS.map((o) => (
+        {RANGE_OPTIONS.filter((o) => allowWindows || !o.window).map((o) => (
           <option key={o.window ?? o.days} value={o.window ?? String(o.days)}>
             {o.label}
           </option>
@@ -339,7 +341,18 @@ function BarList({
   );
 }
 
-export function AnalyticsView({ data, variants }: { data: Analytics | null; variants?: VariantStat[] | null }) {
+export function AnalyticsView({
+  data,
+  variants,
+  range,
+  linkId,
+}: {
+  data: Analytics | null;
+  variants?: VariantStat[] | null;
+  range?: DateRangeFilter;
+  linkId?: string;
+}) {
+  const windowed = Boolean(range?.window); // sub-day: no daily cohorts, no per-link events
   const days = data?.days ?? [];
   const clicks = sum(days, 'clicks');
   const viaLink = sum(days, 'nonOrganic');
@@ -368,13 +381,11 @@ export function AnalyticsView({ data, variants }: { data: Analytics | null; vari
         <Stat data={data} metric="webFallbacks" hint="Sent to the web URL" />
       </Card>
 
-      {variants && (
-        <Card class="chart-card">
-          <div class="chart-head">
-            <div>
-              <h3>Variants</h3>
-              <p style={muted}>Clicks, installs and conversion per A/B variant</p>
-            </div>
+      {variants && !windowed && (
+        <section aria-label="Variants" style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 4 }}>
+            <h3 style={{ margin: 0 }}>Variants</h3>
+            <p style={muted}>Clicks, installs and conversion per A/B variant</p>
           </div>
           {variants.length === 0 ? (
             <Empty>
@@ -411,7 +422,7 @@ export function AnalyticsView({ data, variants }: { data: Analytics | null; vari
               </tbody>
             </Table>
           )}
-        </Card>
+        </section>
       )}
 
       <div className="duo">
@@ -437,7 +448,11 @@ export function AnalyticsView({ data, variants }: { data: Analytics | null; vari
             items={
               data && data.events.map((e) => ({ key: e.event, name: e.event || <span style={muted}>(no name)</span>, count: e.count }))
             }
-            empty={['No events', 'Events sent by the SDK show here.']}
+            empty={
+              windowed && linkId
+                ? ["Events aren't per link for sub-day windows", 'Pick a day range or all links.']
+                : ['No events', 'Events sent by the SDK show here.']
+            }
           />
         </Card>
         <Card class="chart-card">
@@ -455,6 +470,10 @@ export function AnalyticsView({ data, variants }: { data: Analytics | null; vari
         </Card>
       </div>
 
+      {windowed ? (
+        <p style={muted}>Conversions and retention use daily data. Pick a day range to see them.</p>
+      ) : (
+        <>
       <section aria-label="Retention by link" style={{ display: 'grid', gap: 12, marginTop: 16 }}>
         <div style={{ display: 'grid', gap: 4 }}>
           <h3 style={{ margin: 0 }}>Retention by link</h3>
@@ -528,6 +547,8 @@ export function AnalyticsView({ data, variants }: { data: Analytics | null; vari
           </Table>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

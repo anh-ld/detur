@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"detur.dev/server/internal/ua"
 	"net/http"
 	"net/url"
 	"strings"
@@ -53,7 +54,7 @@ func matchRuleCond(cond store.RuleCond, req *http.Request, q url.Values, now tim
 
 	// platform: "ios", "android", "desktop"
 	if cond.Platform != "" {
-		if clickPlatform(agent) != strings.ToLower(strings.TrimSpace(cond.Platform)) {
+		if ua.ClickPlatform(agent) != strings.ToLower(strings.TrimSpace(cond.Platform)) {
 			return false
 		}
 	}

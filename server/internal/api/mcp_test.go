@@ -70,6 +70,11 @@ func TestMCP(t *testing.T) {
 		}
 		for _, x := range tools {
 			n := x.(map[string]any)["name"].(string)
+			for arg, p := range x.(map[string]any)["inputSchema"].(map[string]any)["properties"].(map[string]any) {
+				if d, _ := p.(map[string]any)["description"].(string); d == "" {
+					t.Errorf("%s.%s: empty description", n, arg)
+				}
+			}
 			if strings.HasPrefix(n, "create") || strings.HasPrefix(n, "update") || strings.HasPrefix(n, "delete") || strings.HasPrefix(n, "set") {
 				t.Errorf("write tool %s", n)
 			}

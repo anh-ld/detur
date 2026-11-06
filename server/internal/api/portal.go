@@ -279,6 +279,9 @@ func normalizeTags(in []string) ([]string, error) {
 	return out, nil
 }
 
+// maxTitleLen: link title cap, in characters.
+const maxTitleLen = 100
+
 // Social preview limits: title / description in characters; image absolute https (crawlers and chat apps fetch it).
 const (
 	maxOGTitle = 100
@@ -294,11 +297,17 @@ func validOG(l store.Link) error {
 		return fmt.Errorf("ogDescription must be at most %d characters", maxOGDesc)
 	}
 	if l.OGImage != "" {
-		if u, err := url.Parse(l.OGImage); err != nil || u.Scheme != "https" || u.Host == "" {
+		if !httpsURL(l.OGImage) {
 			return errors.New("ogImage must be an absolute https URL")
 		}
 	}
 	return nil
+}
+
+// httpsURL: absolute https URL with a host.
+func httpsURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
 // parseExpiry: optional RFC3339 expiry; nil or "" = never.
@@ -402,139 +411,57 @@ func (p *portalServer) revokeAppKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// cleanProfiles: trim, require a unique name, validate each URL like a link target.
-func cleanProfiles(in []store.RedirectProfile) ([]store.RedirectProfile, error) {
-	if len(in) > maxRedirectProfiles {
-		return nil, fmt.Errorf("at most %d redirect profiles", maxRedirectProfiles)
-	}
-	out := make([]store.RedirectProfile, 0, len(in))
-	seen := map[string]bool{}
-	for _, p := range in {
-		name := strings.TrimSpace(p.Name)
-		if name == "" {
-			return nil, errors.New("redirect profile: name is required")
-		}
-		if utf8.RuneCountInString(name) > maxProfileNameLen {
-			return nil, fmt.Errorf("redirect profile %q: name longer than %d characters", name, maxProfileNameLen)
-		}
-		if seen[strings.ToLower(name)] {
-			return nil, fmt.Errorf("redirect profile %q: duplicate name", name)
-		}
-		seen[strings.ToLower(name)] = true
-		prof := store.RedirectProfile{Name: name, IOS: strings.TrimSpace(p.IOS), Android: strings.TrimSpace(p.Android), Web: strings.TrimSpace(p.Web)}
-		for _, f := range []struct{ field, v string }{
-			{"ios", prof.IOS}, {"android", prof.Android}, {"web", prof.Web},
-		} {
-			if err := validTarget("redirect profile "+f.field, f.v); err != nil {
-				return nil, fmt.Errorf("redirect profile %q: %w", name, err)
-			}
-		}
-		out = append(out, prof)
-	}
-	return out, nil
-}
-
-const (
-	maxRedirectProfiles = 10
-	maxProfileNameLen   = 40
-	maxSocialPresets    = 10
-	maxSocialTitle      = 100
-	maxSocialDesc       = 300
-)
-
-// cleanSocialPresets: trim, unique name, title/description limits, https-only image.
-func cleanSocialPresets(in []store.SocialPreset) ([]store.SocialPreset, error) {
-	if len(in) > maxSocialPresets {
-		return nil, fmt.Errorf("at most %d social presets", maxSocialPresets)
-	}
-	out := make([]store.SocialPreset, 0, len(in))
-	seen := map[string]bool{}
-	for _, p := range in {
-		name := strings.TrimSpace(p.Name)
-		if name == "" {
-			return nil, errors.New("social preset: name is required")
-		}
-		if utf8.RuneCountInString(name) > maxProfileNameLen {
-			return nil, fmt.Errorf("social preset %q: name longer than %d characters", name, maxProfileNameLen)
-		}
-		if seen[strings.ToLower(name)] {
-			return nil, fmt.Errorf("social preset %q: duplicate name", name)
-		}
-		seen[strings.ToLower(name)] = true
-		preset := store.SocialPreset{
-			Name:        name,
-			Title:       strings.TrimSpace(p.Title),
-			Description: strings.TrimSpace(p.Description),
-			Image:       strings.TrimSpace(p.Image),
-		}
-		if utf8.RuneCountInString(preset.Title) > maxSocialTitle {
-			return nil, fmt.Errorf("social preset %q: title longer than %d characters", name, maxSocialTitle)
-		}
-		if utf8.RuneCountInString(preset.Description) > maxSocialDesc {
-			return nil, fmt.Errorf("social preset %q: description longer than %d characters", name, maxSocialDesc)
-		}
-		if preset.Image != "" && !strings.HasPrefix(strings.ToLower(preset.Image), "https://") {
-			return nil, fmt.Errorf("social preset %q: image must be an absolute https URL", name)
-		}
-		out = append(out, preset)
-	}
-	return out, nil
-}
-
 func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		IOSAppID               string                   `json:"iosAppId"`
-		AndroidPackage         string                   `json:"androidPackage"`
-		AndroidCertFingerprint string                   `json:"androidCertFingerprint"`
-		IOSScheme              string                   `json:"iosScheme"`
-		RedirectProfiles       *[]store.RedirectProfile `json:"redirectProfiles"` // omitted = keep existing
-		SocialPresets          *[]store.SocialPreset    `json:"socialPresets"`    // omitted = keep existing
+		IOSAppID               *string                  `json:"iosAppId"`               // omitted = keep existing
+		AndroidPackage         *string                  `json:"androidPackage"`         // omitted = keep existing
+		AndroidCertFingerprint *string                  `json:"androidCertFingerprint"` // omitted = keep existing
+		IOSScheme              *string                  `json:"iosScheme"`              // omitted = keep existing
+		RedirectProfiles       *[]store.RedirectProfile `json:"redirectProfiles"`       // omitted = keep existing
+		SocialPresets          *[]store.SocialPreset    `json:"socialPresets"`          // omitted = keep existing
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	// pasted from App Store Connect / Play Console: stray spaces or newlines would land verbatim in AASA / assetlinks and break verification
-	body.IOSAppID = strings.TrimSpace(body.IOSAppID)
-	body.AndroidPackage = strings.TrimSpace(body.AndroidPackage)
-	body.AndroidCertFingerprint = strings.TrimSpace(body.AndroidCertFingerprint)
-	body.IOSScheme = strings.TrimSuffix(strings.TrimSpace(body.IOSScheme), "://")
-	if body.IOSScheme != "" && !validScheme(body.IOSScheme) {
-		http.Error(w, "iosScheme must be an app URL scheme like myapp (not http, https, javascript, data, file)", http.StatusBadRequest)
-		return
-	}
 	id := r.PathValue("id")
-	profiles := []store.RedirectProfile{}
+	cur, err := p.st.GetApp(id)
+	if err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	d := store.AppDetails{IOSAppID: cur.IOSAppID, AndroidPackage: cur.AndroidPackage, AndroidCertFingerprint: cur.AndroidCertFingerprint, IOSScheme: cur.IOSScheme}
+	// pasted from App Store Connect / Play Console: stray spaces or newlines would land verbatim in AASA / assetlinks and break verification
+	if body.IOSAppID != nil {
+		d.IOSAppID = strings.TrimSpace(*body.IOSAppID)
+	}
+	if body.AndroidPackage != nil {
+		d.AndroidPackage = strings.TrimSpace(*body.AndroidPackage)
+	}
+	if body.AndroidCertFingerprint != nil {
+		d.AndroidCertFingerprint = strings.TrimSpace(*body.AndroidCertFingerprint)
+	}
+	if body.IOSScheme != nil {
+		d.IOSScheme = strings.TrimSuffix(strings.TrimSpace(*body.IOSScheme), "://")
+		if d.IOSScheme != "" && !validScheme(d.IOSScheme) {
+			http.Error(w, "iosScheme must be an app URL scheme like myapp (not http, https, javascript, data, file)", http.StatusBadRequest)
+			return
+		}
+	}
+	profiles, social := cur.RedirectProfiles, cur.SocialPresets
 	if body.RedirectProfiles != nil {
-		cleaned, err := cleanProfiles(*body.RedirectProfiles)
-		if err != nil {
+		if profiles, err = cleanProfiles(*body.RedirectProfiles); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		profiles = cleaned
-	} else if cur, err := p.st.GetApp(id); err == nil {
-		profiles = cur.RedirectProfiles
 	}
-	social := []store.SocialPreset{}
 	if body.SocialPresets != nil {
-		cleaned, err := cleanSocialPresets(*body.SocialPresets)
-		if err != nil {
+		if social, err = cleanSocialPresets(*body.SocialPresets); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		social = cleaned
-	} else if cur, err := p.st.GetApp(id); err == nil {
-		social = cur.SocialPresets
 	}
-	if err := p.st.UpdateAppDetails(id, body.IOSAppID, body.AndroidPackage, body.AndroidCertFingerprint, body.IOSScheme); err != nil {
-		p.storeErr(w, err)
-		return
-	}
-	if err := p.st.UpdateAppProfiles(id, profiles); err != nil {
-		p.storeErr(w, err)
-		return
-	}
-	if err := p.st.UpdateAppSocialPresets(id, social); err != nil {
+	if err := p.st.UpdateApp(id, d, profiles, social); err != nil {
 		p.storeErr(w, err)
 		return
 	}
@@ -695,8 +622,8 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 	} else if body.Note != nil {
 		title = strings.TrimSpace(*body.Note)
 	}
-	if len(title) > 500 {
-		http.Error(w, "title must be at most 500 characters", http.StatusBadRequest)
+	if utf8.RuneCountInString(title) > maxTitleLen {
+		http.Error(w, "title must be at most 100 characters", http.StatusBadRequest)
 		return
 	}
 	nl := store.Link{
@@ -752,8 +679,8 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 	} else if body.Note != nil {
 		l.Title = strings.TrimSpace(*body.Note)
 	}
-	if len(l.Title) > 500 {
-		http.Error(w, "title must be at most 500 characters", http.StatusBadRequest)
+	if utf8.RuneCountInString(l.Title) > maxTitleLen {
+		http.Error(w, "title must be at most 100 characters", http.StatusBadRequest)
 		return
 	}
 	if body.IOS != nil {
@@ -1025,6 +952,10 @@ func (p *portalServer) fraudSettings(w http.ResponseWriter, r *http.Request) {
 // parseDateRange: ?from=YYYY-MM-DD&to=YYYY-MM-DD if either present, else ?days= via parseDays. Returns from, to, ok.
 func parseDateRange(w http.ResponseWriter, r *http.Request, defDays int) (time.Time, time.Time, bool) {
 	q := r.URL.Query()
+	if q.Get("window") != "" {
+		http.Error(w, "window not supported here", http.StatusBadRequest)
+		return time.Time{}, time.Time{}, false
+	}
 	fromStr := q.Get("from")
 	toStr := q.Get("to")
 	if fromStr != "" || toStr != "" {

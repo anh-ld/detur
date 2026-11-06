@@ -88,6 +88,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate columns: %w", err)
 	}
+	if err := backfillClickPlatform(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("backfill click platform: %w", err)
+	}
 	// paste_token is an added column: index after addMissingColumns, not in schema.sql (first pass runs before the column exists)
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_clicks_paste_token ON clicks (app_id, paste_token) WHERE paste_token IS NOT NULL`); err != nil {
 		db.Close()
@@ -114,6 +118,43 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("re-apply schema: %w", err)
 	}
 	return &Store{db: db}, nil
+}
+
+// backfillClickPlatform: clicks.platform was added late; derive it from user_agent for pre-upgrade rows. Scrubbed UA (NULL) stays NULL.
+func backfillClickPlatform(db *sql.DB) error {
+	rows, err := db.Query(`SELECT id, user_agent, kind FROM clicks WHERE platform IS NULL AND user_agent IS NOT NULL`)
+	if err != nil {
+		return err
+	}
+	byID := map[string]string{}
+	for rows.Next() {
+		var id, agent string
+		var kind sql.NullString
+		if err := rows.Scan(&id, &agent, &kind); err != nil {
+			rows.Close()
+			return err
+		}
+		if kind.String == KindOpen { // same as live writes: SDK opens use native client markers
+			byID[id] = ua.AppPlatform(agent)
+		} else {
+			byID[id] = ua.ClickPlatform(agent)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(byID) == 0 {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for id, p := range byID {
+		if _, err := tx.Exec(`UPDATE clicks SET platform = ? WHERE id = ?`, p, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -192,27 +233,28 @@ func (s *Store) GetApp(id string) (App, error) {
 	if err != nil {
 		return App{}, err
 	}
-	a.RedirectProfiles = decodeProfiles(profiles)
-	a.SocialPresets = decodeSocialPresets(social)
+	a.RedirectProfiles = decodeList[RedirectProfile](profiles)
+	a.SocialPresets = decodeList[SocialPreset](social)
 	return a, nil
 }
 
-func decodeSocialPresets(raw string) []SocialPreset {
+// decodeList: JSON array column -> slice; "" or bad JSON = nil.
+func decodeList[T any](raw string) []T {
 	if raw == "" {
 		return nil
 	}
-	var out []SocialPreset
+	var out []T
 	_ = json.Unmarshal([]byte(raw), &out)
 	return out
 }
 
-func decodeProfiles(raw string) []RedirectProfile {
-	if raw == "" {
+// encodeList: slice -> JSON array column value; empty = NULL.
+func encodeList[T any](v []T) any {
+	if len(v) == 0 {
 		return nil
 	}
-	var out []RedirectProfile
-	_ = json.Unmarshal([]byte(raw), &out)
-	return out
+	b, _ := json.Marshal(v) // plain structs/strings: cannot fail
+	return string(b)
 }
 
 // UpdateAppDetails: set hosting details; "" clears (nullable); ErrNotFound if app unknown.
@@ -230,39 +272,17 @@ func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint, 
 	return nil
 }
 
-// UpdateAppProfiles: replace the reusable store/web redirect profiles (JSON); empty clears.
-func (s *Store) UpdateAppProfiles(id string, profiles []RedirectProfile) error {
-	raw := ""
-	if len(profiles) > 0 {
-		b, err := json.Marshal(profiles)
-		if err != nil {
-			return fmt.Errorf("marshal redirect profiles: %w", err)
-		}
-		raw = string(b)
-	}
-	res, err := s.db.Exec(`UPDATE apps SET redirect_profiles = ? WHERE id = ?`, nullStr(raw), id)
-	if err != nil {
-		return fmt.Errorf("update app profiles: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
+// AppDetails: hosting details; "" clears.
+type AppDetails struct{ IOSAppID, AndroidPackage, AndroidCertFingerprint, IOSScheme string }
 
-// UpdateAppSocialPresets: replace the reusable social preview presets (JSON); empty clears.
-func (s *Store) UpdateAppSocialPresets(id string, presets []SocialPreset) error {
-	raw := ""
-	if len(presets) > 0 {
-		b, err := json.Marshal(presets)
-		if err != nil {
-			return fmt.Errorf("marshal social presets: %w", err)
-		}
-		raw = string(b)
-	}
-	res, err := s.db.Exec(`UPDATE apps SET social_presets = ? WHERE id = ?`, nullStr(raw), id)
+// UpdateApp: set hosting details + redirect profiles + social presets in one tx (empty lists clear); ErrNotFound if app unknown.
+func (s *Store) UpdateApp(id string, d AppDetails, profiles []RedirectProfile, presets []SocialPreset) error {
+	res, err := s.db.Exec(
+		`UPDATE apps SET ios_app_id = ?, android_package = ?, android_cert_fingerprint = ?, ios_scheme = ?, redirect_profiles = ?, social_presets = ? WHERE id = ?`,
+		nullStr(d.IOSAppID), nullStr(d.AndroidPackage), nullStr(d.AndroidCertFingerprint), nullStr(d.IOSScheme), encodeList(profiles), encodeList(presets), id,
+	)
 	if err != nil {
-		return fmt.Errorf("update app social presets: %w", err)
+		return fmt.Errorf("update app: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
@@ -331,7 +351,7 @@ func (s *Store) DeleteApp(id string) error {
 
 func (s *Store) ListApps() ([]App, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), COALESCE(ios_scheme, ''), match_threshold, match_window_minutes, tag_links
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), COALESCE(ios_scheme, ''), match_threshold, match_window_minutes, tag_links, COALESCE(redirect_profiles, ''), COALESCE(social_presets, '')
 		 FROM apps ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list apps: %w", err)
@@ -340,9 +360,12 @@ func (s *Store) ListApps() ([]App, error) {
 	var apps []App
 	for rows.Next() {
 		var a App
-		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.IOSScheme, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks); err != nil {
+		var profiles, social string
+		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.IOSScheme, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks, &profiles, &social); err != nil {
 			return nil, err
 		}
+		a.RedirectProfiles = decodeList[RedirectProfile](profiles)
+		a.SocialPresets = decodeList[SocialPreset](social)
 		apps = append(apps, a)
 	}
 	return apps, rows.Err()
@@ -481,7 +504,7 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 		`INSERT INTO links (id, app_id, key, url, title, ios, android, fallback_url, expires_at, expired_url, og_title, og_description, og_image, tags)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		l.ID, l.AppID, l.Key, l.URL, nullStr(l.Title), nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
-		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage), nullTags(l.Tags),
+		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage), encodeList(l.Tags),
 	)
 	if err != nil {
 		// unknown app_id hits FK; portal -> 404
@@ -630,7 +653,7 @@ func (s *Store) UpdateLink(l Link) error {
 		   og_title = ?, og_description = ?, og_image = ?, tags = ?
 		 WHERE id = ?`,
 		l.URL, nullStr(l.Title), nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
-		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage), nullTags(l.Tags), l.ID,
+		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage), encodeList(l.Tags), l.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update link: %w", err)
@@ -694,26 +717,8 @@ func scanLinkRow(row rowScanner) (Link, error) {
 		t := parseTime(expiresAt)
 		l.ExpiresAt = &t
 	}
-	l.Tags = decodeTags(tags)
+	l.Tags = decodeList[string](tags)
 	return l, nil
-}
-
-// nullTags: JSON array in links.tags; empty list stored as NULL.
-func nullTags(tags []string) any {
-	if len(tags) == 0 {
-		return nil
-	}
-	b, _ := json.Marshal(tags)
-	return string(b)
-}
-
-func decodeTags(s string) []string {
-	if s == "" {
-		return nil
-	}
-	var tags []string
-	_ = json.Unmarshal([]byte(s), &tags)
-	return tags
 }
 
 func nullTime(t *time.Time) any {
@@ -773,8 +778,11 @@ const clickDedupWindow = time.Hour
 
 // RecordClick: insert, or refresh same device's (IP + UA) click on same link within the hour (Dub record-click-cache); one clickId per device. Re-tap re-enters match window (Dub rewrites deepLinkClickCache per tap). Expiry = retention = deterministic lookup life; probabilistic window applied by match at query time.
 func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
+	return s.recordClickAt(c, retentionHours, time.Now().UTC())
+}
+
+func (s *Store) recordClickAt(c Click, retentionHours int, now time.Time) (Click, error) {
 	expires := time.Duration(retentionHours) * time.Hour
-	now := time.Now().UTC()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
@@ -926,6 +934,27 @@ func (s *Store) refreshClick(tx *sql.Tx, old, c Click, now, expires time.Time) (
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click refresh: %w", err)
+	}
+	// refresh crossing a UTC day: move the rollup with created_at (UA-suspect never counted)
+	if od, nd := day(old.CreatedAt), day(now); od != nd && !old.UASuspect {
+		var plat string
+		if err := tx.QueryRow(`SELECT COALESCE(platform, '') FROM clicks WHERE id = ?`, old.ID).Scan(&plat); err != nil {
+			return Click{}, fmt.Errorf("record click refresh rollup: %w", err)
+		}
+		res, err := tx.Exec(`UPDATE click_days SET n = n - 1 WHERE app_id = ? AND link_id = ? AND day = ? AND platform = ? AND kind = ?`,
+			old.AppID, old.LinkID, od, plat, old.Kind)
+		if err != nil {
+			return Click{}, fmt.Errorf("record click refresh rollup: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 { // 0 = pre-rollup row: nothing to move
+			if _, err := tx.Exec(`DELETE FROM click_days WHERE n <= 0 AND app_id = ? AND link_id = ? AND day = ?`, old.AppID, old.LinkID, od); err != nil {
+				return Click{}, fmt.Errorf("record click refresh rollup: %w", err)
+			}
+			if _, err := tx.Exec(`INSERT INTO click_days (app_id, link_id, day, platform, kind, n) VALUES (?, ?, ?, ?, ?, 1)
+				 ON CONFLICT DO UPDATE SET n = n + 1`, old.AppID, old.LinkID, nd, plat, old.Kind); err != nil {
+				return Click{}, fmt.Errorf("record click refresh rollup: %w", err)
+			}
+		}
 	}
 	// variant follows served destination; switch (rule edited mid-window) = new exposure for new variant
 	if c.Destination != "" && c.Variant != "" && c.Variant != old.Variant && !c.UASuspect {

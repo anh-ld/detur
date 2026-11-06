@@ -24,7 +24,7 @@ export const OG_DESC_MAX = 300;
 export const httpsUrl = (s: string) => /^https:\/\/[^/\s]+/i.test(s);
 
 // RFC3339 UTC <-> datetime-local (UTC wall time, no zone shift)
-export const toLocalInput = (iso: string) => (iso ? iso.slice(0, 16) : '');
+export const toLocalInput = (iso?: string) => (iso ? iso.slice(0, 16) : '');
 export const fromLocalInput = (v: string) => (v ? `${v}:00Z` : '');
 
 export const emptyDraft = (): LinkDraft => ({
@@ -149,6 +149,7 @@ export function LinkFields({
         <Input
           id={`${id}-title`}
           value={draft.title}
+          maxLength={100}
           onInput={(e) => setDraft({ ...draft, title: e.currentTarget.value })}
           placeholder="e.g. John Doe promotional link"
         />

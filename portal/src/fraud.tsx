@@ -254,7 +254,7 @@ function Flagged({ appId, tick }: { appId: string; tick: number }) {
     return () => {
       stale = true;
     };
-  }, [appId, range.days, range.from, range.to, tick]);
+  }, [appId, range.days, range.window, range.from, range.to, tick]);
 
   return (
     <section aria-label="Flagged installs" style={{ display: 'grid', gap: 16 }}>
@@ -263,7 +263,7 @@ function Flagged({ appId, tick }: { appId: string; tick: number }) {
           <h2 style={{ margin: 0 }}>Flagged installs</h2>
           <p style={muted}>Installs at least one signal flagged, newest first.</p>
         </div>
-        <DateRangePicker ariaLabel="Flagged range" range={range} onRange={setRange} />
+        <DateRangePicker ariaLabel="Flagged range" range={range} allowWindows={false} onRange={(r) => setRange(r.window ? { days: 7 } : r)} />
       </div>
       {error ? (
         <Alert variant="destructive">{error}</Alert>

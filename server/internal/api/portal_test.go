@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1420,5 +1421,69 @@ func TestPortalAppPageViewerForbidden(t *testing.T) {
 		if resp, _ := portalReq(t, ts, c[0], c[1], `{"html":"{{cta}}"}`, nil); resp.StatusCode != http.StatusForbidden {
 			t.Errorf("%s %s = %d; want 403", c[0], c[1], resp.StatusCode)
 		}
+	}
+}
+
+// App PATCH: omitted fields keep stored values; invalid presets write nothing; lists return stored presets; link title cap = 100 runes.
+func TestPortalAppPartialUpdateAndTitleCap(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	_, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"x"}`, nil)
+	var app struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &app)
+	path := "/api/apps/" + app.ID
+	patch := func(body string) (int, string) {
+		resp, b := portalReq(t, portal, "PATCH", path, body, nil)
+		return resp.StatusCode, string(b)
+	}
+	if c, b := patch(`{"iosAppId":"ABCDE12345.com.example.app","redirectProfiles":[{"name":"p","web":"https://example.com"}],"socialPresets":[{"name":"s","title":"T"}]}`); c != 200 {
+		t.Fatalf("seed: %d %s", c, b)
+	}
+	if c, b := patch(`{"socialPresets":[{"name":"s2","title":"T2","image":"https://example.com/i.png"}]}`); c != 200 ||
+		!strings.Contains(b, `"iosAppId":"ABCDE12345.com.example.app"`) || !strings.Contains(b, `"name":"p"`) || !strings.Contains(b, `"name":"s2"`) {
+		t.Fatalf("presets-only patch must keep iosAppId + profiles: %d %s", c, b)
+	}
+	if c, b := patch(`{"androidPackage":"com.example.app"}`); c != 200 || !strings.Contains(b, `"name":"s2"`) || !strings.Contains(b, `"iosAppId":"ABCDE12345.com.example.app"`) {
+		t.Fatalf("details-only patch must keep presets: %d %s", c, b)
+	}
+	for _, bad := range []string{
+		`{"iosAppId":"changed","socialPresets":[{"name":"s","image":"https://"}]}`,
+		`{"iosAppId":"changed","socialPresets":[{"name":"s","title":"` + strings.Repeat("a", 101) + `"}]}`,
+	} {
+		if c, b := patch(bad); c != 400 {
+			t.Fatalf("bad preset: %d %s; want 400", c, b)
+		}
+	}
+	for _, p := range []string{"/api/apps", path} {
+		resp, b := portalReq(t, portal, "GET", p, "", nil)
+		if resp.StatusCode == 404 {
+			continue
+		}
+		if !strings.Contains(string(b), `"name":"s2"`) || !strings.Contains(string(b), `"iosAppId":"ABCDE12345.com.example.app"`) || !strings.Contains(string(b), `"name":"p"`) {
+			t.Fatalf("GET %s: %s; want stored presets, profiles and untouched iosAppId", p, b)
+		}
+	}
+
+	link := func(title string) int {
+		resp, _ := portalReq(t, portal, "POST", path+"/links", `{"key":"k`+strconv.Itoa(len(title))+`","url":"/p","title":"`+title+`"}`, nil)
+		return resp.StatusCode
+	}
+	if c := link(strings.Repeat("ế", 100)); c != http.StatusCreated {
+		t.Errorf("100-rune title: %d; want 201", c)
+	}
+	if c := link(strings.Repeat("a", 101)); c != http.StatusBadRequest {
+		t.Errorf("101-rune title: %d; want 400", c)
+	}
+	_, b = portalReq(t, portal, "GET", path+"/links", "", nil)
+	var links []struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &links)
+	if resp, _ := portalReq(t, portal, "PATCH", "/api/links/"+links[0].ID, `{"title":"`+strings.Repeat("a", 101)+`"}`, nil); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("update 101-rune title: %d; want 400", resp.StatusCode)
+	}
+	if resp, _ := portalReq(t, portal, "GET", path+"/fraud?window=1h", "", nil); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("fraud ?window: %d; want 400", resp.StatusCode)
 	}
 }

@@ -302,4 +302,76 @@ func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
 	if len(arA.Links) != 1 || arA.Links[0].Key != "alice" || arA.Links[0].Title != "Alice Promo" {
 		t.Errorf("AnalyticsRange linkA links = %+v", arA.Links)
 	}
+
+	// 5. link-scoped events: range reads link_event_days (that link only); window has no link column -> empty
+	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "d1", LinkKey: "alice", Event: LinkTag}, now)
+	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "d1", Event: "buy"}, now)
+	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "d2", LinkKey: "bob", Event: LinkTag}, now)
+	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "d2", Event: "share"}, now)
+	arA, err = s.AnalyticsRange(app.ID, now.AddDate(0, 0, -1), now, "", linkA.ID)
+	if err != nil || len(arA.Events) != 1 || arA.Events[0].Event != "buy" {
+		t.Errorf("AnalyticsRange linkA events = %+v, err = %v; want only buy", arA.Events, err)
+	}
+	if ev, err := s.AnalyticsSubDay(app.ID, "15m", "", "", time.Now()); err != nil || len(ev.Events) == 0 {
+		t.Errorf("15m app-wide events = %+v, err = %v; want app_open", ev.Events, err)
+	}
+	if ev, _ := s.AnalyticsSubDay(app.ID, "15m", "", linkA.ID, time.Now()); len(ev.Events) != 0 {
+		t.Errorf("15m linkA events = %+v; want none", ev.Events)
+	}
+	// 6. platform filter in window mode: only the android click
+	aAnd, err := s.AnalyticsSubDay(app.ID, "15m", "android", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cAnd int64
+	for _, d := range aAnd.Days {
+		cAnd += d.Clicks
+	}
+	if cAnd != 1 || len(aAnd.Links) != 3 || aAnd.Links[0].Key != "bob" {
+		t.Errorf("15m android: clicks=%d links=%+v; want 1 click, bob first", cAnd, aAnd.Links)
+	}
+}
+
+// Refresh across a UTC day moves the click_days rollup with created_at; pre-upgrade NULL platform backfilled from UA at Open.
+func TestRefreshClickMovesRollupAndBackfillsPlatform(t *testing.T) {
+	path := t.TempDir() + "/p.db"
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, link := setupApp(t, s)
+	fp := Fingerprint{IP: "9.9.9.9", UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)"}
+	late := time.Date(2026, 3, 1, 23, 59, 0, 0, time.UTC)
+	c1 := Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Platform: "ios", Kind: KindApp, Fingerprint: fp}
+	if _, err := s.recordClickAt(c1, 24, late); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.recordClickAt(c1, 24, late.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var d1, d2 int64
+	s.db.QueryRow(`SELECT COALESCE(SUM(n), 0) FROM click_days WHERE day = '2026-03-01'`).Scan(&d1)
+	s.db.QueryRow(`SELECT COALESCE(SUM(n), 0) FROM click_days WHERE day = '2026-03-02'`).Scan(&d2)
+	if d1 != 0 || d2 != 1 {
+		t.Errorf("rollup after refresh: day1=%d day2=%d; want 0, 1", d1, d2)
+	}
+	// legacy rows: NULL platform, UA present -> backfilled; scrubbed UA stays NULL
+	s.db.Exec(`UPDATE clicks SET platform = NULL`)
+	for id, c := range map[string][2]string{"desk": {"Mozilla/5.0 (Macintosh; Intel Mac OS X)", KindWeb}, "open": {"MyApp/1 CFNetwork/1494 Darwin/23", KindOpen}} {
+		s.db.Exec(`INSERT INTO clicks (id, app_id, link_id, destination, user_agent, kind, expires_at) VALUES (?, ?, ?, 'x', ?, ?, '2999-01-01T00:00:00.000Z')`, id, app.ID, link.ID, c[0], c[1])
+	}
+	s.db.Exec(`INSERT INTO clicks (id, app_id, link_id, destination, expires_at) VALUES ('scrubbed', ?, ?, 'x', '2999-01-01T00:00:00.000Z')`, app.ID, link.ID)
+	s.Close()
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var desk, ios, nulls int
+	s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE platform = 'desktop' AND id = 'desk'`).Scan(&desk)
+	s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE platform = 'ios'`).Scan(&ios)
+	s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE platform IS NULL`).Scan(&nulls)
+	if desk != 1 || ios != 2 || nulls != 1 { // ios: browser iPhone click + kind=open CFNetwork
+		t.Errorf("backfill: desktop=%d ios=%d null=%d; want 1, 2, 1", desk, ios, nulls)
+	}
 }

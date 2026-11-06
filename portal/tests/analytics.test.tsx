@@ -2,6 +2,8 @@ import { afterEach, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/preact';
 import { AnalyticsView, Filters, RANGE_OPTIONS } from '../src/analytics';
 import { DateRangeFilter } from '../src/api';
+import { parseHash } from '../src/app';
+import { buildAppHash } from '../src/detail';
 
 afterEach(cleanup);
 
@@ -103,4 +105,17 @@ it('custom date range displays inputs and applies new range', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
   expect(selectedRange).toEqual({ from: '2026-10-01', to: '2026-10-08' });
+});
+
+// deep links: one name per filter param; garbage is dropped
+it('app hash round-trips filters and ignores invalid ones', () => {
+  const rt = (range: DateRangeFilter) => {
+    const r = parseHash(buildAppHash('a1', 'analytics', { linkId: 'l1', platform: 'ios', range }));
+    return r.name === 'app' ? [r.linkId, r.platform, r.range] : null;
+  };
+  expect(rt({ window: '1h' })).toEqual(['l1', 'ios', { window: '1h' }]);
+  expect(rt({ days: 30 })).toEqual(['l1', 'ios', { days: 30 }]);
+  expect(rt({ from: '2026-01-01', to: '2026-01-31' })).toEqual(['l1', 'ios', { from: '2026-01-01', to: '2026-01-31' }]);
+  const bad = parseHash('#/apps/a1/analytics?platform=palm&window=2h&range=15m');
+  expect(bad).toMatchObject({ platform: undefined, range: undefined });
 });

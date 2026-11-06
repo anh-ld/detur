@@ -75,8 +75,7 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
           </Tab>
         </TabList>
 
-        {tab === 'app' && (
-          <>
+        <div hidden={tab !== 'app'}>
             <h2 style={{ ...sectionTitle, marginTop: 0 }}>Health</h2>
             <p style={{ ...muted, marginBottom: 16 }}>Setup checks. Refreshes after you save.</p>
             <HealthTable app={app} />
@@ -148,29 +147,25 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
                 </tr>
               </tbody>
             </Table>
-          </>
-        )}
+        </div>
 
-        {tab === 'page' && (
-          <>
-            <p style={{ ...muted, marginTop: 0, marginBottom: 16 }}>
-              What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
-            </p>
-            <PageEditor app={app} />
-          </>
-        )}
+        {/* stays mounted: unsaved HTML survives tab switches */}
+        <div hidden={tab !== 'page'}>
+          <p style={{ ...muted, marginTop: 0, marginBottom: 16 }}>
+            What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
+          </p>
+          <PageEditor app={app} />
+        </div>
 
-        {tab === 'matching' && (
-          <>
+        <div hidden={tab !== 'matching'}>
             <p style={{ ...muted, marginTop: 0, marginBottom: 16 }}>Applies to every link of this app.</p>
             <MatchingTable app={app} onSaved={onApp} />
             <TagLinksRow app={app} onSaved={onApp} />
 
             <h2 style={sectionTitle}>Match quality</h2>
             <p style={{ ...muted, marginBottom: 16 }}>Installs from the last 30 days: how each was attributed, and the score it got.</p>
-            <MatchQualityView app={app} />
-          </>
-        )}
+            {tab === 'matching' && <MatchQualityView app={app} />}
+        </div>
       </div>
     </div>
   );
@@ -389,7 +384,7 @@ function PageEditor({ app }: { app: App }) {
             title="Page preview"
             sandbox=""
             srcdoc={preview}
-            style={{ display: 'block', width: '100%', height: 560, border: 0, background: '#fff' }}
+            style={{ display: 'block', width: '100%', height: 560, border: 0, background: 'hsl(var(--k-card))' }}
           />
         </div>
       </div>
@@ -419,10 +414,6 @@ function RedirectProfilesForm({ app, onSaved }: { app: App; onSaved: (a: App) =>
     try {
       const a = await adminCall(() =>
         api.updateApp(app.id, {
-          iosAppId: app.iosAppId,
-          androidPackage: app.androidPackage,
-          androidCertFingerprint: app.androidCertFingerprint,
-          iosScheme: app.iosScheme,
           redirectProfiles: profiles,
         }),
       );
@@ -510,7 +501,7 @@ function RedirectProfilesForm({ app, onSaved }: { app: App; onSaved: (a: App) =>
         >
           Add redirect preset
         </Button>
-        <Button type="submit">Save</Button>
+        <Button type="submit" variant="outline">Save</Button>
       </div>
       {error && <Alert variant="destructive">{error}</Alert>}
       {saved && <Alert variant="success">Saved.</Alert>}
@@ -530,10 +521,6 @@ function SocialPresetsForm({ app, onSaved }: { app: App; onSaved: (a: App) => vo
     try {
       const a = await adminCall(() =>
         api.updateApp(app.id, {
-          iosAppId: app.iosAppId,
-          androidPackage: app.androidPackage,
-          androidCertFingerprint: app.androidCertFingerprint,
-          iosScheme: app.iosScheme,
           socialPresets: presets,
         }),
       );
@@ -618,7 +605,7 @@ function SocialPresetsForm({ app, onSaved }: { app: App; onSaved: (a: App) => vo
         >
           Add social preset
         </Button>
-        <Button type="submit">Save</Button>
+        <Button type="submit" variant="outline">Save</Button>
       </div>
       {error && <Alert variant="destructive">{error}</Alert>}
       {saved && <Alert variant="success">Saved.</Alert>}
@@ -719,8 +706,10 @@ const TAG_SNIPPET = "DetourAnalytics.logEvent('detur_link', { link: link.params.
 
 function TagLinksRow({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
   const [on, setOn] = useState(app.tagLinks);
+  const [saving, setSaving] = useState(false);
   const save = async (next: boolean) => {
     setOn(next);
+    setSaving(true);
     try {
       const updated = await adminCall(() => api.saveTagging(app.id, next));
       setOn(updated.tagLinks);
@@ -730,6 +719,8 @@ function TagLinksRow({ app, onSaved }: { app: App; onSaved: (a: App) => void }) 
       setOn(!next);
       if (e instanceof AdminGateAborted) return;
       toast.show(String(e), { title: 'Not saved' });
+    } finally {
+      setSaving(false);
     }
   };
   return (
@@ -745,7 +736,7 @@ function TagLinksRow({ app, onSaved }: { app: App; onSaved: (a: App) => void }) 
           <CopyButton icon value={TAG_SNIPPET} label="Copy snippet" />
         </div>
       </div>
-      <Switch id="set-tag" checked={on} onChange={(e) => save(e.currentTarget.checked)} />
+      <Switch id="set-tag" checked={on} disabled={saving} onChange={(e) => save(e.currentTarget.checked)} />
     </div>
   );
 }

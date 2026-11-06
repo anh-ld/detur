@@ -105,10 +105,10 @@ func (s *Store) AnalyticsRange(appID string, from, to time.Time, platform string
 	}
 	lo, hi := day(fromDay), day(toDay)
 
+	cw, ca := optEq([]any{appID, lo, hi}, "link_id", targetLink, "platform", platform)
 	rows, err := s.db.Query(
 		`SELECT day, kind, SUM(n) FROM click_days
-		 WHERE app_id = ? AND day BETWEEN ? AND ? AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?)
-		 GROUP BY day, kind`, appID, lo, hi, platform, platform, targetLink, targetLink)
+		 WHERE app_id = ? AND day BETWEEN ? AND ?`+cw+` GROUP BY day, kind`, ca...)
 	if err != nil {
 		return a, fmt.Errorf("analytics clicks: %w", err)
 	}
@@ -119,16 +119,7 @@ func (s *Store) AnalyticsRange(appID string, from, to time.Time, platform string
 			rows.Close()
 			return a, err
 		}
-		ds := &a.Days[idx[d]]
-		switch kind {
-		case KindOpen:
-			ds.Opens += n
-		case KindWeb:
-			ds.Web += n
-			ds.Clicks += n
-		default:
-			ds.Clicks += n
-		}
+		addKind(&a.Days[idx[d]], kind, n)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -136,10 +127,11 @@ func (s *Store) AnalyticsRange(appID string, from, to time.Time, platform string
 	}
 	rows.Close()
 
+	iw, ia := optEq([]any{appID, lo, hi}, "link_id", targetLink, "platform", platform)
 	rows, err = s.db.Query(
 		`SELECT substr(created_at, 1, 10) d, attribution, COUNT(*) FROM installs
-		 WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~' AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?) AND attribution IN (?, ?)
-		 GROUP BY d, attribution`, appID, lo, hi, platform, platform, targetLink, targetLink, AttributionOrganic, AttributionNonOrganic)
+		 WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~'`+iw+` AND attribution IN (?, ?)
+		 GROUP BY d, attribution`, append(ia, AttributionOrganic, AttributionNonOrganic)...)
 	if err != nil {
 		return a, fmt.Errorf("analytics installs: %w", err)
 	}
@@ -164,19 +156,7 @@ func (s *Store) AnalyticsRange(appID string, from, to time.Time, platform string
 	}
 	rows.Close()
 
-	rows, err = s.db.Query(
-		`SELECT l.id, l.key, COALESCE(l.title, ''), COALESCE(c.n, 0), COALESCE(i.n, 0) FROM links l
-		 LEFT JOIN (SELECT link_id, SUM(n) n FROM click_days
-		   WHERE app_id = ? AND day BETWEEN ? AND ? AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?) AND kind != ?
-		   GROUP BY link_id) c ON c.link_id = l.id
-		 LEFT JOIN (SELECT link_id, COUNT(*) n FROM installs
-		   WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~' AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?) AND attribution = ?
-		   GROUP BY link_id) i ON i.link_id = l.id
-		 WHERE l.app_id = ? AND (? = '' OR l.id = ?)
-		 ORDER BY 4 DESC, l.key`,
-		appID, lo, hi, platform, platform, targetLink, targetLink, KindOpen,
-		appID, lo, hi, platform, platform, targetLink, targetLink, AttributionNonOrganic,
-		appID, targetLink, targetLink)
+	rows, err = s.linkStats(appID, true, lo, hi, platform, targetLink)
 	if err != nil {
 		return a, fmt.Errorf("analytics links: %w", err)
 	}
@@ -254,15 +234,12 @@ func (s *Store) AnalyticsSubDay(appID, window, platform, linkID string, now time
 	fromUnix := from.Unix()
 	bucketSec := int64(bucketDur.Seconds())
 
+	cw, ca := optEq([]any{fromUnix, bucketSec, appID, fromStr, toStr}, "link_id", linkID, "platform", platform)
 	cRows, err := s.db.Query(
-		`SELECT (CAST(strftime('%s', created_at) AS INTEGER) - ?) / ? AS b_idx,
-		        COALESCE(kind, ''),
-		        COUNT(*)
+		`SELECT (CAST(strftime('%s', created_at) AS INTEGER) - ?) / ? AS b_idx, COALESCE(kind, ''), COUNT(*)
 		 FROM clicks
-		 WHERE app_id = ? AND created_at >= ? AND created_at <= ? AND is_bot = 0 AND ua_suspect = 0
-		   AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?)
-		 GROUP BY b_idx, kind`,
-		fromUnix, bucketSec, appID, fromStr, toStr, platform, platform, linkID, linkID)
+		 WHERE app_id = ? AND created_at >= ? AND created_at <= ? AND is_bot = 0 AND ua_suspect = 0`+cw+`
+		 GROUP BY b_idx, kind`, ca...)
 	if err != nil {
 		return a, fmt.Errorf("sub-day clicks: %w", err)
 	}
@@ -275,15 +252,7 @@ func (s *Store) AnalyticsSubDay(appID, window, platform, linkID string, now time
 			return a, err
 		}
 		if bIdx >= 0 && bIdx < count {
-			switch kind {
-			case KindOpen:
-				a.Days[bIdx].Opens += n
-			case KindWeb:
-				a.Days[bIdx].Web += n
-				a.Days[bIdx].Clicks += n
-			default:
-				a.Days[bIdx].Clicks += n
-			}
+			addKind(&a.Days[bIdx], kind, n)
 		}
 	}
 	cRows.Close()
@@ -291,16 +260,12 @@ func (s *Store) AnalyticsSubDay(appID, window, platform, linkID string, now time
 		return a, err
 	}
 
+	iw, ia := optEq([]any{fromUnix, bucketSec, appID, fromStr, toStr}, "link_id", linkID, "platform", platform)
 	iRows, err := s.db.Query(
-		`SELECT (CAST(strftime('%s', created_at) AS INTEGER) - ?) / ? AS b_idx,
-		        attribution,
-		        COUNT(*)
+		`SELECT (CAST(strftime('%s', created_at) AS INTEGER) - ?) / ? AS b_idx, attribution, COUNT(*)
 		 FROM installs
-		 WHERE app_id = ? AND created_at >= ? AND created_at <= ?
-		   AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?)
-		   AND attribution IN (?, ?)
-		 GROUP BY b_idx, attribution`,
-		fromUnix, bucketSec, appID, fromStr, toStr, platform, platform, linkID, linkID, AttributionOrganic, AttributionNonOrganic)
+		 WHERE app_id = ? AND created_at >= ? AND created_at <= ?`+iw+` AND attribution IN (?, ?)
+		 GROUP BY b_idx, attribution`, append(ia, AttributionOrganic, AttributionNonOrganic)...)
 	if err != nil {
 		return a, fmt.Errorf("sub-day installs: %w", err)
 	}
@@ -327,27 +292,7 @@ func (s *Store) AnalyticsSubDay(appID, window, platform, linkID string, now time
 		return a, err
 	}
 
-	lRows, err := s.db.Query(
-		`SELECT l.id, l.key, COALESCE(l.title, ''), COALESCE(c.n, 0), COALESCE(i.n, 0)
-		 FROM links l
-		 LEFT JOIN (
-		   SELECT link_id, COUNT(*) n FROM clicks
-		   WHERE app_id = ? AND created_at >= ? AND created_at <= ? AND is_bot = 0 AND ua_suspect = 0 AND COALESCE(kind, '') != ?
-		     AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?)
-		   GROUP BY link_id
-		 ) c ON c.link_id = l.id
-		 LEFT JOIN (
-		   SELECT link_id, COUNT(*) n FROM installs
-		   WHERE app_id = ? AND created_at >= ? AND created_at <= ?
-		     AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?)
-		     AND attribution = ? AND link_id IS NOT NULL AND link_id != ''
-		   GROUP BY link_id
-		 ) i ON i.link_id = l.id
-		 WHERE l.app_id = ? AND (? = '' OR l.id = ?)
-		 ORDER BY 4 DESC, l.key`,
-		appID, fromStr, toStr, KindOpen, platform, platform, linkID, linkID,
-		appID, fromStr, toStr, platform, platform, linkID, linkID, AttributionNonOrganic,
-		appID, linkID, linkID)
+	lRows, err := s.linkStats(appID, false, fromStr, toStr, platform, linkID)
 	if err != nil {
 		return a, fmt.Errorf("sub-day links: %w", err)
 	}
@@ -364,14 +309,13 @@ func (s *Store) AnalyticsSubDay(appID, window, platform, linkID string, now time
 		return a, err
 	}
 
+	sw, sa := optEq([]any{appID, fromStr, toStr}, "link_id", linkID, "platform", platform)
 	sRows, err := s.db.Query(
 		`SELECT source, COUNT(*) FROM clicks
 		 WHERE app_id = ? AND created_at >= ? AND created_at <= ? AND is_bot = 0 AND ua_suspect = 0
-		   AND source IS NOT NULL AND source != ''
-		   AND (? = '' OR platform = ?) AND (? = '' OR link_id = ?)
+		   AND source IS NOT NULL AND source != ''`+sw+`
 		 GROUP BY source
-		 ORDER BY 2 DESC, source`,
-		appID, fromStr, toStr, platform, platform, linkID, linkID)
+		 ORDER BY 2 DESC, source`, sa...)
 	if err != nil {
 		return a, fmt.Errorf("sub-day sources: %w", err)
 	}
@@ -389,6 +333,10 @@ func (s *Store) AnalyticsSubDay(appID, window, platform, linkID string, now time
 		return a, err
 	}
 
+	// raw events have no link column: link-filtered window returns none
+	if linkID != "" {
+		return a, nil
+	}
 	eRows, err := s.db.Query(
 		`SELECT event, COUNT(*) FROM events
 		 WHERE app_id = ? AND created_at >= ? AND created_at <= ?
@@ -407,11 +355,50 @@ func (s *Store) AnalyticsSubDay(appID, window, platform, linkID string, now time
 		a.Events = append(a.Events, EventStat{Event: ev, Count: cnt})
 	}
 	eRows.Close()
-	if err := eRows.Err(); err != nil {
-		return a, err
-	}
+	return a, eRows.Err()
+}
 
-	return a, nil
+// optEq appends " AND col = ?" + value for each non-empty (col, val) pair, so sqlite can seek indexes (no "? = ” OR" guards).
+func optEq(args []any, pairs ...string) (string, []any) {
+	w := ""
+	for i := 0; i+1 < len(pairs); i += 2 {
+		if pairs[i+1] != "" {
+			w += " AND " + pairs[i] + " = ?"
+			args = append(args, pairs[i+1])
+		}
+	}
+	return w, args
+}
+
+// addKind: fold one click-kind count into a bucket.
+func addKind(ds *DayStat, kind string, n int64) {
+	switch kind {
+	case KindOpen:
+		ds.Opens += n
+	case KindWeb:
+		ds.Web += n
+		ds.Clicks += n
+	default:
+		ds.Clicks += n
+	}
+}
+
+// linkStats: per-link clicks (non-open) and matched installs. daily: click_days over day range [lo, hi]; else raw clicks over RFC3339 [lo, hi].
+func (s *Store) linkStats(appID string, daily bool, lo, hi, platform, linkID string) (*sql.Rows, error) {
+	cq := `SELECT link_id, COUNT(*) n FROM clicks WHERE app_id = ? AND created_at >= ? AND created_at <= ? AND is_bot = 0 AND ua_suspect = 0 AND COALESCE(kind, '') != ?`
+	iq := `SELECT link_id, COUNT(*) n FROM installs WHERE app_id = ? AND created_at >= ? AND created_at <= ? AND attribution = ? AND link_id IS NOT NULL AND link_id != ''`
+	if daily {
+		cq = `SELECT link_id, SUM(n) n FROM click_days WHERE app_id = ? AND day BETWEEN ? AND ? AND kind != ?`
+		iq = `SELECT link_id, COUNT(*) n FROM installs WHERE app_id = ? AND created_at BETWEEN ? AND ? || '~' AND attribution = ?`
+	}
+	cw, ca := optEq([]any{appID, lo, hi, KindOpen}, "link_id", linkID, "platform", platform)
+	iw, ia := optEq([]any{appID, lo, hi, AttributionNonOrganic}, "link_id", linkID, "platform", platform)
+	ow, oa := optEq([]any{appID}, "l.id", linkID)
+	args := append(append(ca, ia...), oa...)
+	return s.db.Query(`SELECT l.id, l.key, COALESCE(l.title, ''), COALESCE(c.n, 0), COALESCE(i.n, 0) FROM links l
+		 LEFT JOIN (`+cq+cw+` GROUP BY link_id) c ON c.link_id = l.id
+		 LEFT JOIN (`+iq+iw+` GROUP BY link_id) i ON i.link_id = l.id
+		 WHERE l.app_id = ?`+ow+` ORDER BY 4 DESC, l.key`, args...)
 }
 
 // analyticsConversions: top 20 (link, event) pairs in the day range; app-wide (no platform).

@@ -134,7 +134,7 @@ Any MCP client (Claude, Cursor, Codex, VS Code, …): remote Streamable HTTP ser
 curl -H "Authorization: Bearer dtr_..." "https://<DOMAIN>/api/v1/apps/<id>/analytics?days=7"
 ```
 
-Read-only: apps, links (with title/note/tags), rules, variants, analytics (ranges, sub-day windows, link filters), match quality, fraud counts, health.
+Read-only: apps, links (with title/note/tags), rules, variants, analytics (ranges, sub-day `window=15m|1h|3h|12h`, link filters; window mode has no conversions/retention), match quality, fraud counts, health.
 
 ## Dev run
 

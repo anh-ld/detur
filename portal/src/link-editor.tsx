@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Toggle, ToggleGroup } from 'kinu';
 import { api, Link, LinkRule, Platform, RedirectProfile, RuleTargets, SocialPreset, SplitVariant } from './api';
 import { closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
-import { LinkDraft, draftFrom, LinkFields, linkPayload, httpsUrl } from './link-fields';
+import { LinkDraft, draftFrom, fromLocalInput, LinkFields, linkPayload, httpsUrl, toLocalInput } from './link-fields';
 
 const cleanTargets = (t?: RuleTargets): RuleTargets => ({
   destination: t?.destination?.trim() || undefined,
@@ -11,10 +11,6 @@ const cleanTargets = (t?: RuleTargets): RuleTargets => ({
   android: t?.android?.trim() || undefined,
   fallback_url: t?.fallback_url?.trim() || undefined,
 });
-
-// datetime-local value <-> UTC ISO; the input is read and shown as UTC
-const toLocalInput = (iso?: string) => (iso ? iso.slice(0, 16) : '');
-const fromLocalInput = (v: string) => (v ? new Date(v + 'Z').toISOString() : undefined);
 
 // One editor per link: target, redirects, tags, rules. Stats live in Analytics.
 export function LinkEditor({
@@ -44,6 +40,7 @@ export function LinkEditor({
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [rulesLoaded, setRulesLoaded] = useState(false); // failed load leaves rules=[]: block edits so Save can't PUT an empty list
   const reqSeq = useRef(0); // latest load wins, stale dropped
 
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -64,10 +61,12 @@ export function LinkEditor({
     const seq = ++reqSeq.current;
     setLoading(true);
     setErr('');
+    setRulesLoaded(false);
     try {
       const r = await api.getLinkRules(appId, link.id);
       if (seq !== reqSeq.current) return;
       setRules(r);
+      setRulesLoaded(true);
       setDirty(false);
     } catch (e) {
       if (seq === reqSeq.current) setErr(String(e));
@@ -81,6 +80,7 @@ export function LinkEditor({
     setEditingIndex(null);
     setDraftRule(null);
     setSuccess('');
+    setDraft(draftFrom(link));
     loadData();
   };
   const openModal = () => {
@@ -238,10 +238,12 @@ export function LinkEditor({
     setSaving(true);
     setSuccess('');
     try {
-      if (baseDirty) await api.updateLink(link.id, linkPayload(draft));
-      const updated = await api.setLinkRules(appId, link.id, rules);
-      setRules(updated);
-      setDirty(false);
+      if (baseDirty) setDraft(draftFrom(await api.updateLink(link.id, linkPayload(draft))));
+      if (dirty) {
+        const updated = await api.setLinkRules(appId, link.id, rules);
+        setRules(updated);
+        setDirty(false);
+      }
       setSuccess('Link saved');
       onSaved?.();
       setTimeout(() => setSuccess(''), 2500);
@@ -376,7 +378,7 @@ export function LinkEditor({
                       id={fid('from')}
                       type="datetime-local"
                       value={toLocalInput(draftRule.cond.from)}
-                      onInput={(e) => setCond({ from: fromLocalInput(e.currentTarget.value) })}
+                      onInput={(e) => setCond({ from: fromLocalInput(e.currentTarget.value) || undefined })}
                     />
                   </Field>
                   <Field>
@@ -385,7 +387,7 @@ export function LinkEditor({
                       id={fid('until')}
                       type="datetime-local"
                       value={toLocalInput(draftRule.cond.until)}
-                      onInput={(e) => setCond({ until: fromLocalInput(e.currentTarget.value) })}
+                      onInput={(e) => setCond({ until: fromLocalInput(e.currentTarget.value) || undefined })}
                     />
                   </Field>
                 </div>
@@ -533,7 +535,7 @@ export function LinkEditor({
                   Every visitor gets the link's own targets. Add a rule to route by platform, language, query or date, or to run an A/B
                   split.
                 </p>
-                <Button disabled={saving} onClick={startAddRule}>
+                <Button variant="outline" disabled={saving || !rulesLoaded} onClick={startAddRule}>
                   Add rule
                 </Button>
               </Empty>
@@ -620,7 +622,7 @@ export function LinkEditor({
             ) : (
               <>
                 {rules.length > 0 && !loading && (
-                  <Button variant="outline" disabled={saving} onClick={startAddRule} style={{ marginInlineEnd: 'auto' }}>
+                  <Button variant="outline" disabled={saving || !rulesLoaded} onClick={startAddRule} style={{ marginInlineEnd: 'auto' }}>
                     <Icon d={ICONS.plus} />
                     Add rule
                   </Button>
@@ -633,7 +635,7 @@ export function LinkEditor({
                 <Button id={fid('close')} variant="outline" disabled={saving} onClick={() => closeDialog(dialogId)}>
                   Close
                 </Button>
-                <Button id={fid('save')} disabled={saving || !(dirty || baseDirty)} aria-busy={saving} onClick={saveAllToBackend}>
+                <Button id={fid('save')} disabled={loading || saving || !(dirty || baseDirty)} aria-busy={saving} onClick={saveAllToBackend}>
                   {saving ? 'Saving…' : 'Save'}
                 </Button>
               </>

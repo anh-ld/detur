@@ -155,236 +155,244 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
     }
   };
 
-  if (loading) return <Loading />;
+  // mounted while loading too: the header's Add button opens it
+  const addDialog = (
+    <AddWebhookDialog
+      appId={app.id}
+      onCreated={(wh) => {
+        setWebhooks((prev) => (prev ? [...prev, wh] : [wh]));
+        setCreatedSecret({ id: wh.id, url: wh.url, secret: wh.secret });
+        openDialog('dlg-created-secret');
+      }}
+    />
+  );
 
   return (
     <div>
-      {error && (
-        <Alert variant="destructive" style={{ marginBottom: 16 }}>
-          {error}
-        </Alert>
-      )}
-
-      {!adminState.adminSet ? (
-        <Alert style={{ marginBottom: 20 }}>
-          Webhooks need an admin password. Set <code>ADMIN_PASSWORD</code> on the server, then restart to add endpoints.
-        </Alert>
-      ) : !adminState.admin ? (
-        <div style={{ marginBottom: 20 }}>
-          <AdminRequired>Enter your admin password to view signing secrets, manage endpoints, or replay historical events.</AdminRequired>
-        </div>
-      ) : null}
-
-      {!adminState.adminSet || !adminState.admin ? null : webhooks && webhooks.length === 0 ? (
-        <Card>
-          <Empty>
-            <h3>No webhooks yet</h3>
-            Add one to get installs, events and clicks pushed to your server.
-          </Empty>
-        </Card>
+      {addDialog}
+      {loading ? (
+        <Loading />
       ) : (
-        <Table>
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>URL</th>
-              <th>Events</th>
-              <th>Secret</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {webhooks?.map((wh) => {
-              const inBackoff = [wh.backoffInstalls, wh.backoffClicks, wh.backoffEvents].some(
-                (b) => b && new Date(b).getTime() > Date.now(),
-              );
+        <>
+          {error && (
+            <Alert variant="destructive" style={{ marginBottom: 16 }}>
+              {error}
+            </Alert>
+          )}
 
-              return (
-                <tr key={wh.id}>
-                  <td style={{ verticalAlign: 'middle' }}>
-                    {!wh.enabled ? (
-                      <Badge variant="outline">Paused</Badge>
-                    ) : inBackoff ? (
-                      <Badge variant="destructive">Retrying</Badge>
-                    ) : (
-                      <Badge>Active</Badge>
-                    )}
-                  </td>
-                  <td style={{ verticalAlign: 'middle' }}>
-                    <div class="wh-url" title={wh.url}>
-                      {wh.url}
-                    </div>
-                    <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>
-                      Created {new Date(wh.createdAt).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </div>
-                  </td>
-                  <td data-label="Events" style={{ verticalAlign: 'middle' }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {wh.types.map((t) => (
-                        <Badge key={t} variant="outline" style={{ fontSize: 11 }}>
-                          {t}
-                        </Badge>
-                      ))}
-                    </div>
-                  </td>
-                  <td data-label="Secret" style={{ verticalAlign: 'middle' }}>
-                    {adminState.admin ? (
-                      <div style={{ ...row, gap: 8 }}>
-                        <span style={{ ...mono, fontSize: 12 }}>{wh.secret ? wh.secret.slice(0, 10) + '…' : '—'}</span>
-                        <CopyButton value={wh.secret} label="Copy" />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setRotateTarget(wh);
-                            setNewSecret('');
-                            openDialog('dlg-rotate-secret');
-                          }}
-                        >
-                          Rotate
-                        </Button>
-                      </div>
-                    ) : (
-                      <span style={muted}>Locked</span>
-                    )}
-                  </td>
-                  <td style={{ verticalAlign: 'middle', textAlign: 'right' }}>
-                    <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
-                      <Button size="sm" variant="outline" onClick={() => toggleEnabled(wh)}>
-                        {wh.enabled ? 'Pause' : 'Resume'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setReplayTarget(wh);
-                          openDialog('dlg-replay-webhook');
-                        }}
-                      >
-                        Replay
-                      </Button>
-                      <ConfirmDelete
-                        id={`dlg-del-wh-${wh.id}`}
-                        title="Delete webhook"
-                        body={`Delete endpoint ${wh.url}? Pending deliveries for this webhook will be discarded.`}
-                        onConfirm={() => handleDelete(wh.id)}
-                        requireAdmin
-                      />
-                    </div>
-                  </td>
+          {!adminState.adminSet ? (
+            <Alert style={{ marginBottom: 20 }}>
+              Webhooks need an admin password. Set <code>ADMIN_PASSWORD</code> on the server, then restart to add endpoints.
+            </Alert>
+          ) : !adminState.admin ? (
+            <div style={{ marginBottom: 20 }}>
+              <AdminRequired>Enter your admin password to view signing secrets, manage endpoints, or replay historical events.</AdminRequired>
+            </div>
+          ) : null}
+
+          {!adminState.adminSet || !adminState.admin ? null : webhooks && webhooks.length === 0 ? (
+            <Card>
+              <Empty>
+                <h3>No webhooks yet</h3>
+                Add one to get installs, events and clicks pushed to your server.
+              </Empty>
+            </Card>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>URL</th>
+                  <th>Events</th>
+                  <th>Secret</th>
+                  <th />
                 </tr>
-              );
-            })}
-          </tbody>
-        </Table>
+              </thead>
+              <tbody>
+                {webhooks?.map((wh) => {
+                  const inBackoff = [wh.backoffInstalls, wh.backoffClicks, wh.backoffEvents].some(
+                    (b) => b && new Date(b).getTime() > Date.now(),
+                  );
+
+                  return (
+                    <tr key={wh.id}>
+                      <td style={{ verticalAlign: 'middle' }}>
+                        {!wh.enabled ? (
+                          <Badge variant="outline">Paused</Badge>
+                        ) : inBackoff ? (
+                          <Badge variant="destructive">Retrying</Badge>
+                        ) : (
+                          <Badge>Active</Badge>
+                        )}
+                      </td>
+                      <td style={{ verticalAlign: 'middle' }}>
+                        <div class="wh-url" title={wh.url}>
+                          {wh.url}
+                        </div>
+                        <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>
+                          Created {new Date(wh.createdAt).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </div>
+                      </td>
+                      <td data-label="Events" style={{ verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {wh.types.map((t) => (
+                            <Badge key={t} variant="outline" style={{ fontSize: 11 }}>
+                              {t}
+                            </Badge>
+                          ))}
+                        </div>
+                      </td>
+                      <td data-label="Secret" style={{ verticalAlign: 'middle' }}>
+                        {adminState.admin ? (
+                          <div style={{ ...row, gap: 8 }}>
+                            <span style={{ ...mono, fontSize: 12 }}>{wh.secret ? wh.secret.slice(0, 10) + '…' : '—'}</span>
+                            <CopyButton value={wh.secret} label="Copy" />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setRotateTarget(wh);
+                                setNewSecret('');
+                                openDialog('dlg-rotate-secret');
+                              }}
+                            >
+                              Rotate
+                            </Button>
+                          </div>
+                        ) : (
+                          <span style={muted}>Locked</span>
+                        )}
+                      </td>
+                      <td style={{ verticalAlign: 'middle', textAlign: 'right' }}>
+                        <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
+                          <Button size="sm" variant="outline" onClick={() => toggleEnabled(wh)}>
+                            {wh.enabled ? 'Pause' : 'Resume'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setReplayTarget(wh);
+                              openDialog('dlg-replay-webhook');
+                            }}
+                          >
+                            Replay
+                          </Button>
+                          <ConfirmDelete
+                            id={`dlg-del-wh-${wh.id}`}
+                            title="Delete webhook"
+                            body={`Delete endpoint ${wh.url}? Pending deliveries for this webhook will be discarded.`}
+                            onConfirm={() => handleDelete(wh.id)}
+                            requireAdmin
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          )}
+
+          <Dialog id="dlg-created-secret">
+            <Dialog.Content>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <h2 style={{ margin: 0 }}>Webhook Created</h2>
+                <p style={muted}>
+                  Your endpoint has been configured. Save this signing secret now to verify incoming <code>Detur-Signature</code> headers on
+                  your destination server.
+                </p>
+                {createdSecret && (
+                  <Field>
+                    <Label>Signing Secret</Label>
+                    <div style={{ ...row, gap: 8 }}>
+                      <Input readOnly value={createdSecret.secret} style={mono} />
+                      <CopyButton value={createdSecret.secret} label="Copy secret" />
+                    </div>
+                  </Field>
+                )}
+                <div style={{ ...row, justifyContent: 'flex-end' }}>
+                  <Button onClick={() => closeDialog('dlg-created-secret')}>Done</Button>
+                </div>
+              </div>
+            </Dialog.Content>
+          </Dialog>
+
+          <Dialog id="dlg-replay-webhook">
+            <Dialog.Content>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <h2 style={{ margin: 0 }}>Replay Historical Events</h2>
+                <p style={muted}>
+                  Rewind cursors for <strong>{replayTarget?.url}</strong> to re-deliver past events. Requests sent during replay include the{' '}
+                  <code>Detur-Replay: true</code> header.
+                </p>
+                <p style={{ ...muted, fontSize: 13, ...surface, padding: 10 }}>
+                  <strong>Note:</strong> Raw clicks and custom events older than <code>RETENTION_HOURS</code> (default 24h) are purged and
+                  cannot be replayed. Installs are kept permanently.
+                </p>
+                <Field>
+                  <Label htmlFor="replay-preset">Replay from</Label>
+                  <Select id="replay-preset" value={replayHours} onChange={(e) => setReplayHours(e.currentTarget.value)}>
+                    <option value="1">1 hour ago</option>
+                    <option value="6">6 hours ago</option>
+                    <option value="12">12 hours ago</option>
+                    <option value="24">24 hours ago</option>
+                    <option value="72">3 days ago</option>
+                    <option value="168">7 days ago</option>
+                    <option value="720">30 days ago</option>
+                  </Select>
+                </Field>
+                <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
+                  <Button variant="outline" onClick={() => closeDialog('dlg-replay-webhook')}>
+                    Cancel
+                  </Button>
+                  <Button disabled={replaying} onClick={handleReplay}>
+                    {replaying ? 'Rewinding…' : 'Start Replay'}
+                  </Button>
+                </div>
+              </div>
+            </Dialog.Content>
+          </Dialog>
+
+          <Dialog id="dlg-rotate-secret">
+            <Dialog.Content>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <h2 style={{ margin: 0 }}>Rotate Signing Secret</h2>
+                <p style={muted}>
+                  Rotating the secret invalidates the old secret immediately. Existing signature verification on your receiver will fail until
+                  updated with the new secret.
+                </p>
+                {newSecret ? (
+                  <Field>
+                    <Label>New Signing Secret</Label>
+                    <div style={{ ...row, gap: 8 }}>
+                      <Input readOnly value={newSecret} style={mono} />
+                      <CopyButton value={newSecret} label="Copy secret" />
+                    </div>
+                  </Field>
+                ) : null}
+                <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      closeDialog('dlg-rotate-secret');
+                      setRotateTarget(null);
+                      setNewSecret('');
+                    }}
+                  >
+                    {newSecret ? 'Close' : 'Cancel'}
+                  </Button>
+                  {!newSecret && (
+                    <Button variant="destructive" disabled={rotating} onClick={handleRotate}>
+                      {rotating ? 'Rotating…' : 'Rotate Secret Now'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Dialog.Content>
+          </Dialog>
+        </>
       )}
-
-      <AddWebhookDialog
-        appId={app.id}
-        onCreated={(wh) => {
-          setWebhooks((prev) => (prev ? [...prev, wh] : [wh]));
-          setCreatedSecret({ id: wh.id, url: wh.url, secret: wh.secret });
-          openDialog('dlg-created-secret');
-        }}
-      />
-
-      <Dialog id="dlg-created-secret">
-        <Dialog.Content>
-          <div style={{ display: 'grid', gap: 16 }}>
-            <h2 style={{ margin: 0 }}>Webhook Created</h2>
-            <p style={muted}>
-              Your endpoint has been configured. Save this signing secret now to verify incoming <code>Detur-Signature</code> headers on
-              your destination server.
-            </p>
-            {createdSecret && (
-              <Field>
-                <Label>Signing Secret</Label>
-                <div style={{ ...row, gap: 8 }}>
-                  <Input readOnly value={createdSecret.secret} style={mono} />
-                  <CopyButton value={createdSecret.secret} label="Copy secret" />
-                </div>
-              </Field>
-            )}
-            <div style={{ ...row, justifyContent: 'flex-end' }}>
-              <Button onClick={() => closeDialog('dlg-created-secret')}>Done</Button>
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog>
-
-      <Dialog id="dlg-replay-webhook">
-        <Dialog.Content>
-          <div style={{ display: 'grid', gap: 16 }}>
-            <h2 style={{ margin: 0 }}>Replay Historical Events</h2>
-            <p style={muted}>
-              Rewind cursors for <strong>{replayTarget?.url}</strong> to re-deliver past events. Requests sent during replay include the{' '}
-              <code>Detur-Replay: true</code> header.
-            </p>
-            <p style={{ ...muted, fontSize: 13, ...surface, padding: 10 }}>
-              <strong>Note:</strong> Raw clicks and custom events older than <code>RETENTION_HOURS</code> (default 24h) are purged and
-              cannot be replayed. Installs are kept permanently.
-            </p>
-            <Field>
-              <Label htmlFor="replay-preset">Replay from</Label>
-              <Select id="replay-preset" value={replayHours} onChange={(e) => setReplayHours(e.currentTarget.value)}>
-                <option value="1">1 hour ago</option>
-                <option value="6">6 hours ago</option>
-                <option value="12">12 hours ago</option>
-                <option value="24">24 hours ago</option>
-                <option value="72">3 days ago</option>
-                <option value="168">7 days ago</option>
-                <option value="720">30 days ago</option>
-              </Select>
-            </Field>
-            <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
-              <Button variant="outline" onClick={() => closeDialog('dlg-replay-webhook')}>
-                Cancel
-              </Button>
-              <Button disabled={replaying} onClick={handleReplay}>
-                {replaying ? 'Rewinding…' : 'Start Replay'}
-              </Button>
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog>
-
-      <Dialog id="dlg-rotate-secret">
-        <Dialog.Content>
-          <div style={{ display: 'grid', gap: 16 }}>
-            <h2 style={{ margin: 0 }}>Rotate Signing Secret</h2>
-            <p style={muted}>
-              Rotating the secret invalidates the old secret immediately. Existing signature verification on your receiver will fail until
-              updated with the new secret.
-            </p>
-            {newSecret ? (
-              <Field>
-                <Label>New Signing Secret</Label>
-                <div style={{ ...row, gap: 8 }}>
-                  <Input readOnly value={newSecret} style={mono} />
-                  <CopyButton value={newSecret} label="Copy secret" />
-                </div>
-              </Field>
-            ) : null}
-            <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  closeDialog('dlg-rotate-secret');
-                  setRotateTarget(null);
-                  setNewSecret('');
-                }}
-              >
-                {newSecret ? 'Close' : 'Cancel'}
-              </Button>
-              {!newSecret && (
-                <Button variant="destructive" disabled={rotating} onClick={handleRotate}>
-                  {rotating ? 'Rotating…' : 'Rotate Secret Now'}
-                </Button>
-              )}
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog>
     </div>
   );
 }

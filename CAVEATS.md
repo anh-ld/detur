@@ -57,8 +57,8 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **Events**: body > 16 KB → 413. Names cut to 64 chars, kept forever → no PII/IDs.
 - **Per-link conversions**: need a `data.link` tag event. SDK 2.3.1 knows the key only with "Tag deferred links" on.
 - **Retention**: cohort = tag day, not install day. D1/D7/D30 = cold start (`app_open`) that UTC day; warm resume only via `logRetention`. Tags expire at 90 days → re-tag = new cohort. Ignores the platform filter.
-- **Sub-day analytics**: 15m/1h/3h/12h windows aggregate directly in SQLite (`strftime('%s')` bucket division) across indexed raw clicks/installs within `RETENTION_HOURS` (24h). Data purged after `RETENTION_HOURS` cannot be queried via sub-day windows.
-- **Link-filtered analytics**: filtering by a specific link attributes only that link's traffic, conversions, and retention cohorts; organic installs are reported as 0.
+- **Sub-day analytics**: 15m/1h/3h/12h windows read raw clicks/installs, aggregated in SQLite (`strftime('%s')` buckets). Raw rows last `RETENTION_HOURS` (24h); older data shows in day ranges only.
+- **Link-filtered analytics**: counts only that link's traffic, conversions and retention cohorts; organic installs show 0.
 - **Tenancy**: one team; no RBAC, no org isolation.
 
 ## Data API
@@ -96,10 +96,12 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **Desktop**: app-scheme target, no fallback → QR page (`https://<host>`; dev `host:port` → `http`).
 - **Destination**: app route only (`/product/42`). Web visitors need the fallback URL, else app page.
 - **Paths**: one segment (`/promo`); `/app/promo` → 404, no click. `/promo/` → 301 `/promo`, query kept.
-- **Link title/note**: optional (≤100 chars); organizational label only, does not alter link path or routing.
+- **Link title/note**: optional, ≤100 chars; a label only, no effect on path or routing.
+- **Sub-day window analytics** (`?window=`): buckets are RFC3339 starts, latest partial; no conversions/retention (day-keyed rollups); events app-wide, empty when filtered to a link (raw events have no link). Other endpoints reject `window` (400).
+- **Click platform backfill**: pre-upgrade clicks get `platform` from their user agent at startup; rows with a scrubbed UA stay unset and drop out of platform-filtered window views.
 - **Link tags**: optional labels (≤10, ≤24 chars each); filter the Links list only — not analytics, rules, or routing.
-- **Store and web redirect presets**: templates, not inheritance — picking one copies its URLs into the link; later edits in Settings do not update links already created.
-- **Social preview presets**: same rule — picking one copies title/description/image into the link; later edits in Settings do not update existing links.
+- **Store and web redirect presets**: templates, not inheritance. Picking one copies its URLs into the link; editing the preset later leaves existing links unchanged.
+- **Social preview presets**: same rule. Picking one copies title/description/image into the link; editing the preset later leaves existing links unchanged.
 - **Self-hosted**: no billing, tiers, or godetour platform API.
 - **SDK**: `effectiveLimit: -1` = unlimited (2.3.x). URLs hardcoded to `godetour.dev` → regenerate the patch per SDK upgrade.
 - **Example app** (`example/expo-app/`): untested on real devices.

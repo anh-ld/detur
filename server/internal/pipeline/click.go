@@ -130,7 +130,7 @@ func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
 		fp := fingerprint(r, q, link)
 		rec, err := p.st.RecordClick(store.Click{
 			ID: clickID, AppID: link.AppID, LinkID: link.ID, Destination: deepLinkURL(effectiveLink, q),
-			Fingerprint: fp, Platform: clickPlatform(agent), Kind: clickKind(dest),
+			Fingerprint: fp, Platform: ua.ClickPlatform(agent), Kind: clickKind(dest),
 			UASuspect: fraud.SuspectUA(agent), IPHosting: fraud.Hosting(fp.IP), // raw facts, judged at match (KTD1)
 			Source:     source,
 			Variant:    route.Variant,

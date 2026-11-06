@@ -209,6 +209,7 @@ describe('portal client flows', () => {
     within(dlg).getByText('alice');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Remove black-friday' }));
     expect(within(dlg).queryByRole('button', { name: 'Remove black-friday' })).toBeNull(); // chip gone
+    await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await api.listLinks(app.id)).find((l) => l.id === tagged.id)!.tags).toEqual(['spring', 'alice']));
 
@@ -264,7 +265,7 @@ describe('portal client flows', () => {
     expect(tileValue('Web fallbacks')).toBe(0);
 
     // filter is page-level: Links tab counts follow; clearing restores both clicks
-    go(`#/apps/${app.id}`);
+    fireEvent.click(screen.getByRole('link', { name: /^Links/ })); // sidebar tab keeps the filter query
     const linkCounts = () => {
       const tr = screen.getAllByText(key)[0].closest('tr')!;
       return [tr.querySelector('[data-label="Clicks"]')!.textContent, tr.querySelector('[data-label="Matches"]')!.textContent];
@@ -607,6 +608,7 @@ describe('portal client flows', () => {
     fireEvent.input(within(openDialog()).getByLabelText('Destination'), {
       target: { value: '/v2' },
     });
+    await waitFor(() => expect((within(openDialog()).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Save', exact: true }));
 
     await waitFor(() => screen.getByText('/v2'));
@@ -660,6 +662,25 @@ describe('portal client flows', () => {
     await within(dlg).findByText('Link saved');
     expect(await api.getLinkRules(app.id, link.id)).toHaveLength(0);
 
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
+    await api.deleteApp(app.id);
+  });
+
+  it('editing only link fields keeps existing rules', async () => {
+    const app = await api.createApp(uniq('rules-keep'));
+    const link = await api.createLink(app.id, { key: 'keep-link', url: '/base', ios: '', android: '', fallbackUrl: '' });
+    await api.setLinkRules(app.id, link.id, [
+      { name: 'Keep Me', cond: { platform: 'ios' }, action: { targets: { fallback_url: 'https://example.com/x' } } },
+    ] as never);
+    render(<AppPage id={app.id} tab="links" />);
+    const row = (await screen.findAllByText('keep-link'))[0].closest('tr')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    const dlg = openDialog();
+    await within(dlg).findByText('Keep Me');
+    fireEvent.input(within(dlg).getByLabelText('Title', { exact: true }), { target: { value: 'Only title' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
+    await within(dlg).findByText('Link saved');
+    expect((await api.getLinkRules(app.id, link.id)).map((r) => r.name)).toEqual(['Keep Me']);
     fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
     await api.deleteApp(app.id);
   });

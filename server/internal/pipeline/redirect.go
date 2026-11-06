@@ -92,17 +92,7 @@ func playReferrer(target string, q url.Values, clickID string) string {
 	return u.String()
 }
 
-// clickPlatform / clickKind: analytics labels for browser click; same platform split as redirectTarget.
-func clickPlatform(agent string) string {
-	switch {
-	case ua.IsIOS(agent):
-		return "ios"
-	case ua.IsAndroid(agent):
-		return "android"
-	}
-	return "desktop"
-}
-
+// clickKind: analytics label for browser click.
 func clickKind(dest string) string {
 	if httpx.IsRoute(dest) { // app route: visitor gets the app page (store buttons), not a web page
 		return store.KindApp

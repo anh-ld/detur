@@ -219,10 +219,10 @@ export const api = {
   updateApp: (
     id: string,
     d: {
-      iosAppId: string;
-      androidPackage: string;
-      androidCertFingerprint: string;
-      iosScheme: string;
+      iosAppId?: string;
+      androidPackage?: string;
+      androidCertFingerprint?: string;
+      iosScheme?: string;
       redirectProfiles?: RedirectProfile[];
       socialPresets?: SocialPreset[];
     },

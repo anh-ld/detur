@@ -61,6 +61,17 @@ func IsAndroid(ua string) bool {
 	return strings.Contains(strings.ToLower(ua), "android")
 }
 
+// ClickPlatform: browser click platform, "ios"/"android"/"desktop" (analytics label; same split as redirect routing).
+func ClickPlatform(agent string) string {
+	switch {
+	case IsIOS(agent):
+		return "ios"
+	case IsAndroid(agent):
+		return "android"
+	}
+	return "desktop"
+}
+
 // AppPlatform: in-app (SDK) request platform, "ios"/"android"/"": browser UA markers, then native HTTP client markers (iOS CFNetwork/Darwin, Android okhttp/Dalvik).
 func AppPlatform(ua string) string {
 	if p := Platform(ua); p != "" {

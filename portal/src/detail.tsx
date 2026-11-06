@@ -80,10 +80,9 @@ export function buildAppHash(
 export function AppPage({
   id,
   tab,
-  linkId,
-  platform: routePlatform,
-  range: routeRange,
-  hasQuery,
+  linkId: routeLinkId = '',
+  platform = '',
+  range = { days: 7 },
   onName,
 }: {
   id: string;
@@ -91,48 +90,31 @@ export function AppPage({
   linkId?: string;
   platform?: Platform;
   range?: DateRangeFilter;
-  hasQuery?: boolean;
   onName?: (name: string) => void;
 }) {
   const [app, setApp] = useState<App | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
   const [stats, setStats] = useState<Analytics | null>(null);
-  const [range, setRange] = useState<DateRangeFilter>(() => routeRange ?? { days: 7 });
-  const [platform, setPlatform] = useState<Platform>(() => routePlatform ?? '');
-  const [selectedLinkId, setSelectedLinkId] = useState<string>(() => linkId ?? '');
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [variants, setVariants] = useState<VariantStat[] | null>(null);
 
+  // filters live in the hash; route re-parses and re-renders
+  // stale link id (not in loaded links) counts as all links
+  const selectedLinkId = links && !links.some((l) => l.id === routeLinkId) ? '' : routeLinkId;
+  const go = (p: { platform?: Platform; range?: DateRangeFilter; linkId?: string }) => {
+    const next = buildAppHash(id, tab, {
+      platform: p.platform ?? platform,
+      range: p.range ?? range,
+      linkId: tab === 'analytics' ? (p.linkId ?? selectedLinkId) : undefined,
+    });
+    if (location.hash !== next) location.hash = next;
+  };
+  const handlePlatform = (p: Platform) => go({ platform: p });
+  const handleRange = (r: DateRangeFilter) => go({ range: r });
+  const handleLinkId = (lid: string) => go({ linkId: lid });
   useEffect(() => {
-    if (hasQuery) {
-      setPlatform(routePlatform ?? '');
-      setRange(routeRange ?? { days: 7 });
-      setSelectedLinkId(linkId ?? '');
-    }
-  }, [hasQuery, routePlatform, routeRange?.days, routeRange?.window, routeRange?.from, routeRange?.to, linkId]);
-
-  const syncHash = (params: { platform?: Platform; range?: DateRangeFilter; linkId?: string }) => {
-    if (tab !== 'links' && tab !== 'analytics') return;
-    const next = buildAppHash(id, tab, params);
-    if (location.hash !== next) {
-      location.hash = next;
-    }
-  };
-
-  const handlePlatform = (p: Platform) => {
-    setPlatform(p);
-    syncHash({ platform: p, range, linkId: tab === 'analytics' ? selectedLinkId : undefined });
-  };
-
-  const handleRange = (r: DateRangeFilter) => {
-    setRange(r);
-    syncHash({ platform, range: r, linkId: tab === 'analytics' ? selectedLinkId : undefined });
-  };
-
-  const handleLinkId = (lid: string) => {
-    setSelectedLinkId(lid);
-    syncHash({ platform, range, linkId: lid });
-  };
+    if (tab === 'analytics' && links && routeLinkId && !selectedLinkId) go({ linkId: '' });
+  }, [tab, links, routeLinkId]);
   const [error, setError] = useState('');
   const [statsError, setStatsError] = useState(''); // own slot: a fixed range clears it without hiding an app-load error
   const [linkBase, setLinkBase] = useState('');
@@ -180,6 +162,7 @@ export function AppPage({
       .finally(() => !stale && setStatsLoading(false));
     return () => {
       stale = true;
+      setStatsLoading(false);
     };
   }, [id, range.days, range.window, range.from, range.to, platform, selectedLinkId, tick, filtered, tab]);
   // spin until loaded, min 600ms so fast reloads show
@@ -197,11 +180,6 @@ export function AppPage({
     setStats(null);
     setStatsError('');
     setTagFilter([]);
-    if (!hasQuery) {
-      setPlatform('');
-      setRange({ days: 7 });
-      setSelectedLinkId('');
-    }
     loadAll();
   }, [id]);
 
@@ -234,7 +212,7 @@ export function AppPage({
   // variant breakdown belongs to Analytics: only for a split link selected there
   useEffect(() => {
     const l = (links ?? []).find((x) => x.id === selectedLinkId);
-    if (tab !== 'analytics' || !app || !l?.hasSplit) {
+    if (tab !== 'analytics' || !app || !l?.hasSplit || range.window) {
       setVariants(null);
       return;
     }
@@ -246,7 +224,7 @@ export function AppPage({
     return () => {
       alive = false;
     };
-  }, [tab, app, selectedLinkId, links, range]);
+  }, [tab, app, selectedLinkId, links, range.days, range.window, range.from, range.to]);
   // any selected tag matches (OR), like label filters
   const shown = tagFilter.length ? (links ?? []).filter((l) => l.tags?.some((t) => tagFilter.includes(t))) : (links ?? []);
 
@@ -344,7 +322,7 @@ export function AppPage({
                             </Badge>
                           )}
                         </div>
-                        {(l.title || l.tags?.length) && (
+                        {!!(l.title || l.tags?.length) && (
                           <div style={{ ...row, gap: 6, minWidth: 0, overflow: 'hidden' }}>
                             {l.title && (
                               <span class="link-title" title={l.title}>
@@ -380,7 +358,6 @@ export function AppPage({
                           icon="M3 3v18h18M18 17V9M13 17V5M8 17v-3"
                           label="Analytics"
                           onClick={() => {
-                            setSelectedLinkId(l.id);
                             location.hash = buildAppHash(app.id, 'analytics', {
                               linkId: l.id,
                               platform,
@@ -414,7 +391,7 @@ export function AppPage({
           )}
         </section>
       )}
-      {tab === 'analytics' && <AnalyticsView data={stats} variants={variants} />}
+      {tab === 'analytics' && <AnalyticsView data={stats} variants={variants} range={range} linkId={selectedLinkId} />}
       {tab === 'fraud' && <FraudPanel appId={app.id} tick={tick} />}
       {tab === 'settings' && <SettingsPanel app={app} onApp={setApp} onReload={loadAll} />}
       {tab === 'webhooks' && <WebhooksPanel app={app} tick={tick} />}
