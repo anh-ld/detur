@@ -9,8 +9,9 @@ Self-hosted, drop-in [Detour](https://detour.swmansion.com) backend for its Reac
 - **In-app browsers**: tap page → Messenger, TikTok, Zalo users never get stuck.
 - **Exact iOS match**: copied link carries a one-time token → no time window.
 - **Link pages**: per-link social previews; desktop QR page for app-only links.
+- **Tags**: label links, filter the list by tag.
 - **Fraud**: flag/block click floods, bots, datacenter IPs, repeat devices.
-- **Analytics & webhooks**: per-link conversions, D1/D7/D30 retention, HMAC-signed webhooks.
+- **Analytics & webhooks**: per-link conversions, D1/D7/D30 retention, sub-day + link filters, HMAC-signed webhooks.
 - **Data API + MCP**: read-only, per-app tokens → ask Claude/Cursor about installs, fraud, conversions.
 
 [DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
@@ -75,7 +76,7 @@ Details → [.env.example](.env.example).
 Portal: `:8081`.
 
 - Create app; copy the API key (shown once).
-- Links: `/key` → app route (`/product/42`) + optional iOS / Android / fallback.
+- Links: `/key` → app route (`/product/42`) + optional title/note, iOS / Android / fallback.
 - App details (iOS app ID, Android package, cert fingerprint) → well-known files.
 - Settings → Get-app page: default, or custom HTML (`{{cta}}`, `{{icon_url}}`, …) for the iOS copy page + in-app tap page.
 - `ADMIN_PASSWORD` set → app changes need admin (top bar).
@@ -133,7 +134,7 @@ Any MCP client (Claude, Cursor, Codex, VS Code, …): remote Streamable HTTP ser
 curl -H "Authorization: Bearer dtr_..." "https://<DOMAIN>/api/v1/apps/<id>/analytics?days=7"
 ```
 
-Read-only: apps, links, rules, variants, analytics, match quality, fraud counts, health.
+Read-only: apps, links (with title/note/tags), rules, variants, analytics (ranges, sub-day windows, link filters), match quality, fraud counts, health.
 
 ## Dev run
 

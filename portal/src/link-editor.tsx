@@ -1,8 +1,9 @@
 import { cloneElement, JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Tab, Table, TabList, Toggle, ToggleGroup } from 'kinu';
-import { api, DateRangeFilter, Link, LinkRule, Platform, RuleTargets, SplitVariant, VariantStat } from './api';
+import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Toggle, ToggleGroup } from 'kinu';
+import { api, Link, LinkRule, Platform, RedirectProfile, RuleTargets, SocialPreset, SplitVariant } from './api';
 import { closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
+import { LinkDraft, draftFrom, LinkFields, linkPayload, httpsUrl } from './link-fields';
 
 const cleanTargets = (t?: RuleTargets): RuleTargets => ({
   destination: t?.destination?.trim() || undefined,
@@ -15,32 +16,33 @@ const cleanTargets = (t?: RuleTargets): RuleTargets => ({
 const toLocalInput = (iso?: string) => (iso ? iso.slice(0, 16) : '');
 const fromLocalInput = (v: string) => (v ? new Date(v + 'Z').toISOString() : undefined);
 
-export function RulesDialog({
+// One editor per link: target, redirects, tags, rules. Stats live in Analytics.
+export function LinkEditor({
   appId,
   link,
   linkBase = '',
+  existingTags,
+  profiles,
+  socialPresets,
   trigger,
   onSaved,
-  range = 30,
 }: {
   appId: string;
   link: Link;
   linkBase?: string;
+  existingTags: string[];
+  profiles: RedirectProfile[];
+  socialPresets: SocialPreset[];
   trigger: JSX.Element;
   onSaved?: () => void;
-  range?: DateRangeFilter | number; // page date filter: Performance follows it
 }) {
-  const dialogId = `dlg-rules-${link.id}`;
-  const [tab, setTab] = useState<'rules' | 'perf'>('rules');
+  const dialogId = `dlg-edit-link-${link.id}`;
+  const [draft, setDraft] = useState<LinkDraft>(() => draftFrom(link));
   const [rules, setRules] = useState<LinkRule[]>([]);
-  const [stats, setStats] = useState<VariantStat[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [success, setSuccess] = useState('');
-  const perfRange = range;
-  const perfLabel =
-    typeof range === 'number' ? `last ${range} days` : range.days ? `last ${range.days} days` : `${range.from} to ${range.to}`;
   const [dirty, setDirty] = useState(false);
   const reqSeq = useRef(0); // latest load wins, stale dropped
 
@@ -63,10 +65,9 @@ export function RulesDialog({
     setLoading(true);
     setErr('');
     try {
-      const [r, s] = await Promise.all([api.getLinkRules(appId, link.id), api.getLinkVariantStats(appId, link.id, perfRange)]);
+      const r = await api.getLinkRules(appId, link.id);
       if (seq !== reqSeq.current) return;
       setRules(r);
-      setStats(s);
       setDirty(false);
     } catch (e) {
       if (seq === reqSeq.current) setErr(String(e));
@@ -83,8 +84,7 @@ export function RulesDialog({
     loadData();
   };
   const openModal = () => {
-    setTab('rules');
-    if (dirty || draftRule) return;
+    if (dirty || baseDirty || draftRule) return;
     discardChanges();
   };
 
@@ -224,15 +224,25 @@ export function RulesDialog({
     setDraftRule(null);
   };
 
+  const baseDirty = JSON.stringify(draft) !== JSON.stringify(draftFrom(link));
   const saveAllToBackend = async () => {
     setErr('');
+    if (!draft.url.trim()) {
+      setErr('Destination is required');
+      return;
+    }
+    if (draft.ogImage.trim() && !httpsUrl(draft.ogImage.trim())) {
+      setErr('Social preview image must be an absolute https URL');
+      return;
+    }
     setSaving(true);
     setSuccess('');
     try {
+      if (baseDirty) await api.updateLink(link.id, linkPayload(draft));
       const updated = await api.setLinkRules(appId, link.id, rules);
       setRules(updated);
       setDirty(false);
-      setSuccess('Rules saved');
+      setSuccess('Link saved');
       onSaved?.();
       setTimeout(() => setSuccess(''), 2500);
     } catch (e) {
@@ -245,7 +255,7 @@ export function RulesDialog({
   const setCond = (patch: Partial<LinkRule['cond']>) => setDraftRule({ ...draftRule!, cond: { ...draftRule!.cond, ...patch } });
   const setTarget = (patch: RuleTargets) =>
     setDraftRule({ ...draftRule!, action: { ...draftRule!.action, targets: { ...draftRule!.action.targets, ...patch } } });
-  const editing = tab === 'rules' && editingIndex !== null && !!draftRule;
+  const editing = editingIndex !== null && !!draftRule;
   const fid = (s: string) => `${dialogId}-${s}`;
 
   // leaving the editor (Done/Cancel): focus the next step, Save if enabled else Close.
@@ -266,23 +276,13 @@ export function RulesDialog({
           onClick: openModal,
         })}
       </Dialog.Trigger>
-      <Dialog.Content style={{ width: 'min(760px, 95vw)', maxHeight: '88vh', overflowY: 'auto' }}>
+      <Dialog.Content class="rules-drawer-content">
         <div style={{ display: 'grid', gap: 20 }}>
           <div style={{ ...row, justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'grid', gap: 4 }}>
-              <h2 style={{ margin: 0 }}>Rules & splits</h2>
+              <h2 style={{ margin: 0 }}>Edit link</h2>
               <ShortLink base={linkBase} linkKey={link.key} />
             </div>
-            {!editing && (
-              <TabList>
-                <Tab role="tab" aria-selected={tab === 'rules'} onClick={() => setTab('rules')}>
-                  Rules ({rules.length})
-                </Tab>
-                <Tab role="tab" aria-selected={tab === 'perf'} onClick={() => setTab('perf')}>
-                  Performance
-                </Tab>
-              </TabList>
-            )}
           </div>
 
           {err && (
@@ -294,44 +294,21 @@ export function RulesDialog({
 
           {loading && <Loading />}
 
-          {!loading && tab === 'perf' && (
-            <div style={{ display: 'grid', gap: 12 }}>
-              <span style={muted}>Clicks and installs per rule and variant, {perfLabel}.</span>
-              {stats.length === 0 ? (
-                <Empty>
-                  <h3>No variant stats yet</h3>
-                  <p style={muted}>Variant clicks and matched installs will appear here as visitors tap your link.</p>
-                </Empty>
-              ) : (
-                <Table>
-                  <thead>
-                    <tr>
-                      <th>Variant</th>
-                      <th style={{ textAlign: 'right' }}>Clicks</th>
-                      <th style={{ textAlign: 'right' }}>Installs</th>
-                      <th style={{ textAlign: 'right' }}>Conversion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stats.map((s, idx) => (
-                      <tr key={idx}>
-                        <td>
-                          <strong>{s.variant}</strong>
-                        </td>
-                        <td data-label="Clicks" className="num">
-                          {s.clicks.toLocaleString()}
-                        </td>
-                        <td data-label="Installs" className="num">
-                          {s.installs.toLocaleString()}
-                        </td>
-                        <td data-label="Conversion" className="num">
-                          {(s.conversion_rate * 100).toFixed(1)}%
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              )}
+          {!editing && (
+            <div style={{ display: 'grid', gap: 20 }}>
+              <LinkFields
+                id={dialogId}
+                draft={draft}
+                setDraft={setDraft}
+                existingTags={existingTags}
+                profiles={profiles}
+                socialPresets={socialPresets}
+                linkBase={linkBase}
+              />
+              <div class="form-section">
+                <h3>Rules & splits</h3>
+                <p style={muted}>Checked top to bottom. The first rule that matches wins; anything else uses the target above.</p>
+              </div>
             </div>
           )}
 
@@ -548,7 +525,6 @@ export function RulesDialog({
           )}
 
           {!loading &&
-            tab === 'rules' &&
             !editing &&
             (rules.length === 0 ? (
               <Empty>
@@ -643,13 +619,13 @@ export function RulesDialog({
               </>
             ) : (
               <>
-                {tab === 'rules' && rules.length > 0 && !loading && (
+                {rules.length > 0 && !loading && (
                   <Button variant="outline" disabled={saving} onClick={startAddRule} style={{ marginInlineEnd: 'auto' }}>
                     <Icon d={ICONS.plus} />
                     Add rule
                   </Button>
                 )}
-                {dirty && !saving && (
+                {(dirty || baseDirty) && !saving && (
                   <Button variant="ghost" onClick={discardChanges}>
                     Discard
                   </Button>
@@ -657,11 +633,9 @@ export function RulesDialog({
                 <Button id={fid('close')} variant="outline" disabled={saving} onClick={() => closeDialog(dialogId)}>
                   Close
                 </Button>
-                {tab === 'rules' && (rules.length > 0 || dirty) && (
-                  <Button id={fid('save')} disabled={saving || !dirty} aria-busy={saving} onClick={saveAllToBackend}>
-                    {saving ? 'Saving…' : 'Save rules'}
-                  </Button>
-                )}
+                <Button id={fid('save')} disabled={saving || !(dirty || baseDirty)} aria-busy={saving} onClick={saveAllToBackend}>
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
               </>
             )}
           </div>

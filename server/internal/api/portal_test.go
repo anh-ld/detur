@@ -140,36 +140,41 @@ func TestPortalAppLinkCRUD(t *testing.T) {
 	}
 
 	resp, b = portalReq(t, portal, "POST", "/api/apps/"+created.ID+"/links",
-		`{"key":"c1","url":"/p","ios":"https://apps.apple.com/app/id1",`+
+		`{"key":"c1","url":"/p","title":"Alice promo","ios":"https://apps.apple.com/app/id1",`+
 			`"android":"https://play.google.com/store/apps/details?id=com.example","fallbackUrl":"https://example.com/fb0"}`, nil)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create link: %d %s", resp.StatusCode, b)
 	}
 	var link struct {
-		ID  string `json:"id"`
-		Key string `json:"key"`
+		ID    string `json:"id"`
+		Key   string `json:"key"`
+		Title string `json:"title"`
 	}
 	mustJSON(t, b, &link)
+	if link.Title != "Alice promo" {
+		t.Fatalf("link.Title = %q; want 'Alice promo'", link.Title)
+	}
 
 	resp, b = portalReq(t, portal, "GET", "/api/apps/"+created.ID+"/links", "", nil)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"key":"c1"`) {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"key":"c1"`) || !strings.Contains(string(b), `"title":"Alice promo"`) {
 		t.Fatalf("list links: %d %s", resp.StatusCode, b)
 	}
 
-	// omitted destinations stay unchanged, explicit empty clears
+	// omitted destinations stay unchanged, explicit empty clears, note alias updates title
 	resp, b = portalReq(t, portal, "PATCH", "/api/links/"+link.ID,
-		`{"url":"/p2","ios":""}`, nil)
+		`{"url":"/p2","ios":"","note":"Alice TikTok post"}`, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update link: %d %s", resp.StatusCode, b)
 	}
 	var updated struct {
 		URL         string `json:"url"`
+		Title       string `json:"title"`
 		IOS         string `json:"ios"`
 		Android     string `json:"android"`
 		FallbackURL string `json:"fallbackUrl"`
 	}
 	mustJSON(t, b, &updated)
-	if updated.URL != "/p2" || updated.IOS != "" ||
+	if updated.URL != "/p2" || updated.Title != "Alice TikTok post" || updated.IOS != "" ||
 		updated.Android != "https://play.google.com/store/apps/details?id=com.example" ||
 		updated.FallbackURL != "https://example.com/fb0" {
 		t.Fatalf("link update not applied as expected: %+v", updated)
@@ -340,8 +345,49 @@ func TestPortalAnalytics(t *testing.T) {
 		t.Fatalf("analytics custom range len(Days) = %d; want 8", len(customA.Days))
 	}
 
+	// sub-day windows (15m, 1h, 3h, 12h)
+	for win, wantBuckets := range map[string]int{"15m": 15, "1h": 12, "3h": 18, "12h": 24} {
+		resp, b = portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/analytics?window="+win, "", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("analytics window=%s: %d %s", win, resp.StatusCode, b)
+		}
+		var wa store.Analytics
+		mustJSON(t, b, &wa)
+		if len(wa.Days) != wantBuckets {
+			t.Fatalf("analytics window=%s len(Days) = %d; want %d", win, len(wa.Days), wantBuckets)
+		}
+		var totalClicks, totalNonOrganic int64
+		for _, d := range wa.Days {
+			totalClicks += d.Clicks
+			totalNonOrganic += d.NonOrganic
+		}
+		if totalClicks != 1 || totalNonOrganic != 1 {
+			t.Errorf("window=%s clicks=%d, nonOrganic=%d; want 1, 1", win, totalClicks, totalNonOrganic)
+		}
+	}
+
+	// query by link (ID and key)
+	for _, lq := range []string{"?link_id=" + link.ID, "?link=" + link.Key, "?window=1h&link_id=" + link.ID} {
+		resp, b = portalReq(t, portal, "GET", "/api/apps/"+app.ID+"/analytics"+lq, "", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("analytics %s: %d %s", lq, resp.StatusCode, b)
+		}
+		var la store.Analytics
+		mustJSON(t, b, &la)
+		if len(la.Links) != 1 || la.Links[0].Key != link.Key {
+			t.Errorf("analytics %s links = %+v; want link %s", lq, la.Links, link.Key)
+		}
+		for _, d := range la.Days {
+			if d.Organic != 0 {
+				t.Errorf("analytics %s expected organic=0 when filtered by link, got %d", lq, d.Organic)
+			}
+		}
+	}
+
 	for q, want := range map[string]int{
 		"/api/apps/" + app.ID + "/analytics?days=5":                        http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?window=2h":                     http.StatusBadRequest,
+		"/api/apps/" + app.ID + "/analytics?link_id=missing-link":          http.StatusNotFound,
 		"/api/apps/" + app.ID + "/analytics?platform=web":                  http.StatusBadRequest,
 		"/api/apps/" + app.ID + "/analytics?from=2026-10-01":               http.StatusBadRequest,
 		"/api/apps/" + app.ID + "/analytics?to=2026-10-08":                 http.StatusBadRequest,
@@ -547,6 +593,50 @@ func TestPortalCreateLinkDuplicateKey409(t *testing.T) {
 		resp, b = portalReq(t, portal, "POST", "/api/apps/"+app.ID+"/links", `{"key":"same","url":"/p"}`, nil)
 		if resp.StatusCode != want {
 			t.Fatalf("create link #%d: %d %s; want %d", i+1, resp.StatusCode, b, want)
+		}
+	}
+}
+
+// Tags: optional labels; trimmed, deduped case-insensitively, omitted = unchanged, [] = clear.
+func TestPortalLinkTags(t *testing.T) {
+	portal, _, _ := newPortalEnv(t)
+	resp, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"tags"}`, nil)
+	var app struct {
+		ID string `json:"id"`
+	}
+	mustJSON(t, b, &app)
+	path := "/api/apps/" + app.ID + "/links"
+
+	resp, b = portalReq(t, portal, "POST", path, `{"key":"t1","url":"/home","tags":[" Promo ","promo","black-friday",""]}`, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create with tags: %d %s", resp.StatusCode, b)
+	}
+	var link struct {
+		ID   string   `json:"id"`
+		Tags []string `json:"tags"`
+	}
+	mustJSON(t, b, &link)
+	if got := strings.Join(link.Tags, ","); got != "Promo,black-friday" {
+		t.Fatalf("tags = %q; want trimmed + deduped", got)
+	}
+
+	// PATCH without tags keeps them; [] clears
+	resp, b = portalReq(t, portal, "PATCH", "/api/links/"+link.ID, `{"url":"/p2"}`, nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"tags":["Promo","black-friday"]`) {
+		t.Fatalf("tags must survive an unrelated update: %d %s", resp.StatusCode, b)
+	}
+	resp, b = portalReq(t, portal, "PATCH", "/api/links/"+link.ID, `{"tags":[]}`, nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"tags":[]`) {
+		t.Fatalf("empty array must clear tags: %d %s", resp.StatusCode, b)
+	}
+
+	for _, body := range []string{
+		`{"key":"t2","url":"/x","tags":["a","b","c","d","e","f","g","h","i","j","k"]}`,
+		`{"key":"t3","url":"/x","tags":["` + strings.Repeat("x", 25) + `"]}`,
+		`{"key":"t4","url":"/x","tags":["a,b"]}`,
+	} {
+		if resp, b = portalReq(t, portal, "POST", path, body, nil); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("invalid tags %s: %d %s; want 400", body, resp.StatusCode, b)
 		}
 	}
 }

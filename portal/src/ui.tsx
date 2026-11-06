@@ -58,10 +58,24 @@ export const Icon = ({ d, spin, size = 16 }: { d: string; spin?: boolean; size?:
 );
 
 // square ghost button, icon only: label -> aria-label + hover tooltip
-export function IconButton({ icon, label, ...rest }: { icon: string; label: string } & Record<string, unknown>) {
+export function IconButton({
+  icon,
+  label,
+  spin,
+  danger,
+  ...rest
+}: { icon: string; label: string; spin?: boolean; danger?: boolean } & Record<string, unknown>) {
   return (
-    <Button type="button" size="sm" variant="ghost" class="icon-btn" aria-label={label} title={label} {...rest}>
-      <Icon d={icon} />
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      class={danger ? 'icon-btn danger' : 'icon-btn'}
+      aria-label={label}
+      title={label}
+      {...rest}
+    >
+      <Icon d={icon} spin={spin} />
     </Button>
   );
 }
@@ -375,7 +389,11 @@ export function PageHeader({
         <h1 style={{ margin: 0, fontSize: 28 }}>{title}</h1>
         {description && <p style={muted}>{description}</p>}
       </div>
-      {actions && <div style={{ ...row, flexWrap: 'wrap' }}>{actions}</div>}
+      {actions && (
+        <div class="page-actions" style={{ ...row, flexWrap: 'wrap' }}>
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
@@ -389,18 +407,24 @@ export function ConfirmDelete({
   onConfirm,
   id,
   requireAdmin,
+  icon,
 }: {
   title: string;
   body: ComponentChildren;
   onConfirm: () => void;
   id: string;
   requireAdmin?: boolean;
+  icon?: boolean;
 }) {
   return (
     <Dialog id={id}>
-      <Button size="sm" variant="destructive" onClick={() => (requireAdmin ? gateOpen(id) : openDialog(id))}>
-        Delete
-      </Button>
+      {icon ? (
+        <IconButton icon={ICONS.trash} label="Delete" danger onClick={() => (requireAdmin ? gateOpen(id) : openDialog(id))} />
+      ) : (
+        <Button size="sm" variant="destructive" onClick={() => (requireAdmin ? gateOpen(id) : openDialog(id))}>
+          Delete
+        </Button>
+      )}
       <Dialog.Content>
         <div style={{ display: 'grid', gap: 16 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>

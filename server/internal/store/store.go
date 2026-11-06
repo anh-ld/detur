@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -97,6 +98,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("index matched clicks: %w", err)
 	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_installs_app_link_created ON installs (app_id, link_id, created_at)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("index installs link: %w", err)
+	}
 	if !hadMatch {
 		if err := seedAppMatchFromSettings(db); err != nil {
 			db.Close()
@@ -139,8 +144,26 @@ type App struct {
 	IOSScheme              string // custom URL scheme ("myapp"): iOS tap page tries <scheme>://<route> before the App Store
 	MatchThreshold         int
 	MatchWindowMinutes     int
-	TagLinks               bool   // match-link + resolve-short destinations carry detur_link=<key>
-	PageHTML               string // custom get-app page ("" = default); loaded by GetApp only, not ListApps
+	TagLinks               bool              // match-link + resolve-short destinations carry detur_link=<key>
+	PageHTML               string            // custom get-app page ("" = default); loaded by GetApp only, not ListApps
+	RedirectProfiles       []RedirectProfile // reusable store/web redirect sets, copied into a link on demand
+	SocialPresets          []SocialPreset    // reusable social preview sets (title/description/image)
+}
+
+// SocialPreset: named social preview set (portal template; a link copies it when picked).
+type SocialPreset struct {
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Image       string `json:"image,omitempty"`
+}
+
+// RedirectProfile: named store/web redirect set (portal templates; links store their own copies).
+type RedirectProfile struct {
+	Name    string `json:"name"`
+	IOS     string `json:"ios,omitempty"`
+	Android string `json:"android,omitempty"`
+	Web     string `json:"web,omitempty"`
 }
 
 // CreateApp: insert app; apiKey returned once from portal, only hash stored.
@@ -158,17 +181,38 @@ func (s *Store) CreateApp(name, apiKey string) (App, error) {
 // GetApp: app by id, incl. hosting details.
 func (s *Store) GetApp(id string) (App, error) {
 	var a App
+	var profiles, social string
 	err := s.db.QueryRow(
-		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), COALESCE(ios_scheme, ''), match_threshold, match_window_minutes, tag_links, COALESCE(page_html, '')
+		`SELECT id, name, api_key_hash, COALESCE(ios_app_id, ''), COALESCE(android_package, ''), COALESCE(android_cert_fingerprint, ''), COALESCE(ios_scheme, ''), match_threshold, match_window_minutes, tag_links, COALESCE(page_html, ''), COALESCE(redirect_profiles, ''), COALESCE(social_presets, '')
 		 FROM apps WHERE id = ?`, id,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.IOSScheme, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks, &a.PageHTML)
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.IOSAppID, &a.AndroidPackage, &a.AndroidCertFingerprint, &a.IOSScheme, &a.MatchThreshold, &a.MatchWindowMinutes, &a.TagLinks, &a.PageHTML, &profiles, &social)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
 	if err != nil {
 		return App{}, err
 	}
+	a.RedirectProfiles = decodeProfiles(profiles)
+	a.SocialPresets = decodeSocialPresets(social)
 	return a, nil
+}
+
+func decodeSocialPresets(raw string) []SocialPreset {
+	if raw == "" {
+		return nil
+	}
+	var out []SocialPreset
+	_ = json.Unmarshal([]byte(raw), &out)
+	return out
+}
+
+func decodeProfiles(raw string) []RedirectProfile {
+	if raw == "" {
+		return nil
+	}
+	var out []RedirectProfile
+	_ = json.Unmarshal([]byte(raw), &out)
+	return out
 }
 
 // UpdateAppDetails: set hosting details; "" clears (nullable); ErrNotFound if app unknown.
@@ -179,6 +223,46 @@ func (s *Store) UpdateAppDetails(id, iosAppID, androidPackage, certFingerprint, 
 	)
 	if err != nil {
 		return fmt.Errorf("update app details: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateAppProfiles: replace the reusable store/web redirect profiles (JSON); empty clears.
+func (s *Store) UpdateAppProfiles(id string, profiles []RedirectProfile) error {
+	raw := ""
+	if len(profiles) > 0 {
+		b, err := json.Marshal(profiles)
+		if err != nil {
+			return fmt.Errorf("marshal redirect profiles: %w", err)
+		}
+		raw = string(b)
+	}
+	res, err := s.db.Exec(`UPDATE apps SET redirect_profiles = ? WHERE id = ?`, nullStr(raw), id)
+	if err != nil {
+		return fmt.Errorf("update app profiles: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateAppSocialPresets: replace the reusable social preview presets (JSON); empty clears.
+func (s *Store) UpdateAppSocialPresets(id string, presets []SocialPreset) error {
+	raw := ""
+	if len(presets) > 0 {
+		b, err := json.Marshal(presets)
+		if err != nil {
+			return fmt.Errorf("marshal social presets: %w", err)
+		}
+		raw = string(b)
+	}
+	res, err := s.db.Exec(`UPDATE apps SET social_presets = ? WHERE id = ?`, nullStr(raw), id)
+	if err != nil {
+		return fmt.Errorf("update app social presets: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
@@ -356,6 +440,7 @@ type Link struct {
 	AppID       string
 	Key         string
 	URL         string
+	Title       string
 	IOS         string
 	Android     string
 	FallbackURL string
@@ -363,10 +448,13 @@ type Link struct {
 	ExpiredURL  string     // redirect target once expired; empty = 410
 	// Social preview served to link-preview crawlers; all empty = crawlers get the 302 like before.
 	OGTitle, OGDescription, OGImage string
+	Tags                            []string // portal labels; JSON array in links.tags
+	RuleSummary                     string   // derived for list views: rule name + split weights, "" = no rules
+	HasSplit                        bool     // derived: any rule uses weighted variants
 }
 
-const linkCols = `id, app_id, key, url, COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, ''),
-  COALESCE(og_title, ''), COALESCE(og_description, ''), COALESCE(og_image, '')`
+const linkCols = `id, app_id, key, url, COALESCE(title, ''), COALESCE(ios, ''), COALESCE(android, ''), COALESCE(fallback_url, ''), COALESCE(expires_at, ''), COALESCE(expired_url, ''),
+  COALESCE(og_title, ''), COALESCE(og_description, ''), COALESCE(og_image, ''), COALESCE(tags, '')`
 
 // Expired: link past expiry.
 func (l Link) Expired(now time.Time) bool {
@@ -390,10 +478,10 @@ func (s *Store) CreateLink(l Link) (Link, error) {
 		return Link{}, fmt.Errorf("create link: %w", err)
 	}
 	_, err = tx.Exec(
-		`INSERT INTO links (id, app_id, key, url, ios, android, fallback_url, expires_at, expired_url, og_title, og_description, og_image)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		l.ID, l.AppID, l.Key, l.URL, nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
-		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage),
+		`INSERT INTO links (id, app_id, key, url, title, ios, android, fallback_url, expires_at, expired_url, og_title, og_description, og_image, tags)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		l.ID, l.AppID, l.Key, l.URL, nullStr(l.Title), nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
+		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage), nullTags(l.Tags),
 	)
 	if err != nil {
 		// unknown app_id hits FK; portal -> 404
@@ -464,17 +552,85 @@ func (s *Store) ListLinks(appID string) ([]Link, error) {
 		}
 		links = append(links, l)
 	}
-	return links, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if err := s.attachRuleSummaries(links); err != nil {
+		return nil, err
+	}
+	return links, nil
+}
+
+// attachRuleSummaries: one query for every link's rules; summary = "Name 50/50" (single) or "N rules".
+func (s *Store) attachRuleSummaries(links []Link) error {
+	if len(links) == 0 {
+		return nil
+	}
+	args := make([]any, len(links))
+	marks := make([]string, len(links))
+	for i, l := range links {
+		args[i] = l.ID
+		marks[i] = "?"
+	}
+	rows, err := s.db.Query(
+		`SELECT link_id, name, action FROM link_rules WHERE link_id IN (`+strings.Join(marks, ",")+`) ORDER BY link_id, position`,
+		args...,
+	)
+	if err != nil {
+		return fmt.Errorf("list link rules: %w", err)
+	}
+	defer rows.Close()
+	byLink := map[string][]LinkRule{}
+	for rows.Next() {
+		var linkID, name, action string
+		if err := rows.Scan(&linkID, &name, &action); err != nil {
+			return fmt.Errorf("scan link rule: %w", err)
+		}
+		var a RuleAction
+		_ = json.Unmarshal([]byte(action), &a)
+		byLink[linkID] = append(byLink[linkID], LinkRule{Name: name, Action: a})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range links {
+		links[i].RuleSummary = summarizeRules(byLink[links[i].ID])
+		for _, r := range byLink[links[i].ID] {
+			if len(r.Action.Split) > 0 {
+				links[i].HasSplit = true
+			}
+		}
+	}
+	return nil
+}
+
+func summarizeRules(rules []LinkRule) string {
+	switch {
+	case len(rules) == 0:
+		return ""
+	case len(rules) > 1:
+		return fmt.Sprintf("%d rules", len(rules))
+	}
+	r := rules[0]
+	if len(r.Action.Split) == 0 {
+		return r.Name
+	}
+	weights := make([]string, len(r.Action.Split))
+	for i, v := range r.Action.Split {
+		weights[i] = strconv.Itoa(v.Weight)
+	}
+	return r.Name + " " + strings.Join(weights, "/")
 }
 
 // UpdateLink: update mutable fields.
 func (s *Store) UpdateLink(l Link) error {
 	res, err := s.db.Exec(
-		`UPDATE links SET url = ?, ios = ?, android = ?, fallback_url = ?, expires_at = ?, expired_url = ?,
-		   og_title = ?, og_description = ?, og_image = ?
+		`UPDATE links SET url = ?, title = ?, ios = ?, android = ?, fallback_url = ?, expires_at = ?, expired_url = ?,
+		   og_title = ?, og_description = ?, og_image = ?, tags = ?
 		 WHERE id = ?`,
-		l.URL, nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
-		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage), l.ID,
+		l.URL, nullStr(l.Title), nullStr(l.IOS), nullStr(l.Android), nullStr(l.FallbackURL),
+		nullTime(l.ExpiresAt), nullStr(l.ExpiredURL), nullStr(l.OGTitle), nullStr(l.OGDescription), nullStr(l.OGImage), nullTags(l.Tags), l.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update link: %w", err)
@@ -529,16 +685,35 @@ func scanLink(row *sql.Row) (Link, error) {
 
 func scanLinkRow(row rowScanner) (Link, error) {
 	var l Link
-	var expiresAt string
-	if err := row.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.IOS, &l.Android, &l.FallbackURL, &expiresAt, &l.ExpiredURL,
-		&l.OGTitle, &l.OGDescription, &l.OGImage); err != nil {
+	var expiresAt, tags string
+	if err := row.Scan(&l.ID, &l.AppID, &l.Key, &l.URL, &l.Title, &l.IOS, &l.Android, &l.FallbackURL, &expiresAt, &l.ExpiredURL,
+		&l.OGTitle, &l.OGDescription, &l.OGImage, &tags); err != nil {
 		return Link{}, err
 	}
 	if expiresAt != "" {
 		t := parseTime(expiresAt)
 		l.ExpiresAt = &t
 	}
+	l.Tags = decodeTags(tags)
 	return l, nil
+}
+
+// nullTags: JSON array in links.tags; empty list stored as NULL.
+func nullTags(tags []string) any {
+	if len(tags) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(tags)
+	return string(b)
+}
+
+func decodeTags(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var tags []string
+	_ = json.Unmarshal([]byte(s), &tags)
+	return tags
 }
 
 func nullTime(t *time.Time) any {
@@ -653,14 +828,14 @@ func (s *Store) RecordClick(c Click, retentionHours int) (Click, error) {
 	c.ExpiresAt = now.Add(expires)
 	_, err = tx.Exec(
 		`INSERT INTO clicks (rowid, id, app_id, link_id, ip, device, locale, timezone, screen, user_agent, os_version, pasted_link, destination, click_id, is_bot, created_at, expires_at,
-		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant, paste_token)
-		 VALUES ((SELECT n + 1 FROM row_seq WHERE name = 'clicks'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant, paste_token, platform)
+		 VALUES ((SELECT n + 1 FROM row_seq WHERE name = 'clicks'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.AppID, c.LinkID, nullStr(c.Fingerprint.IP), nullStr(c.Fingerprint.Device),
 		nullStr(c.Fingerprint.Locale), nullStr(c.Fingerprint.Timezone), nullStr(c.Fingerprint.Screen),
 		nullStr(c.Fingerprint.UserAgent), nullStr(c.Fingerprint.OSVersion), nullStr(c.Fingerprint.PastedLink), c.Destination,
 		nullStr(c.ClickID), boolInt(c.IsBot), rfc3339(c.CreatedAt), rfc3339(c.ExpiresAt),
 		nullStr(c.Kind), rfc3339(c.CreatedAt), boolInt(c.UASuspect), boolInt(c.IPHosting), c.HitsIP, c.HitsLink, nullStr(c.Source), nullStr(c.Variant),
-		nullStr(c.PasteToken),
+		nullStr(c.PasteToken), nullStr(c.Platform),
 	)
 	if err != nil {
 		return Click{}, fmt.Errorf("record click: %w", err)
@@ -1140,6 +1315,8 @@ func addMissingColumns(db *sql.DB) error {
 		{"installs", "method", "TEXT"},
 		{"installs", "score", "INTEGER"},
 		{"installs", "runner_up", "INTEGER"},
+		{"apps", "redirect_profiles", "TEXT"},
+		{"apps", "social_presets", "TEXT"},
 		{"apps", "sdk_version", "TEXT"},
 		{"apps", "sdk_seen_at", "TEXT"},
 		{"clicks", "kind", "TEXT"},
@@ -1161,6 +1338,9 @@ func addMissingColumns(db *sql.DB) error {
 		{"links", "og_image", "TEXT"},
 		{"apps", "ios_scheme", "TEXT"},
 		{"apps", "page_html", "TEXT"},
+		{"links", "title", "TEXT"},
+		{"links", "tags", "TEXT"},
+		{"clicks", "platform", "TEXT"},
 	} {
 		if !columnExists(db, c.table, c.column) {
 			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.decl); err != nil {

@@ -34,6 +34,14 @@ const surface = {
 
 const DEFAULT_TYPES: WebhookEventType[] = ['installs', 'events'];
 
+// Header trigger: opens the dialog WebhooksPanel renders on the same tab.
+export function AddWebhookButton() {
+  const [adminSet, setAdminSet] = useState(getAdminSet);
+  useEffect(() => subscribeAdmin(() => setAdminSet(getAdminSet())), []);
+  if (!adminSet) return null;
+  return <Button onClick={() => gateOpen('dlg-add-webhook')}>Add webhook</Button>;
+}
+
 // tick: page Refresh counter; bump reloads list
 export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
   const [webhooks, setWebhooks] = useState<Webhook[] | null>(null);
@@ -166,14 +174,6 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
           <AdminRequired>Enter your admin password to view signing secrets, manage endpoints, or replay historical events.</AdminRequired>
         </div>
       ) : null}
-
-      <div style={{ ...row, flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ flex: '1 1 320px' }}>
-          <h2 style={{ margin: 0, fontSize: 20 }}>Webhook endpoints</h2>
-          <p style={{ ...muted, margin: '4px 0 0' }}>Signed POSTs of installs, events and clicks to your URLs.</p>
-        </div>
-        {adminState.adminSet && <Button onClick={() => gateOpen('dlg-add-webhook')}>Add webhook</Button>}
-      </div>
 
       {!adminState.adminSet || !adminState.admin ? null : webhooks && webhooks.length === 0 ? (
         <Card>
@@ -434,6 +434,7 @@ function AddWebhookDialog({ appId, onCreated }: { appId: string; onCreated: (wh:
             <h2 style={{ margin: 0 }}>Add Webhook Endpoint</h2>
             <p style={muted}>Configure an HTTPS URL to receive real-time batched app activity.</p>
           </div>
+          {err && <Alert variant="destructive">{err}</Alert>}
           <Field>
             <Label htmlFor="wh-url">Destination URL</Label>
             <Input
@@ -461,8 +462,6 @@ function AddWebhookDialog({ appId, onCreated }: { appId: string; onCreated: (wh:
               ))}
             </div>
           </Field>
-
-          {err && <Alert variant="destructive">{err}</Alert>}
 
           <div style={{ ...row, justifyContent: 'flex-end', gap: 8 }}>
             <Button

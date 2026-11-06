@@ -13,6 +13,10 @@ export interface App {
   matchWindowMinutes: number;
   // SDK destinations get detur_link=<key> so the app can tag its device
   tagLinks: boolean;
+  // reusable store/web redirect sets; a link copies one when picked
+  redirectProfiles?: RedirectProfile[];
+  // reusable social preview sets (title/description/image)
+  socialPresets?: SocialPreset[];
 }
 
 export interface Link {
@@ -20,6 +24,7 @@ export interface Link {
   appId: string;
   key: string;
   url: string;
+  title: string;
   ios: string;
   android: string;
   fallbackUrl: string;
@@ -28,6 +33,9 @@ export interface Link {
   ogImage: string;
   expiresAt: string; // RFC3339 UTC; "" = never
   expiredUrl: string;
+  tags?: string[]; // portal labels; server always sends []
+  ruleSummary?: string; // list view: rule name + split weights, "" = no rules
+  hasSplit?: boolean; // any rule uses weighted variants
 }
 
 // one UTC day. clicks = browser clicks; webFallbacks ⊂ clicks; opens = SDK opens of installed app
@@ -42,7 +50,7 @@ export interface DayStat {
 
 export interface Analytics {
   days: DayStat[];
-  links: { linkId: string; key: string; clicks: number; matches: number }[];
+  links: { linkId: string; key: string; title?: string; clicks: number; matches: number }[];
   events: { event: string; count: number }[];
   // browser clicks per in-app source (messenger, zalo, …, unknown-inapp), all platforms
   sources: { source: string; count: number }[];
@@ -167,14 +175,20 @@ export interface AdminSession {
 
 export type DateRangeFilter = {
   days?: number;
+  window?: '15m' | '1h' | '3h' | '12h';
+  linkId?: string;
   from?: string;
   to?: string;
 };
 
 export const dateRangeQuery = (r: DateRangeFilter | number): string => {
   if (typeof r === 'number') return `days=${r}`;
-  if (r.from && r.to) return `from=${r.from}&to=${r.to}`;
-  return `days=${r.days ?? 7}`;
+  const parts: string[] = [];
+  if (r.window) parts.push(`window=${r.window}`);
+  else if (r.from && r.to) parts.push(`from=${r.from}&to=${r.to}`);
+  else parts.push(`days=${r.days ?? 7}`);
+  if (r.linkId) parts.push(`link_id=${encodeURIComponent(r.linkId)}`);
+  return parts.join('&');
 };
 
 // GET /api/apps/{id}/page; html '' = default page in use
@@ -202,8 +216,17 @@ export const api = {
   createApp: (name: string) => req<CreatedApp>('POST', '/api/apps', { name }),
   rotateKey: (id: string) => req<CreatedApp>('POST', `/api/apps/${id}/rotate-key`),
   revokeKey: (id: string) => req<void>('DELETE', `/api/apps/${id}/key`),
-  updateApp: (id: string, d: { iosAppId: string; androidPackage: string; androidCertFingerprint: string; iosScheme: string }) =>
-    req<App>('PATCH', `/api/apps/${id}`, d),
+  updateApp: (
+    id: string,
+    d: {
+      iosAppId: string;
+      androidPackage: string;
+      androidCertFingerprint: string;
+      iosScheme: string;
+      redirectProfiles?: RedirectProfile[];
+      socialPresets?: SocialPreset[];
+    },
+  ) => req<App>('PATCH', `/api/apps/${id}`, d),
   deleteApp: (id: string) => req<void>('DELETE', `/api/apps/${id}`),
   getPage: (id: string) => req<AppPage>('GET', `/api/apps/${id}/page`),
   savePage: (id: string, html: string) => req<void>('PUT', `/api/apps/${id}/page`, { html }),
@@ -232,8 +255,13 @@ export const api = {
   getFraud: (appId: string, range: DateRangeFilter | number) => req<Fraud>('GET', `/api/apps/${appId}/fraud?${dateRangeQuery(range)}`),
   getFraudSettings: (appId: string) => req<FraudSettings>('GET', `/api/apps/${appId}/fraud/settings`),
   saveFraudSettings: (appId: string, s: FraudSettings) => req<FraudSettings>('PATCH', `/api/apps/${appId}/fraud/settings`, s),
-  getAnalytics: (appId: string, range: DateRangeFilter | number, platform?: Platform) =>
-    req<Analytics>('GET', `/api/apps/${appId}/analytics?${dateRangeQuery(range)}${platform ? `&platform=${platform}` : ''}`),
+  getAnalytics: (appId: string, range: DateRangeFilter | number, platform?: Platform, linkId?: string) => {
+    const q = dateRangeQuery(range);
+    const params = new URLSearchParams(q);
+    if (platform) params.set('platform', platform);
+    if (linkId) params.set('link_id', linkId);
+    return req<Analytics>('GET', `/api/apps/${appId}/analytics?${params.toString()}`);
+  },
   listWebhooks: (appId: string) => req<Webhook[]>('GET', `/api/apps/${appId}/webhooks`),
   createWebhook: (appId: string, w: { url: string; types: string[] }) => req<Webhook>('POST', `/api/apps/${appId}/webhooks`, w),
   updateWebhook: (id: string, patch: { url?: string; types?: string[]; enabled?: boolean }) =>
@@ -300,6 +328,20 @@ export interface RuleTargets {
   ios?: string;
   android?: string;
   fallback_url?: string;
+}
+
+export interface SocialPreset {
+  name: string;
+  title?: string;
+  description?: string;
+  image?: string;
+}
+
+export interface RedirectProfile {
+  name: string;
+  ios?: string;
+  android?: string;
+  web?: string;
 }
 
 export interface SplitVariant {

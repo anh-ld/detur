@@ -61,6 +61,11 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | R8 | Desktop (not bot) + non-http(s) target → 200 QR page: short link, copy button, store buttons when set; click recorded (`web`). QR: `rsc.io/qr`, only dep besides sqlite. | DeepLinkNow + ours | 302 to `myapp://` opened nothing. | link-page-gaps |
 | R9 | Per link: `og_title` (≤100), `og_description` (≤300), `og_image` (https). Set + GET + bot (C3) → OG page (canonical = short link, script redirect + Continue link); unset → 302. Base link only; rules pick the onward target. | DeepLinkNow + ours | Store/scheme targets had no chat preview. Redirect: humans misread as bots still get through. | link-page-gaps |
 | R10 | Destination = app route only (`/product/42?x=1`; link, rule, variant). SDK gets `/<first 3 of appID>/product/42?x=1` (match-link, resolve-short). Browsers never redirect to it: no fallback + no store target for the platform → app page (store buttons on phone, QR on desktop); OG page = preview only. Web visitors + phones without their platform's store target (iPhone, Android-only link) → fallback URL. | Detour + ours | SDK drops the first path segment (Detour's app hash) and non-web URLs in deferred-only mode → full URLs lost a segment, `myapp://` never arrived. Path branch avoids both, skips resolve-short. Relative 302 hit another short link or 404. | route-destinations |
+| R11 | Optional link title/note (≤100 chars): stored in `links.title`, displayed in portal list, returned in API and analytics link stats. | Ours | Team attribution: tag which link belongs to which member/campaign. | — |
+| R12 | Optional tags per link (≤10, ≤24 chars, case-insensitive dedupe): JSON array in `links.tags`; returned as `tags[]`; PATCH omits = unchanged, `[]` = clear. Links list filters by any selected tag (multi-select, client-side). | Ours | Group links by campaign/owner without a separate taxonomy table; labels only, no routing. | — |
+| R13 | One link editor: target, redirects, tags and rules save together in a single drawer; variant clicks/installs/conversion move to Analytics for the selected split link (`hasSplit` on the link). Row keeps a compact rule badge beside the target. | Ours | Rules are conditional targets, not a separate feature; variant numbers are analytics, not configuration. | — |
+| R14 | Store and web redirect presets: up to 10 named sets of iOS/Android/web URLs stored on the app (`apps.redirect_profiles`), managed in Settings → App; picking one in the link editor copies its URLs into that link (custom = edit the fields). | Ours | Same stores on many links: type once, reuse; copying keeps the redirect pipeline unaware of profiles. | — |
+| R15 | Social preview presets: up to 10 named title/description/image sets stored on the app (`apps.social_presets`), managed in Settings → App; picking one in the link editor copies its values (custom = edit the fields). | Ours | Same chat/social card on many links; templates, not inheritance. | — |
 
 ## Link rules & A/B testing
 
@@ -76,7 +81,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
-| A1 | Overview: clicks, installed opens, installs via link + match %, web fallbacks, daily chart, organic vs non-organic, per-link clicks/matches, top events, in-app sources, per-link retention + conversions (A5–A8). Filters: platform, 7/30/90d. | Detour | Same page. | — |
+| A1 | Overview: clicks, installed opens, installs via link + match %, web fallbacks, daily chart, organic vs non-organic, per-link clicks/matches, top events, in-app sources, per-link retention + conversions (A5–A8). Filters: platform, 7/30/90d, sub-day windows (15m/1h/3h/12h), single-link filter. | Detour + ours | Same page; member attribution. | — |
 | A2 | Rollups `click_days`, `click_sources`, `event_days`: counts only, never purged. | Ours | Raw data gone at 24h; 90d chart needs counts without device data. | — |
 | A3 | Web fallback = browser click → non-store URL. Installed open = universal-link-click. | Ours | Detour doesn't define them; this is what detur sees. | — |
 | A4 | UTC days. | Ours | One bucket key. | — |
@@ -84,6 +89,8 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | A6 | Conversions: every `/analytics/event` from a tagged device, per link + event + UTC day, tagging call included. `detur_link` marker not counted; retention calls never. | Ours | What each link's users do after install. | link-analytics |
 | A7 | Retention: cohort = devices first tagged on one UTC day. D1/D7/D30 = retention call exactly N days later, once per device. Rate uses cohorts whose mark day is in range. Counts only, never purged (A2). All platforms. | Detour + ours | Detour's retention comparison. Mark-day range → every range shows all three marks. | link-analytics |
 | A8 | Tag deferred links: per app, off by default, admin. On → `match-link` + `resolve-short` destination gets `detur_link=<key>`, add-only (R3); visitor `?detur_link=` never forwarded. | Ours | SDK 2.3.1 hands the app the destination, never the key. Off = destinations as stored. | link-analytics |
+| A9 | Sub-day analytics: `?window=15m\|1h\|3h\|12h` aggregates raw clicks/installs directly in SQLite (`strftime('%s')` bucket division) in 1m/5m/10m/30m buckets within `RETENTION_HOURS`. Days query falls back to daily rollups. | Ours | Post tracking in real time; rollups lack minute resolution. Direct SQL aggregation avoids transferring raw row streams. | — |
+| A10 | Link-scoped analytics: `?link_id=<id>` filters activity, clicks, conversions, retention, and cohorts to that link; organic installs 0. | Ours | Member / campaign post attribution. | — |
 
 ## Fraud
 

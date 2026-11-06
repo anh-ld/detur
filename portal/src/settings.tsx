@@ -1,7 +1,24 @@
 import { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Alert, Badge, Button, Card, Dialog, Field, Input, Label, Switch, Table, Textarea, toast, Toggle, ToggleGroup } from 'kinu';
-import { api, App, AppPage, CreatedApp, HealthCheck, HttpError, MatchQuality, PagePreview } from './api';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Dialog,
+  Field,
+  Input,
+  Label,
+  Switch,
+  Tab,
+  TabList,
+  Table,
+  Textarea,
+  toast,
+  Toggle,
+  ToggleGroup,
+} from 'kinu';
+import { api, App, AppPage, CreatedApp, HealthCheck, HttpError, MatchQuality, PagePreview, RedirectProfile, SocialPreset } from './api';
 import {
   AdminGateAborted,
   adminCall,
@@ -25,12 +42,17 @@ import { CodeEditor } from './code';
 
 const sectionTitle = { margin: '40px 0 16px', fontSize: 20 };
 
-// Settings tab: health, app config (well-known files), API key, matching, match quality.
+// Settings tab: App (health, config, key), Page, Matching (rules + quality).
 // admin only: not elevated -> locked notice, nothing else. Session dying after the panel rendered
 // hides it instead (drafts + an in-flight save's retry survive the re-unlock).
 export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: App) => void; onReload: () => void }) {
+  const [tab, setTab] = useState<'app' | 'page' | 'matching'>('app');
   const [error, setError] = useState('');
   const locked = useAdminLocked();
+  // tabs hide the admin-only page load, so probe once: a dead session locks the panel on arrival
+  useEffect(() => {
+    void refreshAdminSession();
+  }, []);
   const shown = useRef(false);
   const notice = <AdminRequired>Enter your admin password to view and change settings.</AdminRequired>;
   if (locked && !shown.current) return notice;
@@ -41,87 +63,114 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
       {locked && notice}
       <div hidden={locked}>
         {error && <Alert variant="destructive">{error}</Alert>}
+        <TabList class="settings-tabs">
+          <Tab role="tab" aria-selected={tab === 'app'} onClick={() => setTab('app')}>
+            App
+          </Tab>
+          <Tab role="tab" aria-selected={tab === 'page'} onClick={() => setTab('page')}>
+            Page
+          </Tab>
+          <Tab role="tab" aria-selected={tab === 'matching'} onClick={() => setTab('matching')}>
+            Matching
+          </Tab>
+        </TabList>
 
-        <h2 style={{ ...sectionTitle, marginTop: 0 }}>Health</h2>
-        <p style={{ ...muted, marginBottom: 16 }}>Setup checks. Refreshes after you save.</p>
-        <HealthTable app={app} />
+        {tab === 'app' && (
+          <>
+            <h2 style={{ ...sectionTitle, marginTop: 0 }}>Health</h2>
+            <p style={{ ...muted, marginBottom: 16 }}>Setup checks. Refreshes after you save.</p>
+            <HealthTable app={app} />
 
-        <h2 style={sectionTitle}>App config</h2>
-        <p style={{ ...muted, marginBottom: 16 }}>Used to serve the iOS and Android well-known files.</p>
-        <AppConfigTable app={app} onSaved={onApp} />
+            <h2 style={sectionTitle}>App config</h2>
+            <p style={{ ...muted, marginBottom: 16 }}>Used to serve the iOS and Android well-known files.</p>
+            <AppConfigTable app={app} onSaved={onApp} />
 
-        <h2 style={sectionTitle}>API key</h2>
-        <Table>
-          <thead>
-            <tr>
-              <th>Credential</th>
-              <th>Value</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>App ID</td>
-              <td style={mono}>{app.id}</td>
-              <td>
-                <div style={{ ...row, justifyContent: 'flex-end' }}>
-                  <CopyButton value={app.id} label="Copy ID" />
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td>API key</td>
-              <td>
-                {app.apiKeyHash ? (
-                  <span style={row}>
-                    <span style={{ ...mono, letterSpacing: 2 }} aria-label="Hidden">
-                      ••••••••••••
-                    </span>
-                    <span style={{ ...muted, fontSize: 13 }}>Shown once when created or rotated.</span>
-                  </span>
-                ) : (
-                  <span style={{ ...muted, color: 'hsl(var(--k-destructive))' }}>Revoked. SDK calls are rejected.</span>
-                )}
-              </td>
-              <td>
-                <div style={{ ...row, justifyContent: 'flex-end' }}>
-                  <RotateKeyDialog app={app} onChanged={onReload} />
-                  <ConfirmDelete
-                    id={`dlg-revoke-${app.id}`}
-                    requireAdmin
-                    title={`Remove the API key for ${app.name}?`}
-                    body="The SDK stops accepting it. Rotate a new key to get access back."
-                    onConfirm={async () => {
-                      setError('');
-                      try {
-                        await adminCall(() => api.revokeKey(app.id));
-                        onReload();
-                      } catch (e) {
-                        if (e instanceof AdminGateAborted) return;
-                        setError(String(e));
-                      }
-                    }}
-                  />
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </Table>
+            <h2 style={sectionTitle}>Store and web redirect presets</h2>
+            <RedirectProfilesForm app={app} onSaved={onApp} />
 
-        <h2 style={sectionTitle}>Get-app page</h2>
-        <p style={{ ...muted, marginBottom: 16 }}>
-          What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
-        </p>
-        <PageEditor app={app} />
+            <h2 style={sectionTitle}>Social preview presets</h2>
+            <SocialPresetsForm app={app} onSaved={onApp} />
 
-        <h2 style={sectionTitle}>Matching</h2>
-        <p style={{ ...muted, marginBottom: 16 }}>Applies to every link of this app.</p>
-        <MatchingTable app={app} onSaved={onApp} />
-        <TagLinksRow app={app} onSaved={onApp} />
+            <h2 style={sectionTitle}>API key</h2>
+            <Table>
+              <thead>
+                <tr>
+                  <th>Credential</th>
+                  <th>Value</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>App ID</td>
+                  <td style={mono}>{app.id}</td>
+                  <td>
+                    <div style={{ ...row, justifyContent: 'flex-end' }}>
+                      <CopyButton value={app.id} label="Copy ID" />
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>API key</td>
+                  <td>
+                    {app.apiKeyHash ? (
+                      <span style={row}>
+                        <span style={{ ...mono, letterSpacing: 2 }} aria-label="Hidden">
+                          ••••••••••••
+                        </span>
+                        <span style={{ ...muted, fontSize: 13 }}>Shown once when created or rotated.</span>
+                      </span>
+                    ) : (
+                      <span style={{ ...muted, color: 'hsl(var(--k-destructive))' }}>Revoked. SDK calls are rejected.</span>
+                    )}
+                  </td>
+                  <td>
+                    <div style={{ ...row, justifyContent: 'flex-end' }}>
+                      <RotateKeyDialog app={app} onChanged={onReload} />
+                      <ConfirmDelete
+                        id={`dlg-revoke-${app.id}`}
+                        requireAdmin
+                        title={`Remove the API key for ${app.name}?`}
+                        body="The SDK stops accepting it. Rotate a new key to get access back."
+                        onConfirm={async () => {
+                          setError('');
+                          try {
+                            await adminCall(() => api.revokeKey(app.id));
+                            onReload();
+                          } catch (e) {
+                            if (e instanceof AdminGateAborted) return;
+                            setError(String(e));
+                          }
+                        }}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </Table>
+          </>
+        )}
 
-        <h2 style={sectionTitle}>Match quality</h2>
-        <p style={{ ...muted, marginBottom: 16 }}>Installs from the last 30 days: how each was attributed, and the score it got.</p>
-        <MatchQualityView app={app} />
+        {tab === 'page' && (
+          <>
+            <p style={{ ...muted, marginTop: 0, marginBottom: 16 }}>
+              What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
+            </p>
+            <PageEditor app={app} />
+          </>
+        )}
+
+        {tab === 'matching' && (
+          <>
+            <p style={{ ...muted, marginTop: 0, marginBottom: 16 }}>Applies to every link of this app.</p>
+            <MatchingTable app={app} onSaved={onApp} />
+            <TagLinksRow app={app} onSaved={onApp} />
+
+            <h2 style={sectionTitle}>Match quality</h2>
+            <p style={{ ...muted, marginBottom: 16 }}>Installs from the last 30 days: how each was attributed, and the score it got.</p>
+            <MatchQualityView app={app} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -225,7 +274,7 @@ function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) => void 
       {error && <Alert variant="destructive">{error}</Alert>}
       {saved && <Alert variant="success">Saved.</Alert>}
       <div style={{ ...row, justifyContent: 'flex-end' }}>
-        <Button type="submit">Save config</Button>
+        <Button type="submit">Save</Button>
       </div>
     </form>
   );
@@ -309,7 +358,7 @@ function PageEditor({ app }: { app: App }) {
         <Button variant="outline" disabled={!html} onClick={() => setText(data.defaultHtml)}>
           Reset to default
         </Button>
-        <Button onClick={save}>Save page</Button>
+        <Button onClick={save}>Save</Button>
       </div>
       {error && <Alert variant="destructive">{error}</Alert>}
       {/* HTML 2 cols, preview 1 col; stacks below ~720px. Twin boxes: same header bar + 560px body -> equal height */}
@@ -358,7 +407,226 @@ function PageEditor({ app }: { app: App }) {
   );
 }
 
-export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
+export // Reusable store/web URL sets: a link copies one when picked (presets, not inheritance).
+function RedirectProfilesForm({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
+  const [profiles, setProfiles] = useState<RedirectProfile[]>(() => app.redirectProfiles ?? []);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const save = async () => {
+    setError('');
+    setSaved(false);
+    try {
+      const a = await adminCall(() =>
+        api.updateApp(app.id, {
+          iosAppId: app.iosAppId,
+          androidPackage: app.androidPackage,
+          androidCertFingerprint: app.androidCertFingerprint,
+          iosScheme: app.iosScheme,
+          redirectProfiles: profiles,
+        }),
+      );
+      setProfiles(a.redirectProfiles ?? []);
+      onSaved(a);
+      setSaved(true);
+    } catch (e) {
+      if (e instanceof AdminGateAborted) return;
+      setError(String(e));
+    }
+  };
+
+  return (
+    <form
+      style={{ display: 'grid', gap: 16 }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <p style={{ ...muted, marginTop: 0, marginBottom: 0 }}>
+        Save the store and web URLs you reuse. A link copies a preset when picked; editing it here later does not change links already
+        created.
+      </p>
+      {profiles.map((p, i) => {
+        const set = (patch: Partial<RedirectProfile>) => setProfiles(profiles.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+        return (
+          <div style={{ ...row, alignItems: 'flex-end', gap: 8 }} key={i}>
+            <div class="form-grid" style={{ flex: 1 }}>
+              <Field>
+                <Label htmlFor={`prof-name-${i}`}>Redirect preset name</Label>
+                <Input
+                  id={`prof-name-${i}`}
+                  value={p.name}
+                  onInput={(e) => set({ name: e.currentTarget.value })}
+                  placeholder="Production"
+                />
+              </Field>
+              <Field>
+                <Label htmlFor={`prof-ios-${i}`}>Preset iOS store</Label>
+                <Input
+                  id={`prof-ios-${i}`}
+                  value={p.ios ?? ''}
+                  onInput={(e) => set({ ios: e.currentTarget.value })}
+                  placeholder="https://apps.apple.com/app/id123"
+                />
+              </Field>
+              <Field>
+                <Label htmlFor={`prof-android-${i}`}>Preset Android store</Label>
+                <Input
+                  id={`prof-android-${i}`}
+                  value={p.android ?? ''}
+                  onInput={(e) => set({ android: e.currentTarget.value })}
+                  placeholder="https://play.google.com/store/apps/details?id=com.example"
+                />
+              </Field>
+              <Field>
+                <Label htmlFor={`prof-web-${i}`}>Preset web fallback</Label>
+                <Input
+                  id={`prof-web-${i}`}
+                  value={p.web ?? ''}
+                  onInput={(e) => set({ web: e.currentTarget.value })}
+                  placeholder="https://example.com"
+                />
+              </Field>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-label={`Remove redirect preset ${i + 1}`}
+              onClick={() => setProfiles(profiles.filter((_, j) => j !== i))}
+            >
+              Remove
+            </Button>
+          </div>
+        );
+      })}
+      <div style={{ ...row, justifyContent: 'space-between' }}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={profiles.length >= 10}
+          onClick={() => setProfiles([...profiles, { name: '', ios: '', android: '', web: '' }])}
+        >
+          Add redirect preset
+        </Button>
+        <Button type="submit">Save</Button>
+      </div>
+      {error && <Alert variant="destructive">{error}</Alert>}
+      {saved && <Alert variant="success">Saved.</Alert>}
+    </form>
+  );
+}
+
+// Reusable social preview sets: a link copies one when picked.
+function SocialPresetsForm({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
+  const [presets, setPresets] = useState<SocialPreset[]>(() => app.socialPresets ?? []);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const save = async () => {
+    setError('');
+    setSaved(false);
+    try {
+      const a = await adminCall(() =>
+        api.updateApp(app.id, {
+          iosAppId: app.iosAppId,
+          androidPackage: app.androidPackage,
+          androidCertFingerprint: app.androidCertFingerprint,
+          iosScheme: app.iosScheme,
+          socialPresets: presets,
+        }),
+      );
+      setPresets(a.socialPresets ?? []);
+      onSaved(a);
+      setSaved(true);
+    } catch (e) {
+      if (e instanceof AdminGateAborted) return;
+      setError(String(e));
+    }
+  };
+
+  return (
+    <form
+      style={{ display: 'grid', gap: 16 }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <p style={{ ...muted, marginTop: 0, marginBottom: 0 }}>
+        Save the chat and social preview text you reuse. A link copies a preset when picked; editing it here later does not change links
+        already created.
+      </p>
+      {presets.map((p, i) => {
+        const set = (patch: Partial<SocialPreset>) => setPresets(presets.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+        return (
+          <div style={{ ...row, alignItems: 'flex-end', gap: 8 }} key={i}>
+            <div class="form-grid" style={{ flex: 1 }}>
+              <Field>
+                <Label htmlFor={`social-name-${i}`}>Social preset name</Label>
+                <Input id={`social-name-${i}`} value={p.name} onInput={(e) => set({ name: e.currentTarget.value })} placeholder="Launch" />
+              </Field>
+              <Field>
+                <Label htmlFor={`social-title-${i}`}>Preview title</Label>
+                <Input
+                  id={`social-title-${i}`}
+                  value={p.title ?? ''}
+                  maxLength={100}
+                  onInput={(e) => set({ title: e.currentTarget.value })}
+                  placeholder="Sam invited you"
+                />
+              </Field>
+              <Field>
+                <Label htmlFor={`social-image-${i}`}>Preview image URL</Label>
+                <Input
+                  id={`social-image-${i}`}
+                  value={p.image ?? ''}
+                  onInput={(e) => set({ image: e.currentTarget.value })}
+                  placeholder="https://example.com/card.png"
+                />
+              </Field>
+              <Field>
+                <Label htmlFor={`social-desc-${i}`}>Preview description</Label>
+                <Textarea
+                  id={`social-desc-${i}`}
+                  value={p.description ?? ''}
+                  maxLength={300}
+                  rows={2}
+                  onInput={(e) => set({ description: e.currentTarget.value })}
+                />
+              </Field>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-label={`Remove social preset ${i + 1}`}
+              onClick={() => setPresets(presets.filter((_, j) => j !== i))}
+            >
+              Remove
+            </Button>
+          </div>
+        );
+      })}
+      <div style={{ ...row, justifyContent: 'space-between' }}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={presets.length >= 10}
+          onClick={() => setPresets([...presets, { name: '', title: '', description: '', image: '' }])}
+        >
+          Add social preset
+        </Button>
+        <Button type="submit">Save</Button>
+      </div>
+      {error && <Alert variant="destructive">{error}</Alert>}
+      {saved && <Alert variant="success">Saved.</Alert>}
+    </form>
+  );
+}
+
+function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
   const [threshold, setThreshold] = useState(String(app.matchThreshold));
   const [windowMinutes, setWindowMinutes] = useState(String(app.matchWindowMinutes));
   const [error, setError] = useState('');
@@ -440,7 +708,7 @@ export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) =>
       {error && <Alert variant="destructive">{error}</Alert>}
       {saved && <Alert variant="success">Saved.</Alert>}
       <div style={{ ...row, justifyContent: 'flex-end' }}>
-        <Button type="submit">Save matching</Button>
+        <Button type="submit">Save</Button>
       </div>
     </form>
   );

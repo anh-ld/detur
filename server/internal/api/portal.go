@@ -165,44 +165,63 @@ func hostnameOf(host string) string {
 
 // appJSON: app wire shape. Only key hash, never key; plaintext only in create response (show-once).
 type appJSON struct {
-	ID                     string `json:"id"`
-	Name                   string `json:"name"`
-	APIKeyHash             string `json:"apiKeyHash"`
-	IOSAppID               string `json:"iosAppId"`
-	AndroidPackage         string `json:"androidPackage"`
-	AndroidCertFingerprint string `json:"androidCertFingerprint"`
-	IOSScheme              string `json:"iosScheme"`
-	MatchThreshold         int    `json:"matchThreshold"`
-	MatchWindowMinutes     int    `json:"matchWindowMinutes"`
-	TagLinks               bool   `json:"tagLinks"`
+	ID                     string                  `json:"id"`
+	Name                   string                  `json:"name"`
+	APIKeyHash             string                  `json:"apiKeyHash"`
+	IOSAppID               string                  `json:"iosAppId"`
+	AndroidPackage         string                  `json:"androidPackage"`
+	AndroidCertFingerprint string                  `json:"androidCertFingerprint"`
+	IOSScheme              string                  `json:"iosScheme"`
+	MatchThreshold         int                     `json:"matchThreshold"`
+	MatchWindowMinutes     int                     `json:"matchWindowMinutes"`
+	TagLinks               bool                    `json:"tagLinks"`
+	RedirectProfiles       []store.RedirectProfile `json:"redirectProfiles"`
+	SocialPresets          []store.SocialPreset    `json:"socialPresets"`
 }
 
 func toAppJSON(a store.App) appJSON {
+	profiles := a.RedirectProfiles
+	if profiles == nil {
+		profiles = []store.RedirectProfile{}
+	}
+	social := a.SocialPresets
+	if social == nil {
+		social = []store.SocialPreset{}
+	}
 	return appJSON{ID: a.ID, Name: a.Name, APIKeyHash: a.APIKeyHash,
 		IOSAppID: a.IOSAppID, AndroidPackage: a.AndroidPackage, AndroidCertFingerprint: a.AndroidCertFingerprint, IOSScheme: a.IOSScheme,
-		MatchThreshold: a.MatchThreshold, MatchWindowMinutes: a.MatchWindowMinutes, TagLinks: a.TagLinks}
+		MatchThreshold: a.MatchThreshold, MatchWindowMinutes: a.MatchWindowMinutes, TagLinks: a.TagLinks,
+		RedirectProfiles: profiles, SocialPresets: social}
 }
 
 // linkJSON: link wire shape.
 type linkJSON struct {
-	ID            string `json:"id"`
-	AppID         string `json:"appId"`
-	Key           string `json:"key"`
-	URL           string `json:"url"`
-	IOS           string `json:"ios"`
-	Android       string `json:"android"`
-	FallbackURL   string `json:"fallbackUrl"`
-	ExpiresAt     string `json:"expiresAt"` // RFC3339; empty = never
-	ExpiredURL    string `json:"expiredUrl"`
-	OGTitle       string `json:"ogTitle"`
-	OGDescription string `json:"ogDescription"`
-	OGImage       string `json:"ogImage"`
+	ID            string   `json:"id"`
+	AppID         string   `json:"appId"`
+	Key           string   `json:"key"`
+	URL           string   `json:"url"`
+	Title         string   `json:"title"`
+	IOS           string   `json:"ios"`
+	Android       string   `json:"android"`
+	FallbackURL   string   `json:"fallbackUrl"`
+	ExpiresAt     string   `json:"expiresAt"` // RFC3339; empty = never
+	ExpiredURL    string   `json:"expiredUrl"`
+	OGTitle       string   `json:"ogTitle"`
+	OGDescription string   `json:"ogDescription"`
+	OGImage       string   `json:"ogImage"`
+	Tags          []string `json:"tags"`
+	RuleSummary   string   `json:"ruleSummary"`
+	HasSplit      bool     `json:"hasSplit"`
 }
 
 func toLinkJSON(l store.Link) linkJSON {
-	j := linkJSON{ID: l.ID, AppID: l.AppID, Key: l.Key, URL: l.URL, IOS: l.IOS,
+	j := linkJSON{ID: l.ID, AppID: l.AppID, Key: l.Key, URL: l.URL, Title: l.Title, IOS: l.IOS,
 		Android: l.Android, FallbackURL: l.FallbackURL,
-		ExpiredURL: l.ExpiredURL, OGTitle: l.OGTitle, OGDescription: l.OGDescription, OGImage: l.OGImage}
+		ExpiredURL: l.ExpiredURL, OGTitle: l.OGTitle, OGDescription: l.OGDescription, OGImage: l.OGImage,
+		Tags: l.Tags, RuleSummary: l.RuleSummary, HasSplit: l.HasSplit}
+	if j.Tags == nil {
+		j.Tags = []string{}
+	}
 	if l.ExpiresAt != nil {
 		j.ExpiresAt = l.ExpiresAt.UTC().Format(time.RFC3339)
 	}
@@ -211,16 +230,53 @@ func toLinkJSON(l store.Link) linkJSON {
 
 // linkBody: link payload (create + update). Omitted update fields unchanged.
 type linkBody struct {
-	Key           string  `json:"key"`
-	URL           string  `json:"url"`
-	IOS           *string `json:"ios"`
-	Android       *string `json:"android"`
-	FallbackURL   *string `json:"fallbackUrl"`
-	ExpiresAt     *string `json:"expiresAt"` // RFC3339; "" clears
-	ExpiredURL    *string `json:"expiredUrl"`
-	OGTitle       *string `json:"ogTitle"`
-	OGDescription *string `json:"ogDescription"`
-	OGImage       *string `json:"ogImage"`
+	Key           string    `json:"key"`
+	URL           string    `json:"url"`
+	Title         *string   `json:"title"`
+	Note          *string   `json:"note"` // alias for title
+	IOS           *string   `json:"ios"`
+	Android       *string   `json:"android"`
+	FallbackURL   *string   `json:"fallbackUrl"`
+	ExpiresAt     *string   `json:"expiresAt"` // RFC3339; "" clears
+	ExpiredURL    *string   `json:"expiredUrl"`
+	OGTitle       *string   `json:"ogTitle"`
+	OGDescription *string   `json:"ogDescription"`
+	OGImage       *string   `json:"ogImage"`
+	Tags          *[]string `json:"tags"` // omitted = unchanged; [] = clear
+}
+
+// Tag limits: short labels the portal lists and filters on; case-insensitive dedupe.
+const (
+	maxTags   = 10
+	maxTagLen = 24
+)
+
+// normalizeTags: trim, drop empties, dedupe case-insensitively, keep first spelling.
+func normalizeTags(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, t := range in {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if utf8.RuneCountInString(t) > maxTagLen {
+			return nil, fmt.Errorf("tag %q longer than %d characters", t, maxTagLen)
+		}
+		if strings.ContainsRune(t, ',') {
+			return nil, errors.New("tags cannot contain commas")
+		}
+		k := strings.ToLower(t)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, t)
+	}
+	if len(out) > maxTags {
+		return nil, fmt.Errorf("at most %d tags per link", maxTags)
+	}
+	return out, nil
 }
 
 // Social preview limits: title / description in characters; image absolute https (crawlers and chat apps fetch it).
@@ -346,12 +402,93 @@ func (p *portalServer) revokeAppKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// cleanProfiles: trim, require a unique name, validate each URL like a link target.
+func cleanProfiles(in []store.RedirectProfile) ([]store.RedirectProfile, error) {
+	if len(in) > maxRedirectProfiles {
+		return nil, fmt.Errorf("at most %d redirect profiles", maxRedirectProfiles)
+	}
+	out := make([]store.RedirectProfile, 0, len(in))
+	seen := map[string]bool{}
+	for _, p := range in {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			return nil, errors.New("redirect profile: name is required")
+		}
+		if utf8.RuneCountInString(name) > maxProfileNameLen {
+			return nil, fmt.Errorf("redirect profile %q: name longer than %d characters", name, maxProfileNameLen)
+		}
+		if seen[strings.ToLower(name)] {
+			return nil, fmt.Errorf("redirect profile %q: duplicate name", name)
+		}
+		seen[strings.ToLower(name)] = true
+		prof := store.RedirectProfile{Name: name, IOS: strings.TrimSpace(p.IOS), Android: strings.TrimSpace(p.Android), Web: strings.TrimSpace(p.Web)}
+		for _, f := range []struct{ field, v string }{
+			{"ios", prof.IOS}, {"android", prof.Android}, {"web", prof.Web},
+		} {
+			if err := validTarget("redirect profile "+f.field, f.v); err != nil {
+				return nil, fmt.Errorf("redirect profile %q: %w", name, err)
+			}
+		}
+		out = append(out, prof)
+	}
+	return out, nil
+}
+
+const (
+	maxRedirectProfiles = 10
+	maxProfileNameLen   = 40
+	maxSocialPresets    = 10
+	maxSocialTitle      = 100
+	maxSocialDesc       = 300
+)
+
+// cleanSocialPresets: trim, unique name, title/description limits, https-only image.
+func cleanSocialPresets(in []store.SocialPreset) ([]store.SocialPreset, error) {
+	if len(in) > maxSocialPresets {
+		return nil, fmt.Errorf("at most %d social presets", maxSocialPresets)
+	}
+	out := make([]store.SocialPreset, 0, len(in))
+	seen := map[string]bool{}
+	for _, p := range in {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			return nil, errors.New("social preset: name is required")
+		}
+		if utf8.RuneCountInString(name) > maxProfileNameLen {
+			return nil, fmt.Errorf("social preset %q: name longer than %d characters", name, maxProfileNameLen)
+		}
+		if seen[strings.ToLower(name)] {
+			return nil, fmt.Errorf("social preset %q: duplicate name", name)
+		}
+		seen[strings.ToLower(name)] = true
+		preset := store.SocialPreset{
+			Name:        name,
+			Title:       strings.TrimSpace(p.Title),
+			Description: strings.TrimSpace(p.Description),
+			Image:       strings.TrimSpace(p.Image),
+		}
+		if utf8.RuneCountInString(preset.Title) > maxSocialTitle {
+			return nil, fmt.Errorf("social preset %q: title longer than %d characters", name, maxSocialTitle)
+		}
+		if utf8.RuneCountInString(preset.Description) > maxSocialDesc {
+			return nil, fmt.Errorf("social preset %q: description longer than %d characters", name, maxSocialDesc)
+		}
+		if preset.Image != "" && !strings.HasPrefix(strings.ToLower(preset.Image), "https://") {
+			return nil, fmt.Errorf("social preset %q: image must be an absolute https URL", name)
+		}
+		out = append(out, preset)
+	}
+	return out, nil
+}
+
 func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		IOSAppID               string `json:"iosAppId"`
-		AndroidPackage         string `json:"androidPackage"`
-		AndroidCertFingerprint string `json:"androidCertFingerprint"`
-		IOSScheme              string `json:"iosScheme"`
+		IOSAppID               string                   `json:"iosAppId"`
+		AndroidPackage         string                   `json:"androidPackage"`
+		AndroidCertFingerprint string                   `json:"androidCertFingerprint"`
+		IOSScheme              string                   `json:"iosScheme"`
+		RedirectProfiles       *[]store.RedirectProfile `json:"redirectProfiles"` // omitted = keep existing
+		SocialPresets          *[]store.SocialPreset    `json:"socialPresets"`    // omitted = keep existing
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -367,7 +504,37 @@ func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	profiles := []store.RedirectProfile{}
+	if body.RedirectProfiles != nil {
+		cleaned, err := cleanProfiles(*body.RedirectProfiles)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		profiles = cleaned
+	} else if cur, err := p.st.GetApp(id); err == nil {
+		profiles = cur.RedirectProfiles
+	}
+	social := []store.SocialPreset{}
+	if body.SocialPresets != nil {
+		cleaned, err := cleanSocialPresets(*body.SocialPresets)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		social = cleaned
+	} else if cur, err := p.st.GetApp(id); err == nil {
+		social = cur.SocialPresets
+	}
 	if err := p.st.UpdateAppDetails(id, body.IOSAppID, body.AndroidPackage, body.AndroidCertFingerprint, body.IOSScheme); err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	if err := p.st.UpdateAppProfiles(id, profiles); err != nil {
+		p.storeErr(w, err)
+		return
+	}
+	if err := p.st.UpdateAppSocialPresets(id, social); err != nil {
 		p.storeErr(w, err)
 		return
 	}
@@ -522,13 +689,31 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	title := ""
+	if body.Title != nil {
+		title = strings.TrimSpace(*body.Title)
+	} else if body.Note != nil {
+		title = strings.TrimSpace(*body.Note)
+	}
+	if len(title) > 500 {
+		http.Error(w, "title must be at most 500 characters", http.StatusBadRequest)
+		return
+	}
 	nl := store.Link{
-		AppID: appID, Key: body.Key, URL: body.URL,
+		AppID: appID, Key: body.Key, URL: body.URL, Title: title,
 		IOS: strings.TrimSpace(stringValue(body.IOS)), Android: strings.TrimSpace(stringValue(body.Android)),
 		FallbackURL: strings.TrimSpace(stringValue(body.FallbackURL)),
 		ExpiresAt:   expiresAt, ExpiredURL: strings.TrimSpace(stringValue(body.ExpiredURL)),
 		OGTitle: strings.TrimSpace(stringValue(body.OGTitle)), OGDescription: strings.TrimSpace(stringValue(body.OGDescription)),
 		OGImage: strings.TrimSpace(stringValue(body.OGImage)),
+	}
+	if body.Tags != nil {
+		tags, err := normalizeTags(*body.Tags)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		nl.Tags = tags
 	}
 	if err := validTargets(nl); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -562,6 +747,15 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 	if body.URL = strings.TrimSpace(body.URL); body.URL != "" {
 		l.URL = body.URL
 	}
+	if body.Title != nil {
+		l.Title = strings.TrimSpace(*body.Title)
+	} else if body.Note != nil {
+		l.Title = strings.TrimSpace(*body.Note)
+	}
+	if len(l.Title) > 500 {
+		http.Error(w, "title must be at most 500 characters", http.StatusBadRequest)
+		return
+	}
 	if body.IOS != nil {
 		l.IOS = strings.TrimSpace(*body.IOS)
 	}
@@ -588,6 +782,14 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.OGImage != nil {
 		l.OGImage = strings.TrimSpace(*body.OGImage)
+	}
+	if body.Tags != nil {
+		tags, err := normalizeTags(*body.Tags)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		l.Tags = tags
 	}
 	if err := validTargets(l); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -676,15 +878,11 @@ var analyticsRanges = map[string]int{
 	"365": 365,
 }
 
-// analytics: daily click/install/event stats. ?days= or ?from=YYYY-MM-DD&to=YYYY-MM-DD (default 7 days); ?platform=ios|android|desktop (default all).
+// analytics: daily click/install/event stats. ?days= or ?from=YYYY-MM-DD&to=YYYY-MM-DD (default 7 days); ?platform=ios|android|desktop (default all); ?window=15m|1h|3h|12h; ?link_id=...
 func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
 	if _, err := p.st.GetApp(appID); err != nil {
 		p.storeErr(w, err)
-		return
-	}
-	from, to, ok := parseDateRange(w, r, 7)
-	if !ok {
 		return
 	}
 	platform := r.URL.Query().Get("platform")
@@ -692,7 +890,45 @@ func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "platform must be ios, android or desktop", http.StatusBadRequest)
 		return
 	}
-	a, err := p.st.AnalyticsRange(appID, from, to, platform)
+	linkParam := r.URL.Query().Get("link_id")
+	if linkParam == "" {
+		linkParam = r.URL.Query().Get("link")
+	}
+	var linkID string
+	if linkParam != "" {
+		if l, err := p.st.GetLink(linkParam); err == nil && l.AppID == appID {
+			linkID = l.ID
+		} else if l, err := p.st.GetLinkByKey(appID, linkParam); err == nil {
+			linkID = l.ID
+		} else {
+			http.Error(w, "link not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	window := r.URL.Query().Get("window")
+	if window == "" {
+		window = r.URL.Query().Get("period")
+	}
+	if window != "" {
+		if window != "15m" && window != "1h" && window != "3h" && window != "12h" {
+			http.Error(w, "window must be 15m, 1h, 3h or 12h", http.StatusBadRequest)
+			return
+		}
+		a, err := p.st.AnalyticsSubDay(appID, window, platform, linkID, time.Now())
+		if err != nil {
+			p.internal(w, err)
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, a)
+		return
+	}
+
+	from, to, ok := parseDateRange(w, r, 7)
+	if !ok {
+		return
+	}
+	a, err := p.st.AnalyticsRange(appID, from, to, platform, linkID)
 	if err != nil {
 		p.internal(w, err)
 		return

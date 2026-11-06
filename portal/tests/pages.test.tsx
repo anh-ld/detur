@@ -45,7 +45,13 @@ beforeAll(async () => {
   });
   // own app: iOS scheme set -> tap page opens myapp://<route> first
   const schemeApp = await api.createApp(uniq('pages-scheme'));
-  await api.updateApp(schemeApp.id, { iosAppId: '', androidPackage: '', androidCertFingerprint: '', iosScheme: 'myapp' });
+  await api.updateApp(schemeApp.id, {
+    iosAppId: '',
+    androidPackage: '',
+    androidCertFingerprint: '',
+    iosScheme: 'myapp',
+    redirectProfiles: [],
+  });
   schemeKey = uniq('scheme');
   await api.createLink(schemeApp.id, { key: schemeKey, url: '/p', ios: 'https://apps.apple.com/app/id123', android: '', fallbackUrl: '' });
 });

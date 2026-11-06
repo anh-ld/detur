@@ -1,62 +1,16 @@
 import { cloneElement, JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, InputGroup, Label, Separator, Table, Textarea } from 'kinu';
-import { Analytics, api, App, DateRangeFilter, Link, Platform } from './api';
-import { closeDialog, ConfirmDelete, Icon, Loading, mono, muted, PageHeader, row, ShortLink } from './ui';
+import { Alert, Badge, Button, Card, Checkbox, Dialog, Empty, Table } from 'kinu';
+import { Analytics, api, App, DateRangeFilter, Link, Platform, RedirectProfile, SocialPreset, VariantStat } from './api';
+import { closeDialog, ConfirmDelete, IconButton, ICONS, Loading, muted, PageHeader, row, ShortLink } from './ui';
 import { AnalyticsView, Filters, fmt } from './analytics';
 import { FraudPanel } from './fraud';
 import { SettingsPanel } from './settings';
-import { WebhooksPanel } from './webhooks';
-import { RulesDialog } from './rules-drawer';
+import { AddWebhookButton, WebhooksPanel } from './webhooks';
+import { LinkEditor } from './link-editor';
+import { LinkDraft, emptyDraft, LinkFields, linkPayload, httpsUrl } from './link-fields';
 
-interface LinkDraft {
-  key: string;
-  url: string;
-  ios: string;
-  android: string;
-  fallbackUrl: string;
-  ogTitle: string;
-  ogDescription: string;
-  ogImage: string;
-  expiresAt: string; // datetime-local value, read as UTC
-  expiredUrl: string;
-}
-
-// RFC3339 UTC <-> datetime-local (UTC wall time, no zone shift)
-const toLocalInput = (iso: string) => (iso ? iso.slice(0, 16) : '');
-const fromLocalInput = (v: string) => (v ? `${v}:00Z` : '');
 const isExpired = (l: Link) => !!l.expiresAt && new Date(l.expiresAt).getTime() < Date.now();
-
-// social preview limits: match the server's
-const OG_TITLE_MAX = 100;
-const OG_DESC_MAX = 300;
-const httpsUrl = (s: string) => /^https:\/\/[^/\s]+/i.test(s);
-
-const emptyDraft = (): LinkDraft => ({
-  key: '',
-  url: '',
-  ios: '',
-  android: '',
-  fallbackUrl: '',
-  ogTitle: '',
-  ogDescription: '',
-  ogImage: '',
-  expiresAt: '',
-  expiredUrl: '',
-});
-
-const draftFrom = (l: Link): LinkDraft => ({
-  key: l.key,
-  url: l.url,
-  ios: l.ios,
-  android: l.android,
-  fallbackUrl: l.fallbackUrl,
-  ogTitle: l.ogTitle ?? '',
-  ogDescription: l.ogDescription ?? '',
-  ogImage: l.ogImage ?? '',
-  expiresAt: toLocalInput(l.expiresAt ?? ''),
-  expiredUrl: l.expiredUrl ?? '',
-});
 
 export type AppTab = 'links' | 'analytics' | 'fraud' | 'settings' | 'webhooks';
 
@@ -91,13 +45,94 @@ export const TABS: { tab: AppTab; label: string; key: string; icon: string }[] =
 
 export const tabHref = (id: string, tab: AppTab) => `#/apps/${encodeURIComponent(id)}${tab === 'links' ? '' : '/' + tab}`;
 
+export function buildAppHash(
+  id: string,
+  tab: AppTab,
+  params: {
+    platform?: Platform;
+    range?: DateRangeFilter;
+    linkId?: string;
+  } = {},
+): string {
+  const base = tabHref(id, tab);
+  const q = new URLSearchParams();
+  if (params.linkId) {
+    q.set('link', params.linkId);
+  }
+  if (params.platform) {
+    q.set('platform', params.platform);
+  }
+  if (params.range) {
+    if (params.range.window) {
+      q.set('window', params.range.window);
+    } else if (params.range.from && params.range.to) {
+      q.set('from', params.range.from);
+      q.set('to', params.range.to);
+    } else if (params.range.days !== undefined) {
+      q.set('days', String(params.range.days));
+    }
+  }
+  const s = q.toString();
+  return s ? `${base}?${s}` : base;
+}
+
 // App page: one header, tab per job. Links first: most touched.
-export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?: (name: string) => void }) {
+export function AppPage({
+  id,
+  tab,
+  linkId,
+  platform: routePlatform,
+  range: routeRange,
+  hasQuery,
+  onName,
+}: {
+  id: string;
+  tab: AppTab;
+  linkId?: string;
+  platform?: Platform;
+  range?: DateRangeFilter;
+  hasQuery?: boolean;
+  onName?: (name: string) => void;
+}) {
   const [app, setApp] = useState<App | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
   const [stats, setStats] = useState<Analytics | null>(null);
-  const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
-  const [platform, setPlatform] = useState<Platform>('');
+  const [range, setRange] = useState<DateRangeFilter>(() => routeRange ?? { days: 7 });
+  const [platform, setPlatform] = useState<Platform>(() => routePlatform ?? '');
+  const [selectedLinkId, setSelectedLinkId] = useState<string>(() => linkId ?? '');
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [variants, setVariants] = useState<VariantStat[] | null>(null);
+
+  useEffect(() => {
+    if (hasQuery) {
+      setPlatform(routePlatform ?? '');
+      setRange(routeRange ?? { days: 7 });
+      setSelectedLinkId(linkId ?? '');
+    }
+  }, [hasQuery, routePlatform, routeRange?.days, routeRange?.window, routeRange?.from, routeRange?.to, linkId]);
+
+  const syncHash = (params: { platform?: Platform; range?: DateRangeFilter; linkId?: string }) => {
+    if (tab !== 'links' && tab !== 'analytics') return;
+    const next = buildAppHash(id, tab, params);
+    if (location.hash !== next) {
+      location.hash = next;
+    }
+  };
+
+  const handlePlatform = (p: Platform) => {
+    setPlatform(p);
+    syncHash({ platform: p, range, linkId: tab === 'analytics' ? selectedLinkId : undefined });
+  };
+
+  const handleRange = (r: DateRangeFilter) => {
+    setRange(r);
+    syncHash({ platform, range: r, linkId: tab === 'analytics' ? selectedLinkId : undefined });
+  };
+
+  const handleLinkId = (lid: string) => {
+    setSelectedLinkId(lid);
+    syncHash({ platform, range, linkId: lid });
+  };
   const [error, setError] = useState('');
   const [statsError, setStatsError] = useState(''); // own slot: a fixed range clears it without hiding an app-load error
   const [linkBase, setLinkBase] = useState('');
@@ -135,7 +170,7 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
     let stale = false;
     setStatsLoading(true);
     api
-      .getAnalytics(id, range, platform)
+      .getAnalytics(id, range, platform, tab === 'analytics' ? selectedLinkId : undefined)
       .then((s) => {
         if (stale) return;
         setStats(s);
@@ -146,7 +181,7 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
     return () => {
       stale = true;
     };
-  }, [id, range.days, range.from, range.to, platform, tick, filtered]);
+  }, [id, range.days, range.window, range.from, range.to, platform, selectedLinkId, tick, filtered, tab]);
   // spin until loaded, min 600ms so fast reloads show
   const [refreshing, setRefreshing] = useState(false);
   const refresh = () => {
@@ -161,6 +196,12 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
     setLinks(null);
     setStats(null);
     setStatsError('');
+    setTagFilter([]);
+    if (!hasQuery) {
+      setPlatform('');
+      setRange({ days: 7 });
+      setSelectedLinkId('');
+    }
     loadAll();
   }, [id]);
 
@@ -188,6 +229,26 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
   };
 
   const linkStats = new Map(stats?.links.map((l) => [l.linkId, l]));
+  const allTags = [...new Set((links ?? []).flatMap((l) => l.tags ?? []))].sort((a, b) => a.localeCompare(b));
+
+  // variant breakdown belongs to Analytics: only for a split link selected there
+  useEffect(() => {
+    const l = (links ?? []).find((x) => x.id === selectedLinkId);
+    if (tab !== 'analytics' || !app || !l?.hasSplit) {
+      setVariants(null);
+      return;
+    }
+    let alive = true;
+    api.getLinkVariantStats(app.id, l.id, range).then(
+      (v) => alive && setVariants(v),
+      () => alive && setVariants([]),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [tab, app, selectedLinkId, links, range]);
+  // any selected tag matches (OR), like label filters
+  const shown = tagFilter.length ? (links ?? []).filter((l) => l.tags?.some((t) => tagFilter.includes(t))) : (links ?? []);
 
   return (
     <div>
@@ -195,13 +256,41 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
         title={TABS.find((t) => t.tab === tab)!.label}
         actions={
           <>
-            {filtered && <Filters range={range} platform={platform} onRange={setRange} onPlatform={setPlatform} />}
-            {tab !== 'settings' && (
-              <Button variant="outline" onClick={refresh} aria-busy={refreshing || statsLoading}>
-                <Icon d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" spin={refreshing || statsLoading} />
-                Refresh
-              </Button>
+            {filtered && (
+              <Filters
+                range={range}
+                platform={platform}
+                links={tab === 'analytics' ? (links ?? undefined) : undefined}
+                linkId={selectedLinkId}
+                onRange={handleRange}
+                onPlatform={handlePlatform}
+                onLinkId={handleLinkId}
+              >
+                {tab === 'links' && <TagFilter tags={allTags} selected={tagFilter} onChange={setTagFilter} />}
+              </Filters>
             )}
+            {tab !== 'settings' && (
+              <IconButton
+                icon="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"
+                label="Refresh"
+                spin={refreshing || statsLoading}
+                aria-busy={refreshing || statsLoading}
+                onClick={refresh}
+                variant="outline"
+              />
+            )}
+            {tab === 'links' && (
+              <LinkDialog
+                appId={app.id}
+                linkBase={linkBase}
+                existingTags={allTags}
+                profiles={app.redirectProfiles ?? []}
+                socialPresets={app.socialPresets ?? []}
+                onSaved={refresh}
+                trigger={<Button>New link</Button>}
+              />
+            )}
+            {tab === 'webhooks' && <AddWebhookButton />}
           </>
         }
       />
@@ -209,10 +298,6 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
 
       {tab === 'links' && (
         <section aria-label="Links" style={{ display: 'grid', gap: 16 }}>
-          <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-            <p style={muted}>Clicks and matches follow the filters.</p>
-            <LinkDialog appId={app.id} link={null} linkBase={linkBase} onSaved={refresh} trigger={<Button>New link</Button>} />
-          </div>
           {links === null ? (
             <Loading />
           ) : links.length === 0 ? (
@@ -220,6 +305,13 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
               <Empty>
                 <h3>No links yet</h3>
                 Create a link to start tracking clicks and installs.
+              </Empty>
+            </Card>
+          ) : shown.length === 0 ? (
+            <Card>
+              <Empty>
+                <h3>No links with this tag</h3>
+                Clear the tag filter to see all links.
               </Empty>
             </Card>
           ) : (
@@ -234,7 +326,7 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
                 </tr>
               </thead>
               <tbody>
-                {links.map((l) => (
+                {shown.map((l) => (
                   <tr key={l.id}>
                     <td>
                       <div class="link-cell">
@@ -242,9 +334,30 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
                           <ShortLink base={linkBase} linkKey={l.key} />
                           {isExpired(l) && <Badge variant="outline">Expired</Badge>}
                         </div>
-                        <span class="link-dest" title={l.url}>
-                          {l.url}
-                        </span>
+                        <div style={{ ...row, gap: 6, minWidth: 0, overflow: 'hidden' }}>
+                          <span class="link-dest" title={l.url}>
+                            {l.url}
+                          </span>
+                          {l.ruleSummary && (
+                            <Badge variant="secondary" title={l.ruleSummary}>
+                              {l.ruleSummary}
+                            </Badge>
+                          )}
+                        </div>
+                        {(l.title || l.tags?.length) && (
+                          <div style={{ ...row, gap: 6, minWidth: 0, overflow: 'hidden' }}>
+                            {l.title && (
+                              <span class="link-title" title={l.title}>
+                                {l.title}
+                              </span>
+                            )}
+                            {l.tags?.map((t) => (
+                              <Badge key={t} variant="outline">
+                                {t}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td>
@@ -263,34 +376,34 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
                     </td>
                     <td>
                       <div style={{ ...row, justifyContent: 'flex-end' }}>
-                        <RulesDialog
-                          appId={app.id}
-                          link={l}
-                          linkBase={linkBase}
-                          range={range}
-                          onSaved={refresh}
-                          trigger={
-                            <Button size="sm" variant="outline">
-                              Rules & splits
-                            </Button>
-                          }
+                        <IconButton
+                          icon="M3 3v18h18M18 17V9M13 17V5M8 17v-3"
+                          label="Analytics"
+                          onClick={() => {
+                            setSelectedLinkId(l.id);
+                            location.hash = buildAppHash(app.id, 'analytics', {
+                              linkId: l.id,
+                              platform,
+                              range,
+                            });
+                          }}
                         />
-                        <LinkDialog
+                        <LinkEditor
                           appId={app.id}
                           link={l}
                           linkBase={linkBase}
+                          existingTags={allTags}
+                          profiles={app.redirectProfiles ?? []}
+                          socialPresets={app.socialPresets ?? []}
                           onSaved={refresh}
-                          trigger={
-                            <Button size="sm" variant="outline">
-                              Edit
-                            </Button>
-                          }
+                          trigger={<IconButton icon={ICONS.edit} label="Edit" />}
                         />
                         <ConfirmDelete
                           id={`dlg-del-link-${l.id}`}
                           title={`Delete ${l.key}?`}
                           body="The short link stops working."
                           onConfirm={() => del(l)}
+                          icon
                         />
                       </div>
                     </td>
@@ -301,7 +414,7 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
           )}
         </section>
       )}
-      {tab === 'analytics' && <AnalyticsView data={stats} />}
+      {tab === 'analytics' && <AnalyticsView data={stats} variants={variants} />}
       {tab === 'fraud' && <FraudPanel appId={app.id} tick={tick} />}
       {tab === 'settings' && <SettingsPanel app={app} onApp={setApp} onReload={loadAll} />}
       {tab === 'webhooks' && <WebhooksPanel app={app} tick={tick} />}
@@ -309,22 +422,50 @@ export function AppPage({ id, tab, onName }: { id: string; tab: AppTab; onName?:
   );
 }
 
+// Multi-select tag filter: a link shows when it carries any selected tag.
+function TagFilter({ tags, selected, onChange }: { tags: string[]; selected: string[]; onChange: (t: string[]) => void }) {
+  const toggle = (t: string) => onChange(selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t]);
+  return (
+    <details class="tag-filter">
+      <summary>Tags{selected.length ? ` · ${selected.length}` : ''}</summary>
+      <div class="tag-filter-panel">
+        {tags.length === 0 && <p style={muted}>No tags yet.</p>}
+        {tags.map((t) => (
+          <label class="check-option" key={t}>
+            <Checkbox checked={selected.includes(t)} onChange={() => toggle(t)} />
+            {t}
+          </label>
+        ))}
+        {selected.length > 0 && (
+          <Button size="sm" variant="outline" onClick={() => onChange([])}>
+            Clear
+          </Button>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function LinkDialog({
   appId,
-  link,
   linkBase,
+  existingTags,
+  profiles,
+  socialPresets,
   onSaved,
   trigger,
 }: {
   appId: string;
-  link: Link | null;
   linkBase: string;
+  existingTags: string[];
+  profiles: RedirectProfile[];
+  socialPresets: SocialPreset[];
   onSaved: () => void;
   trigger: JSX.Element;
 }) {
-  const [draft, setDraft] = useState<LinkDraft>(link ? draftFrom(link) : emptyDraft());
+  const [draft, setDraft] = useState<LinkDraft>(emptyDraft());
   const [err, setErr] = useState('');
-  const id = link ? `dlg-edit-link-${link.id}` : 'dlg-create-link';
+  const id = 'dlg-create-link';
   const ogImageBad = !!draft.ogImage.trim() && !httpsUrl(draft.ogImage.trim());
 
   const save = async () => {
@@ -337,23 +478,8 @@ function LinkDialog({
       setErr('Social preview image must be an absolute https URL');
       return;
     }
-    const payload = {
-      url: draft.url.trim(),
-      ios: draft.ios,
-      android: draft.android,
-      fallbackUrl: draft.fallbackUrl,
-      ogTitle: draft.ogTitle,
-      ogDescription: draft.ogDescription,
-      ogImage: draft.ogImage,
-      expiresAt: fromLocalInput(draft.expiresAt),
-      expiredUrl: draft.expiredUrl,
-    };
     try {
-      if (link) {
-        await api.updateLink(link.id, payload);
-      } else {
-        await api.createLink(appId, { key: draft.key.trim(), ...payload });
-      }
+      await api.createLink(appId, { key: draft.key.trim(), ...linkPayload(draft) });
       closeDialog(id);
       onSaved();
     } catch (e) {
@@ -366,7 +492,7 @@ function LinkDialog({
       <Dialog.Trigger>
         {cloneElement(trigger, {
           onClick: () => {
-            setDraft(link ? draftFrom(link) : emptyDraft());
+            setDraft(emptyDraft());
             setErr('');
           },
         })}
@@ -379,168 +505,24 @@ function LinkDialog({
             save();
           }}
         >
-          <h2 style={{ margin: 0 }}>{link ? 'Edit link' : 'Create link'}</h2>
-          {link ? (
-            <div class="short-link-box">
-              <span style={muted}>Short link</span>
-              <ShortLink base={linkBase} linkKey={link.key} />
-            </div>
-          ) : (
-            <Field>
-              <Label htmlFor={`${id}-key`}>Short link</Label>
-              <InputGroup class="prefix-group">
-                {linkBase && <legend>{linkBase.replace(/^https?:\/\//, '')}/</legend>}
-                <Input
-                  id={`${id}-key`}
-                  style={mono}
-                  value={draft.key}
-                  onInput={(e) => setDraft({ ...draft, key: e.currentTarget.value })}
-                  placeholder="summer-sale"
-                />
-              </InputGroup>
-              <Field.Description>The path people tap. Can't be changed later.</Field.Description>
-            </Field>
-          )}
-          <Field>
-            <Label htmlFor={`${id}-url`}>Destination</Label>
-            <Input
-              id={`${id}-url`}
-              value={draft.url}
-              onInput={(e) => setDraft({ ...draft, url: e.currentTarget.value })}
-              placeholder="/product/42?ref=promo"
-            />
-            <Field.Description>App route the app opens, e.g. /product/42. Web visitors use the web fallback.</Field.Description>
-          </Field>
-
-          <Separator />
-          <div class="form-section">
-            <h3>Store and web redirects</h3>
-            <p style={muted}>Optional. Where people without the app land.</p>
-          </div>
-          <Field>
-            <Label htmlFor={`${id}-ios`}>iOS store page</Label>
-            <Input
-              id={`${id}-ios`}
-              value={draft.ios}
-              onInput={(e) => setDraft({ ...draft, ios: e.currentTarget.value })}
-              placeholder="https://apps.apple.com/app/id123"
-            />
-          </Field>
-          <Field>
-            <Label htmlFor={`${id}-android`}>Android store page</Label>
-            <Input
-              id={`${id}-android`}
-              value={draft.android}
-              onInput={(e) => setDraft({ ...draft, android: e.currentTarget.value })}
-              placeholder="https://play.google.com/store/apps/details?id=com.example"
-            />
-          </Field>
-          <Field>
-            <Label htmlFor={`${id}-fb`}>Web fallback</Label>
-            <Input
-              id={`${id}-fb`}
-              value={draft.fallbackUrl}
-              onInput={(e) => setDraft({ ...draft, fallbackUrl: e.currentTarget.value })}
-              placeholder="https://example.com"
-            />
-            <Field.Description>Desktop visitors, and phones with no store page above for their platform.</Field.Description>
-          </Field>
-
-          <details open={!!(draft.expiresAt || draft.expiredUrl)}>
-            <summary>
-              Expiry <span style={muted}>optional</span>
-            </summary>
-            <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
-              <Field>
-                <Label htmlFor={`${id}-exp`}>Expires at (UTC)</Label>
-                <Input
-                  id={`${id}-exp`}
-                  type="datetime-local"
-                  value={draft.expiresAt}
-                  onInput={(e) => setDraft({ ...draft, expiresAt: e.currentTarget.value })}
-                />
-                <Field.Description>After this, the link goes to the expired URL, or shows "link expired".</Field.Description>
-              </Field>
-              <Field>
-                <Label htmlFor={`${id}-expurl`}>Expired URL</Label>
-                <Input
-                  id={`${id}-expurl`}
-                  value={draft.expiredUrl}
-                  onInput={(e) => setDraft({ ...draft, expiredUrl: e.currentTarget.value })}
-                  placeholder="https://example.com/offer-ended"
-                />
-              </Field>
-            </div>
-          </details>
-
-          <details open={!!(draft.ogTitle || draft.ogDescription || draft.ogImage)}>
-            <summary>
-              Social preview <span style={muted}>optional</span>
-            </summary>
-            <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
-              <Field>
-                <Label htmlFor={`${id}-ogt`}>Title</Label>
-                <Input
-                  id={`${id}-ogt`}
-                  value={draft.ogTitle}
-                  maxLength={OG_TITLE_MAX}
-                  onInput={(e) => setDraft({ ...draft, ogTitle: e.currentTarget.value })}
-                  placeholder="Sam invited you"
-                />
-                <Field.Description>
-                  {draft.ogTitle.length}/{OG_TITLE_MAX}
-                </Field.Description>
-              </Field>
-              <Field>
-                <Label htmlFor={`${id}-ogd`}>Description</Label>
-                <Textarea
-                  id={`${id}-ogd`}
-                  value={draft.ogDescription}
-                  maxLength={OG_DESC_MAX}
-                  rows={2}
-                  onInput={(e) => setDraft({ ...draft, ogDescription: e.currentTarget.value })}
-                />
-                <Field.Description>
-                  {draft.ogDescription.length}/{OG_DESC_MAX}
-                </Field.Description>
-              </Field>
-              <Field>
-                <Label htmlFor={`${id}-ogi`}>Image URL</Label>
-                <Input
-                  id={`${id}-ogi`}
-                  value={draft.ogImage}
-                  aria-invalid={ogImageBad}
-                  onInput={(e) => setDraft({ ...draft, ogImage: e.currentTarget.value })}
-                  placeholder="https://example.com/card.png"
-                />
-                <Field.Description>
-                  {ogImageBad
-                    ? 'Must be an absolute https URL'
-                    : 'Shown when the link is shared in chats and social apps. 1200×630 works best.'}
-                </Field.Description>
-              </Field>
-              {(draft.ogTitle || draft.ogDescription || draft.ogImage) && (
-                <figure class="og-preview">
-                  <figcaption style={muted}>Preview</figcaption>
-                  <div class="og-card">
-                    {httpsUrl(draft.ogImage.trim()) && <img src={draft.ogImage.trim()} alt="" />}
-                    <div>
-                      <small>{linkBase.replace(/^https?:\/\//, '') || 'detur'}</small>
-                      <strong>{draft.ogTitle || draft.key || 'Untitled'}</strong>
-                      {draft.ogDescription && <p>{draft.ogDescription}</p>}
-                    </div>
-                  </div>
-                </figure>
-              )}
-            </div>
-          </details>
-
+          <h2 style={{ margin: 0 }}>Create link</h2>
           {err && <Alert variant="destructive">{err}</Alert>}
+          <LinkFields
+            id={id}
+            draft={draft}
+            setDraft={setDraft}
+            existingTags={existingTags}
+            profiles={profiles}
+            socialPresets={socialPresets}
+            linkBase={linkBase}
+            showKey
+          />
+
           <div class="dialog-actions">
             <Dialog.Close>
               <Button variant="outline">Cancel</Button>
             </Dialog.Close>
-            <Button type="submit">{link ? 'Save' : 'Create'}</Button>
+            <Button type="submit">Create</Button>
           </div>
         </form>
       </Dialog.Content>

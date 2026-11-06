@@ -78,13 +78,26 @@ func portalLinkBody(key, url, fallback string) string {
 	return string(b)
 }
 
+// linkScalars: link response fields as strings; non-scalars (tags array) are skipped.
+func linkScalars(t *testing.T, r resp) map[string]string {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	r.JSON(t, &raw)
+	m := make(map[string]string, len(raw))
+	for k, v := range raw {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			m[k] = s
+		}
+	}
+	return m
+}
+
 func portalCreateLink(t *testing.T, e *env, appID, body string) map[string]string {
 	t.Helper()
 	r := e.portal("POST", "/api/apps/"+appID+"/links", body, nil)
 	must(t, r.Code == 201, "create link = %d %s", r.Code, r.Body)
-	var l map[string]string
-	r.JSON(t, &l)
-	return l
+	return linkScalars(t, r)
 }
 
 // portalInstall: Android user taps /key in Chrome, installs, app opens (SDK match-link).
@@ -353,8 +366,7 @@ func TestS_PORTAL_13_EditLinkChangesRedirect(t *testing.T) {
 	l := portalCreateLink(t, e, a.ID, portalLinkBody("promo", "/p", "https://example.com/old"))
 	r := e.portal("PATCH", "/api/links/"+l["id"], `{"url":"/p","fallbackUrl":"https://example.com/new"}`, nil)
 	must(t, r.Code == 200, "PATCH = %d %s", r.Code, r.Body)
-	var got map[string]string
-	r.JSON(t, &got)
+	got := linkScalars(t, r)
 	must(t, got["ios"] == l["ios"] && got["android"] == l["android"], "partial edit wiped stores: %v", got)
 	tap := e.tap("/promo", uaDesktopChrome)
 	must(t, tap.Code == 302 && tap.Loc() == "https://example.com/new", "tap = %d %q", tap.Code, tap.Loc())

@@ -11,7 +11,7 @@ import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
 import { setAdminAvailable, setElevated, AdminPasswordDialog } from '../src/ui';
 import { clearJar, setJarCookie } from './_setup';
-import { go, openDialog, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './_integration';
+import { go, openDialog, saveButton, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './_integration';
 
 const PORT = 8092;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -119,14 +119,14 @@ describe('portal admin flows (gated)', () => {
     await screen.findByText(SETTINGS_LOCKED);
     expect(document.querySelector('dialog[open]')).toBeNull();
     expect(screen.queryByText(/No SDK call yet/)).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save config' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 
     // unlock: panel renders, save goes straight through
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
     await screen.findByText(/No SDK call yet/);
     expect(screen.queryByText(SETTINGS_LOCKED)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Save config' }));
+    fireEvent.click(saveButton(screen.getByLabelText('iOS App ID')));
     await screen.findByText('Saved.');
     expect(await api.getAdminSession()).toMatchObject({ admin: true });
 
@@ -239,7 +239,7 @@ describe('portal admin flows (gated)', () => {
       </>,
     );
     await screen.findByText(SETTINGS_LOCKED);
-    expect(screen.queryByRole('button', { name: 'Save config' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
     await adminCleanup(() => api.deleteApp(app.id));
   });
 
@@ -252,12 +252,12 @@ describe('portal admin flows (gated)', () => {
     render(<App />);
     await screen.findByText(/Admin · until/);
     go(`#/apps/${app.id}/settings`);
-    await screen.findByRole('button', { name: 'Save page' }); // gated page load done
+    await screen.findByLabelText('iOS App ID'); // gated panel loaded
 
     // server session dies (tampered cookie) after the panel loaded: every admin call 403s
     setJarCookie(`127.0.0.1:${PORT}`, 'detur_admin', 'tampered');
     fireEvent.input(screen.getByLabelText('iOS App ID'), { target: { value: 'ABCDE12345.com.draft' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save config' }));
+    fireEvent.click(saveButton(screen.getByLabelText('iOS App ID')));
     // 403 -> session refresh clears chip -> panel hides behind the notice + re-prompt
     await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
     const dlg = await waitFor(pwDialog);
@@ -275,7 +275,7 @@ describe('portal admin flows (gated)', () => {
     await screen.findByRole('heading', { name: 'API key' });
     expect(screen.queryByText(SETTINGS_LOCKED)).toBeNull();
     expect((screen.getByLabelText('iOS App ID') as HTMLInputElement).value).toBe('ABCDE12345.com.draft');
-    fireEvent.click(screen.getByRole('button', { name: 'Save config' }));
+    fireEvent.click(saveButton(screen.getByLabelText('iOS App ID')));
     await screen.findByText('Saved.');
     expect((await api.getApp(app.id)).iosAppId).toBe('ABCDE12345.com.draft');
     await api.deleteApp(app.id); // session is valid now
@@ -333,11 +333,12 @@ describe('portal admin flows (gated)', () => {
         <AppPage id={app.id} tab="settings" />
       </>,
     );
-    await screen.findByRole('button', { name: 'Save page' }); // gated page load done
+    await screen.findByLabelText('iOS App ID'); // gated panel loaded
     await api.exitAdminMode(); // server session gone, UI still lifted
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Matching' }));
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '900' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
+    fireEvent.click(saveButton(screen.getByLabelText('Match threshold')));
     // no first prompt (module state = lifted): 403 -> session re-read locks the panel -> re-prompt
     await waitFor(pwDialog);
     screen.getByText(SETTINGS_LOCKED);

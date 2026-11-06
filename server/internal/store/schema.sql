@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS apps (
     android_cert_fingerprint TEXT,
     match_threshold         INTEGER NOT NULL DEFAULT 850,
     match_window_minutes    INTEGER NOT NULL DEFAULT 15,
+    redirect_profiles       TEXT,
+    social_presets          TEXT,
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 -- apps.sdk_version, sdk_seen_at, tag_links, ios_scheme, page_html: addMissingColumns.
@@ -19,14 +21,17 @@ CREATE TABLE IF NOT EXISTS links (
     app_id         TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
     key            TEXT NOT NULL,
     url            TEXT NOT NULL,
+    title          TEXT,
     ios            TEXT,
     android        TEXT,
     fallback_url   TEXT,
     expires_at     TEXT,
     expired_url    TEXT,
+    tags           TEXT,
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (app_id, key)
 );
+-- links.og_title, og_description, og_image: addMissingColumns.
 
 -- Global key resolution (GET /{key} pipeline) and the create-time conflict
 -- check look up links by bare key; the UNIQUE(app_id, key) index cannot serve
@@ -53,7 +58,7 @@ CREATE TABLE IF NOT EXISTS clicks (
     matched_at  TEXT
 );
 
--- clicks.kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant: addMissingColumns.
+-- clicks.kind, first_seen_at, ua_suspect, ip_hosting, hits_ip, hits_link, source, variant, platform: addMissingColumns.
 
 CREATE INDEX IF NOT EXISTS idx_clicks_created ON clicks (created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
@@ -61,6 +66,7 @@ CREATE INDEX IF NOT EXISTS idx_clicks_expires ON clicks (expires_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_unscrubbed ON clicks (expires_at) WHERE ip IS NOT NULL OR user_agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_clicks_clickid ON clicks (click_id);
 CREATE INDEX IF NOT EXISTS idx_clicks_app_created ON clicks (app_id, is_bot, created_at);
+CREATE INDEX IF NOT EXISTS idx_clicks_app_link_created ON clicks (app_id, link_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_clicks_app ON clicks (app_id);
 CREATE INDEX IF NOT EXISTS idx_clicks_dedup ON clicks (link_id, ip, created_at);
 
@@ -91,6 +97,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_created ON events (created_at);
 CREATE INDEX IF NOT EXISTS idx_events_app ON events (app_id);
+CREATE INDEX IF NOT EXISTS idx_events_app_created ON events (app_id, created_at);
 
 -- Analytics rollups: per-day counters with no device data, so they outlive the
 -- clicks/events retention purge. day = YYYY-MM-DD (UTC).
@@ -105,6 +112,8 @@ CREATE TABLE IF NOT EXISTS click_days (
     n        INTEGER NOT NULL,
     PRIMARY KEY (app_id, day, link_id, platform, kind)
 );
+
+CREATE INDEX IF NOT EXISTS idx_click_days_app_link ON click_days (app_id, link_id, day);
 
 -- click_sources: new browser clicks per in-app source (messenger, zalo, ...,
 -- unknown-inapp). Own table: a source column in click_days would change its key.

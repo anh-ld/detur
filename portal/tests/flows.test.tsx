@@ -7,7 +7,7 @@ import { api, setApiBase } from '../src/api';
 import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
-import { go, openDialog, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './_integration';
+import { go, openDialog, saveButton, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './_integration';
 
 // client flows: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal :8091.
 const PORT = 8091;
@@ -166,11 +166,60 @@ describe('portal client flows', () => {
     const row = (await screen.findAllByText('summer-sale'))[0].closest('tr')!;
     expect(row.innerText).toContain('/promo');
     expect((await api.listLinks(app.id)).length).toBe(1);
+    expect(document.querySelector('.tag-filter')).toBeTruthy(); // filter stays visible with no tags yet
 
     fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryAllByText('summer-sale')).toHaveLength(0));
     expect(await api.listLinks(app.id)).toHaveLength(0);
+    await api.deleteApp(app.id);
+  });
+
+  it('tags flow: chips add on Enter and remove with ×; the tag filter matches any selected tag', async () => {
+    const app = await api.createApp(uniq('tags-app'));
+    const tagged = await api.createLink(app.id, {
+      key: uniq('promo'),
+      url: '/promo',
+      ios: '',
+      android: '',
+      fallbackUrl: '',
+      tags: ['black-friday'],
+    });
+    await api.createLink(app.id, { key: uniq('spring'), url: '/spring', ios: '', android: '', fallbackUrl: '', tags: ['spring'] });
+    await api.createLink(app.id, { key: uniq('plain'), url: '/plain', ios: '', android: '', fallbackUrl: '' });
+
+    render(<AppPage id={app.id} tab="links" />);
+    const row = (await screen.findAllByText(tagged.key))[0].closest('tr')!;
+    within(row.querySelector('.link-cell')!).getByText('black-friday'); // badge on the row (the row also hosts its edit dialog)
+
+    // chips: Enter adds, × removes
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    const dlg = openDialog();
+    // combobox offers tags used on other links; tags already on this link are not listed
+    const offered = [...dlg.querySelectorAll('[k="item"]')].map((o) => o.textContent);
+    expect(offered).toContain('spring');
+    expect(offered).not.toContain('black-friday');
+    // pick an existing tag, type a new one, remove one
+    const tagsInput = within(dlg).getByLabelText(/Tags/);
+    fireEvent.focus(tagsInput); // opens the suggestion list
+    fireEvent.click(within(dlg).getByRole('button', { name: 'spring' }));
+    within(dlg).getByText('spring');
+    fireEvent.input(tagsInput, { target: { value: 'alice' } });
+    fireEvent.keyDown(tagsInput, { key: 'Enter' });
+    within(dlg).getByText('alice');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Remove black-friday' }));
+    expect(within(dlg).queryByRole('button', { name: 'Remove black-friday' })).toBeNull(); // chip gone
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
+    await waitFor(async () => expect((await api.listLinks(app.id)).find((l) => l.id === tagged.id)!.tags).toEqual(['spring', 'alice']));
+
+    // filter: any selected tag matches (OR), Clear restores all
+    const rows = () => screen.getAllByRole('row').slice(1); // header off
+    fireEvent.click(await screen.findByLabelText('alice'));
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    fireEvent.click(screen.getByLabelText('spring'));
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await waitFor(() => expect(rows()).toHaveLength(3));
     await api.deleteApp(app.id);
   });
 
@@ -287,6 +336,7 @@ describe('portal client flows', () => {
     await api.createLink(app.id, { key, url: '/d', ios: 'https://apps.apple.com/app/id123', android: '', fallbackUrl: '' });
     location.hash = `#/apps/${app.id}/settings`;
     render(<App />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Matching' }));
     const sw = (await screen.findByLabelText('Tag deferred links')) as HTMLInputElement;
     expect(sw.checked).toBe(false);
     fireEvent.click(sw);
@@ -336,6 +386,7 @@ describe('portal client flows', () => {
     expect(selectedTab()).toEqual(['Settings']);
     expect(screen.queryByLabelText('Platform')).toBeNull();
     // fraud only on its tab: none on Settings, even after all Settings requests land
+    fireEvent.click(screen.getByRole('tab', { name: 'Matching' }));
     await screen.findByText('No installs yet.');
     await settle();
     expect(screen.queryByRole('region', { name: 'Fraud signals' })).toBeNull();
@@ -345,7 +396,7 @@ describe('portal client flows', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Webhooks' }));
     expect(location.hash).toBe(`#/apps/${app.id}/webhooks`);
     window.dispatchEvent(new Event('hashchange'));
-    await screen.findByRole('heading', { name: 'Webhook endpoints' });
+    await screen.findByText(/Webhooks need an admin password/);
     expect(selectedTab()).toEqual(['Webhooks']);
 
     fireEvent.click(screen.getByRole('link', { name: 'Links' }));
@@ -359,22 +410,23 @@ describe('portal client flows', () => {
   it('matching flow: save persists to the server, empty fields are rejected', async () => {
     const app = await api.createApp(uniq('m'));
     render(<AppPage id={app.id} tab="settings" />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Matching' }));
     await screen.findByDisplayValue('850');
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '900' } });
     fireEvent.input(screen.getByLabelText('Match window (minutes)'), { target: { value: '30' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
+    fireEvent.click(saveButton(screen.getByLabelText('Match threshold')));
     await screen.findByText('Saved.');
     expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 900, matchWindowMinutes: 30 });
 
     // empty fields: honest error, no false "Saved."
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
+    fireEvent.click(saveButton(screen.getByLabelText('Match threshold')));
     await screen.findByText('threshold and window are required');
     expect(screen.queryByText('Saved.')).toBeNull();
 
     // out of range: rejected client-side, no round trip
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '1300' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save matching' }));
+    fireEvent.click(saveButton(screen.getByLabelText('Match threshold')));
     await screen.findByText(/threshold must be 700–1200/);
     expect(screen.queryByText('Saved.')).toBeNull();
     expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 900, matchWindowMinutes: 30 });
@@ -386,6 +438,7 @@ describe('portal client flows', () => {
     render(<AppPage id={app.id} tab="settings" />);
     await screen.findByText(/No SDK call yet/);
     expect(screen.getAllByText('Fix').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('tab', { name: 'Matching' }));
     await screen.findByText('No installs yet.');
     await api.deleteApp(app.id);
   });
@@ -394,19 +447,20 @@ describe('portal client flows', () => {
     const app = await api.createApp(uniq('page-app'));
     location.hash = `#/apps/${app.id}/settings`;
     render(<App />); // toasts live in App's ToastContainer
+    fireEvent.click(await screen.findByRole('tab', { name: 'Page' }));
     const html = (await screen.findByLabelText('HTML')) as HTMLTextAreaElement;
     expect(html.value).toContain('{{cta}}'); // one field, starts as the default
     expect(screen.getByRole('button', { name: 'Reset to default' })).toHaveProperty('disabled', true);
     fireEvent.input(html, { target: { value: '<p>hi</p>' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save page' }));
+    fireEvent.click(saveButton(screen.getByRole('button', { name: 'Reset to default' })));
     await screen.findByText(/needs the button/);
     fireEvent.input(html, { target: { value: '<p>hi</p>{{cta}}' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save page' }));
+    fireEvent.click(saveButton(screen.getByRole('button', { name: 'Reset to default' })));
     await findToast('Custom page saved');
     expect((await api.getPage(app.id)).html).toBe('<p>hi</p>{{cta}}');
     fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
     expect(html.value).toContain('{{cta}}');
-    fireEvent.click(screen.getByRole('button', { name: 'Save page' }));
+    fireEvent.click(saveButton(screen.getByRole('button', { name: 'Reset to default' })));
     await findToast('Default page saved');
     expect((await api.getPage(app.id)).html).toBe(''); // unchanged default stored as "", not a copy
     await api.deleteApp(app.id);
@@ -449,7 +503,7 @@ describe('portal client flows', () => {
     fireEvent.input(await screen.findByLabelText('iOS App ID'), {
       target: { value: 'ABCDE12345.com.example.app' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save config' }));
+    fireEvent.click(saveButton(screen.getByLabelText('iOS App ID')));
     await screen.findByText('Saved.');
     expect((await api.getApp(app.id)).iosAppId).toBe('ABCDE12345.com.example.app');
     cleanup();
@@ -459,6 +513,67 @@ describe('portal client flows', () => {
     const row = (await screen.findByText(name)).closest('tr')!;
     within(row).getByText('iOS', { exact: true });
     expect(within(row).queryByRole('button', { name: 'Edit' })).toBeNull();
+    await api.deleteApp(app.id);
+  });
+
+  it('redirect profiles flow: a profile saved in Settings fills a new link', async () => {
+    const app = await api.createApp(uniq('profiles-app'));
+    render(<AppPage id={app.id} tab="settings" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add redirect preset' }));
+    fireEvent.input(screen.getByLabelText('Redirect preset name'), { target: { value: 'Production' } });
+    fireEvent.input(screen.getByLabelText('Preset iOS store'), { target: { value: 'https://apps.apple.com/app/id123' } });
+    fireEvent.input(screen.getByLabelText('Preset Android store'), {
+      target: { value: 'https://play.google.com/store/apps/details?id=com.example' },
+    });
+    fireEvent.input(screen.getByLabelText('Preset web fallback'), { target: { value: 'https://example.com' } });
+    fireEvent.click(saveButton(screen.getByLabelText('Redirect preset name')));
+    await screen.findByText('Saved.');
+    expect((await api.getApp(app.id)).redirectProfiles).toEqual([
+      {
+        name: 'Production',
+        ios: 'https://apps.apple.com/app/id123',
+        android: 'https://play.google.com/store/apps/details?id=com.example',
+        web: 'https://example.com',
+      },
+    ]);
+    cleanup();
+
+    render(<AppPage id={app.id} tab="links" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New link' }));
+    const dlg = openDialog();
+    fireEvent.change(within(dlg).getByLabelText('Store and web redirect preset'), { target: { value: 'Production' } });
+    expect((within(dlg).getByLabelText('iOS store page') as HTMLInputElement).value).toBe('https://apps.apple.com/app/id123');
+    expect((within(dlg).getByLabelText('Android store page') as HTMLInputElement).value).toBe(
+      'https://play.google.com/store/apps/details?id=com.example',
+    );
+    expect((within(dlg).getByLabelText('Web fallback') as HTMLInputElement).value).toBe('https://example.com');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
+    await api.deleteApp(app.id);
+  });
+
+  it('social presets flow: a preview preset saved in Settings fills a new link', async () => {
+    const app = await api.createApp(uniq('social-app'));
+    render(<AppPage id={app.id} tab="settings" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add social preset' }));
+    fireEvent.input(screen.getByLabelText('Social preset name'), { target: { value: 'Launch' } });
+    fireEvent.input(screen.getByLabelText('Preview title'), { target: { value: 'Sam invited you' } });
+    fireEvent.input(screen.getByLabelText('Preview description'), { target: { value: 'Join the sale' } });
+    fireEvent.input(screen.getByLabelText('Preview image URL'), { target: { value: 'https://example.com/card.png' } });
+    fireEvent.click(saveButton(screen.getByLabelText('Social preset name')));
+    await screen.findByText('Saved.');
+    expect((await api.getApp(app.id)).socialPresets).toEqual([
+      { name: 'Launch', title: 'Sam invited you', description: 'Join the sale', image: 'https://example.com/card.png' },
+    ]);
+    cleanup();
+
+    render(<AppPage id={app.id} tab="links" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New link' }));
+    const dlg = openDialog();
+    fireEvent.change(within(dlg).getByLabelText('Social preview preset'), { target: { value: 'Launch' } });
+    expect((within(dlg).getByLabelText('Title', { exact: true }) as HTMLInputElement).value).toBe('Sam invited you');
+    expect((within(dlg).getByLabelText('Description', { exact: true }) as HTMLTextAreaElement).value).toBe('Join the sale');
+    expect((within(dlg).getByLabelText('Image URL') as HTMLInputElement).value).toBe('https://example.com/card.png');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
     await api.deleteApp(app.id);
   });
 
@@ -511,7 +626,7 @@ describe('portal client flows', () => {
     render(<AppPage id={app.id} tab="links" />);
     const row = (await screen.findAllByText('split-link'))[0].closest('tr')!;
 
-    fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
     const dlg = openDialog();
     await within(dlg).findByText('No rules yet');
 
@@ -525,21 +640,24 @@ describe('portal client flows', () => {
 
     await within(dlg).findByText('Split Test 1');
     // leaving the editor moves focus to the next step, never onto Discard
-    await waitFor(() => expect(document.activeElement).toBe(within(dlg).getByRole('button', { name: 'Save rules' })));
+    await waitFor(() => expect(document.activeElement).toBe(within(dlg).getByRole('button', { name: 'Save' })));
 
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Save rules' }));
-    await within(dlg).findByText('Rules saved');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
+    await within(dlg).findByText('Link saved');
 
     const storedRules = await api.getLinkRules(app.id, link.id);
     expect(storedRules).toHaveLength(1);
     expect(storedRules[0].name).toBe('Split Test 1');
     expect(storedRules[0].action.split).toHaveLength(2);
 
+    // the row carries the rule beside the target, no need to open the drawer
+    await waitFor(() => expect(within(document.querySelector('tbody tr .link-cell')!).getByText(/Split Test 1/)).toBeTruthy());
+
     // deleting the last rule still saves
     fireEvent.click(within(dlg).getByRole('button', { name: 'Delete' }));
     await within(dlg).findByText('No rules yet');
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Save rules' }));
-    await within(dlg).findByText('Rules saved');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
+    await within(dlg).findByText('Link saved');
     expect(await api.getLinkRules(app.id, link.id)).toHaveLength(0);
 
     fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
@@ -552,7 +670,7 @@ describe('portal client flows', () => {
     render(<AppPage id={app.id} tab="links" />);
     const row = (await screen.findAllByText('cancel-link'))[0].closest('tr')!;
 
-    fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
     let dlg = openDialog();
     await within(dlg).findByText('No rules yet');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Add rule' }));
@@ -564,7 +682,7 @@ describe('portal client flows', () => {
       { name: 'Saved Elsewhere', cond: { platform: 'ios' }, action: { targets: { fallback_url: 'https://example.com/x' } } },
     ] as never);
 
-    fireEvent.click(within(row).getByRole('button', { name: 'Rules & splits' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
     dlg = openDialog();
     await within(dlg).findByText('Saved Elsewhere');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));

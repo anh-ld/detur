@@ -36,6 +36,10 @@ export const openDialog = (): HTMLElement => {
 
 export const uniq = (s: string) => `${s}-${Date.now().toString(36)}`;
 
+// Settings save buttons all read "Save": scope to the form (or toolbar) that owns the anchor.
+export const saveButton = (anchor: Element) =>
+  within((anchor.closest('form') ?? anchor.parentElement) as HTMLElement).getByRole('button', { name: 'Save' });
+
 // navigate like the address bar; explicit event for DOMs that skip hashchange on assignment
 export function go(hash: string) {
   location.hash = hash;
