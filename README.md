@@ -145,6 +145,7 @@ Prerequisites: Go 1.27, Bun 1.4.4.
 ```
 
 - Portal HMR `:8000` + Go reload via [air](https://github.com/air-verse/air).
+- Portal rules live once: admin gate + load guard `portal/src/ui.tsx`, URLs `portal/src/route.ts`, link draft `portal/src/link-fields.tsx`.
 - Tests: `cd server && go test ./...` · `cd portal && bun --bun run test` (stop any running `detur` first: tests bind `:8080`)
 
 ## Credits

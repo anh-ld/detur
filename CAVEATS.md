@@ -8,6 +8,7 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **Admin cookie**: derived from the password → crackable offline if intercepted. Long random password + HTTPS. New `ADMIN_PASSWORD` → all sessions end.
 - **Login delay**: per IP, serialized. Proxy + `TRUST_PROXY=0` → one shared IP → one brute-force run delays everyone.
 - **Logout**: only redirects to `LOGOUT_URL`. IdP auto re-login (or Tailscale) → session survives.
+- **Portal admin UI**: mirrors the server, never enforces. Dead session → locked notice, no prompt until Unlock. Server restarted without `ADMIN_PASSWORD` while a tab is open → Webhooks/API show an Unlock that cannot succeed until reload.
 - **TLS**: plain HTTP only → leaks API keys + fingerprints. Terminate HTTPS at a proxy.
 - **API keys**: unsalted SHA-256; safe only with ~131-bit generated keys.
 - **`TRUST_PROXY`**: `1` without a header-stripping proxy → spoofed `X-Forwarded-For` games the 400-point IP score. `0` behind a proxy → everyone shares its IP → unrelated installs get the 400.
