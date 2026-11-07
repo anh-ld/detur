@@ -1,7 +1,7 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, Empty, Input, Select, Skeleton as KSkeleton, Table } from 'kinu';
-import { Analytics, DateRangeFilter, DayStat, Link, Mark, Platform, VariantStat } from './api';
+import { Analytics, DateRangeFilter, DayStat, isWindow, Link, Mark, Platform, VariantStat, WindowId } from './api';
 import { mono, muted, row } from './ui';
 
 // blue ramp (theme --chart-*) + one warm gray
@@ -58,7 +58,7 @@ export const Skeleton = ({ w = '100%', h }: { w?: number | string; h: number }) 
 );
 
 export type RangePreset =
-  { window: '15m' | '1h' | '3h' | '12h'; label: string; days?: never } | { days: number; label: string; window?: never };
+  { window: WindowId; label: string; days?: never } | { days: number; label: string; window?: never };
 
 export const RANGE_OPTIONS: readonly RangePreset[] = [
   { window: '15m', label: 'Last 15 minutes' },
@@ -117,7 +117,7 @@ export function DateRangePicker({
       setFrom(f);
       setTo(t);
       onRange({ from: f, to: t, linkId: range.linkId });
-    } else if (val === '15m' || val === '1h' || val === '3h' || val === '12h') {
+    } else if (isWindow(val)) {
       setCustomMode(false);
       onRange({ window: val, linkId: range.linkId });
     } else {

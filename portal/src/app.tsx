@@ -12,70 +12,9 @@ import {
 } from './ui';
 import { AppsPage } from './apps';
 import { ApiTokensPage } from './api-tokens';
-import { AppPage, AppTab, buildAppHash, tabHref, TABS } from './detail';
-import type { App as AppT, DateRangeFilter, Platform } from './api';
-
-type Route =
-  | { name: 'apps' }
-  | { name: 'api' }
-  | {
-      name: 'app';
-      id: string;
-      tab: AppTab;
-      linkId?: string;
-      platform?: Platform;
-      range?: DateRangeFilter;
-    };
-
-export function parseHash(h: string = location.hash): Route {
-  if (/^#\/api(?:[/?#]|$)/.test(h)) return { name: 'api' };
-  const m = h.match(/^#\/apps\/([^/?#]+)(?:\/(analytics|fraud|settings|webhooks))?(?:\?(.*))?/);
-  if (m) {
-    try {
-      const id = decodeURIComponent(m[1]);
-      const tab = (m[2] as AppTab | undefined) ?? 'links';
-      let linkId: string | undefined;
-      let platform: Platform | undefined;
-      let range: DateRangeFilter | undefined;
-      if (m[3]) {
-        const q = new URLSearchParams(m[3]);
-        linkId = q.get('link') ?? undefined;
-
-        const p = (q.get('platform') ?? '').toLowerCase();
-        if (p === 'ios' || p === 'android' || p === 'desktop') {
-          platform = p as Platform;
-        }
-
-        const win = q.get('window');
-        const from = q.get('from') ?? undefined;
-        const to = q.get('to') ?? undefined;
-        const daysParam = q.get('days');
-
-        if (win === '15m' || win === '1h' || win === '3h' || win === '12h') {
-          range = { window: win };
-        } else if (from && to) {
-          range = { from, to };
-        } else if (daysParam) {
-          const d = parseInt(daysParam, 10);
-          if (!isNaN(d) && d > 0) {
-            range = { days: d };
-          }
-        }
-      }
-      return { name: 'app', id, tab, linkId, platform, range };
-    } catch {
-      // bad %-encoding: unknown route
-    }
-  }
-  return { name: 'apps' };
-}
-
-// tab link: Links <-> Analytics keep the filter query
-type AppRoute = Extract<Route, { name: 'app' }>;
-const navHref = (r: AppRoute, tab: AppTab) =>
-  (r.tab === 'links' || r.tab === 'analytics') && (tab === 'links' || tab === 'analytics')
-    ? buildAppHash(r.id, tab, { platform: r.platform, range: r.range, linkId: tab === 'analytics' ? r.linkId : undefined })
-    : tabHref(r.id, tab);
+import { AppPage } from './detail';
+import { AppTab, parseHash, Route, switchTab, tabHref, TABS } from './route';
+import type { App as AppT } from './api';
 
 // top-bar "Admin · until HH:MM"; local clock, server enforces expiry
 const fmtUntil = (iso: string) => {
@@ -128,7 +67,7 @@ export function App() {
       const el = e.target as HTMLElement;
       if (el.closest('input, textarea, select, [contenteditable], dialog[open]')) return;
       const t = TABS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
-      if (t) location.hash = navHref(route, t.tab);
+      if (t) location.hash = switchTab(route, t.tab);
     };
     addEventListener('keydown', on);
     return () => removeEventListener('keydown', on);
@@ -172,11 +111,11 @@ export function App() {
             TABS.map((t) => (
               <a
                 key={t.tab}
-                href={navHref(route, t.tab)}
+                href={switchTab(route, t.tab)}
                 aria-current={t.tab === route.tab ? 'page' : undefined}
                 onClick={(e) => {
                   e.preventDefault();
-                  location.hash = navHref(route, t.tab);
+                  location.hash = switchTab(route, t.tab);
                 }}
               >
                 <Icon d={t.icon} />

@@ -2,8 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/preact';
 import { AnalyticsView, Filters, RANGE_OPTIONS } from '../src/analytics';
 import { DateRangeFilter } from '../src/api';
-import { parseHash } from '../src/app';
-import { buildAppHash } from '../src/detail';
+import { buildAppHash, parseHash } from '../src/route';
 
 afterEach(cleanup);
 

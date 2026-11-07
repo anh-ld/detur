@@ -8,73 +8,10 @@ import { FraudPanel } from './fraud';
 import { SettingsPanel } from './settings';
 import { AddWebhookButton, WebhooksPanel } from './webhooks';
 import { LinkEditor } from './link-editor';
+import { AppTab, filteredHash, TABS } from './route';
 import { LinkDraft, emptyDraft, LinkFields, linkPayload, httpsUrl } from './link-fields';
 
 const isExpired = (l: Link) => !!l.expiresAt && new Date(l.expiresAt).getTime() < Date.now();
-
-export type AppTab = 'links' | 'analytics' | 'fraud' | 'settings' | 'webhooks';
-
-// sidebar nav: label, single-key shortcut, Lucide icon path (ISC)
-export const TABS: { tab: AppTab; label: string; key: string; icon: string }[] = [
-  {
-    tab: 'links',
-    label: 'Links',
-    key: 'L',
-    icon: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
-  },
-  { tab: 'analytics', label: 'Analytics', key: 'A', icon: 'M3 3v18h18M18 17V9M13 17V5M8 17v-3' },
-  {
-    tab: 'fraud',
-    label: 'Fraud',
-    key: 'F',
-    icon: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z',
-  },
-  {
-    tab: 'settings',
-    label: 'Settings',
-    key: 'S',
-    icon: 'M20 7h-9M14 17H5M17 20a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM7 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
-  },
-  {
-    tab: 'webhooks',
-    label: 'Webhooks',
-    key: 'W',
-    icon: 'M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2M6 17l3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06M12 6l3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8',
-  },
-];
-
-export const tabHref = (id: string, tab: AppTab) => `#/apps/${encodeURIComponent(id)}${tab === 'links' ? '' : '/' + tab}`;
-
-export function buildAppHash(
-  id: string,
-  tab: AppTab,
-  params: {
-    platform?: Platform;
-    range?: DateRangeFilter;
-    linkId?: string;
-  } = {},
-): string {
-  const base = tabHref(id, tab);
-  const q = new URLSearchParams();
-  if (params.linkId) {
-    q.set('link', params.linkId);
-  }
-  if (params.platform) {
-    q.set('platform', params.platform);
-  }
-  if (params.range) {
-    if (params.range.window) {
-      q.set('window', params.range.window);
-    } else if (params.range.from && params.range.to) {
-      q.set('from', params.range.from);
-      q.set('to', params.range.to);
-    } else if (params.range.days !== undefined) {
-      q.set('days', String(params.range.days));
-    }
-  }
-  const s = q.toString();
-  return s ? `${base}?${s}` : base;
-}
 
 // App page: one header, tab per job. Links first: most touched.
 export function AppPage({
@@ -102,10 +39,10 @@ export function AppPage({
   // stale link id (not in loaded links) counts as all links
   const selectedLinkId = links && !links.some((l) => l.id === routeLinkId) ? '' : routeLinkId;
   const go = (p: { platform?: Platform; range?: DateRangeFilter; linkId?: string }) => {
-    const next = buildAppHash(id, tab, {
+    const next = filteredHash(id, tab, {
       platform: p.platform ?? platform,
       range: p.range ?? range,
-      linkId: tab === 'analytics' ? (p.linkId ?? selectedLinkId) : undefined,
+      linkId: p.linkId ?? selectedLinkId,
     });
     if (location.hash !== next) location.hash = next;
   };
@@ -356,11 +293,7 @@ export function AppPage({
                           icon="M3 3v18h18M18 17V9M13 17V5M8 17v-3"
                           label="Analytics"
                           onClick={() => {
-                            location.hash = buildAppHash(app.id, 'analytics', {
-                              linkId: l.id,
-                              platform,
-                              range,
-                            });
+                            location.hash = filteredHash(app.id, 'analytics', { linkId: l.id, platform, range });
                           }}
                         />
                         <LinkEditor
