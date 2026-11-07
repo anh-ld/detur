@@ -13,7 +13,6 @@ const codeBlock = {
   borderRadius: 'var(--k-radius)',
 } as const;
 
-// labelled code block with a copy button
 export function Snippet({ label, value, copyLabel, icon }: { label: string; value: string; copyLabel: string; icon?: boolean }) {
   return (
     <Field>

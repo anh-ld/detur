@@ -2,7 +2,6 @@ import { Field, Input, Label } from 'kinu';
 import { mono, row } from '../lib/styles';
 import { CopyButton } from './copy-button';
 
-// read-only secret with a copy button
 export function SecretField({ label, value, copyLabel }: { label: string; value: string; copyLabel: string }) {
   return (
     <Field>

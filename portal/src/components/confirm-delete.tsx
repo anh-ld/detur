@@ -5,8 +5,7 @@ import { closeDialog, openDialog } from '../lib/dialog';
 import { muted, row } from '../lib/styles';
 import { ICONS, IconButton } from './icons';
 
-// in-page confirm (replaces window.confirm). requireAdmin gates the trigger: prompt first,
-// confirm opens only on successful elevation. Open/close by id: kinu Dialog.Close needs the
+// requireAdmin gates the trigger: prompt first, confirm opens only on successful elevation. Open/close by id: kinu Dialog.Close needs the
 // Dialog.Trigger polyfill, absent here.
 export function ConfirmDelete({
   title,

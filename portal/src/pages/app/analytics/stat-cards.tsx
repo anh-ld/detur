@@ -7,7 +7,6 @@ import { Skeleton } from '../../../components/page';
 import { ICONS, LINES, Metric } from './constants';
 import { sum } from './helpers';
 
-// icon + label, total; hint as tooltip
 export function Stat({ data, metric, hint, extra }: { data: Analytics | null; metric: Metric; hint: string; extra?: ComponentChildren }) {
   const s = LINES.find((l) => l.key === metric)!;
   return (
@@ -38,7 +37,6 @@ export function Stat({ data, metric, hint, extra }: { data: Analytics | null; me
   );
 }
 
-// title + subtitle left, optional big total right
 export function ChartCard({
   title,
   sub,

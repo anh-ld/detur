@@ -1,3 +1,4 @@
+import { hostOf } from '../lib/format';
 import { CopyButton } from './copy-button';
 import { ICONS, IconButton } from './icons';
 
@@ -10,7 +11,7 @@ export function ShortLink({ base, linkKey }: { base: string; linkKey: string }) 
   return (
     <span class="short-link">
       <span class="short-link-text" title={url}>
-        <span class="short-link-host">{base.replace(/^https?:\/\//, '')}/</span>
+        <span class="short-link-host">{hostOf(base)}/</span>
         <strong>{linkKey}</strong>
       </span>
       {base && (

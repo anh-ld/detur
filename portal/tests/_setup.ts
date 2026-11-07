@@ -5,6 +5,9 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 // so the detur_admin session round-trips in integration suites.
 const nodeFetch = globalThis.fetch;
 GlobalRegistrator.register();
+// import after register: the testing library binds `screen` to document at load
+const { configure } = await import('@testing-library/preact');
+configure({ asyncUtilTimeout: 5000 });
 
 const jar = new Map<string, Map<string, string>>();
 
@@ -38,8 +41,9 @@ globalThis.fetch = (async (input: any, init?: any) => {
     const m = sc.match(/^([^=;]+)=([^;]*)/);
     if (!m) continue;
     const [name, value] = [m[1], m[2]];
-    if (value === '' && /Max-Age=0/i.test(sc)) {
-      cookies?.delete(name); // deletion cookie (exit): drop
+    const expired = value === '' && /Max-Age=0/i.test(sc);
+    if (expired) {
+      cookies?.delete(name);
       if (cookies?.size === 0) jar.delete(host);
       continue;
     }

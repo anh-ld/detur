@@ -1,5 +1,3 @@
-// shapes of the Go API's JSON
-
 export interface App {
   id: string;
   name: string;

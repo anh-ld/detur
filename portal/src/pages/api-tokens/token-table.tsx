@@ -1,10 +1,9 @@
 import { Button, Table } from 'kinu';
 import { ApiToken, App } from '../../lib/types';
+import { fmtDate } from '../../lib/format';
 import { gateOpen } from '../../lib/admin';
 import { openDialog } from '../../lib/dialog';
 import { mono, row } from '../../lib/styles';
-
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' });
 
 export function TokenTable({
   tokens,

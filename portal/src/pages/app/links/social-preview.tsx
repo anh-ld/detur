@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { Accordion, Field, Input, Label, Select, Textarea } from 'kinu';
 import type { SocialPreset } from '../../../lib/types';
+import { hostOf } from '../../../lib/format';
 import { muted } from '../../../lib/styles';
 import { httpsUrl, OG_DESC_MAX, OG_TITLE_MAX, type LinkDraft } from './link-draft';
 
@@ -93,7 +94,7 @@ export function SocialPreview({
             <div class="og-card">
               {httpsUrl(draft.ogImage.trim()) && <img src={draft.ogImage.trim()} alt="" />}
               <div>
-                <small>{linkBase.replace(/^https?:\/\//, '') || 'detur'}</small>
+                <small>{hostOf(linkBase) || 'detur'}</small>
                 <strong>{draft.ogTitle || draft.key || 'Untitled'}</strong>
                 {draft.ogDescription && <p>{draft.ogDescription}</p>}
               </div>

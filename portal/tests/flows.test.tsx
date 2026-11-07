@@ -212,7 +212,7 @@ describe('portal client flows', () => {
     fireEvent.keyDown(tagsInput, { key: 'Enter' });
     within(dlg).getByText('alice');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Remove black-friday' }));
-    gone(within(dlg).queryByRole('button', { name: 'Remove black-friday' })); // chip gone
+    gone(within(dlg).queryByRole('button', { name: 'Remove black-friday' }));
     await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await api.listLinks(app.id)).find((l) => l.id === tagged.id)!.tags).toEqual(['spring', 'alice']));

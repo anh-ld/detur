@@ -55,10 +55,10 @@ export function VariantsSection({ variants }: { variants: VariantStat[] }) {
                   <strong>{v.variant}</strong>
                 </td>
                 <td data-label="Clicks" className="num">
-                  {v.clicks.toLocaleString()}
+                  {fmt(v.clicks)}
                 </td>
                 <td data-label="Installs" className="num">
-                  {v.installs.toLocaleString()}
+                  {fmt(v.installs)}
                 </td>
                 <td data-label="Conversion" className="num">
                   {(v.conversion_rate * 100).toFixed(1)}%

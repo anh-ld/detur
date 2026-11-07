@@ -5,6 +5,7 @@ import { adminCall, AdminGateAborted, useGatedLoad } from '../../../lib/admin';
 import { AdminRequired } from '../../../components/admin';
 import { CodeEditor } from '../../../components/code-editor';
 import { Loading } from '../../../components/page';
+import { fmt } from '../../../lib/format';
 import { muted, row } from '../../../lib/styles';
 import { App, AppPage, PagePreview } from '../../../lib/types';
 import { useLatest } from '../../../lib/use-latest';
@@ -90,7 +91,7 @@ export function PageEditor({ app }: { app: App }) {
               HTML
             </Label>
             <small style={{ ...muted, ...(bytes > PAGE_MAX ? { color: 'hsl(var(--k-destructive))' } : {}) }}>
-              {html ? 'Custom' : 'Default'} page · {bytes.toLocaleString()} / {PAGE_MAX.toLocaleString()} bytes
+              {html ? 'Custom' : 'Default'} page · {fmt(bytes)} / {fmt(PAGE_MAX)} bytes
             </small>
           </div>
           <CodeEditor id="page-html" value={text} onInput={setText} height={BOX_HEIGHT} />

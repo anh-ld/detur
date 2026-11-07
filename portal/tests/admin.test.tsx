@@ -1,5 +1,4 @@
 // gated admin flows: real Go binary w/ ADMIN_PASSWORD set. Unset-password suite: flows.test.tsx.
-// fileParallelism: false + per-file server -> :8080 SDK port and portal ports never collide.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';

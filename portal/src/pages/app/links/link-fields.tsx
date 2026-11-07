@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { Accordion, Field, Input, InputGroup, Label, Select, Separator } from 'kinu';
 import { RedirectProfile, SocialPreset } from '../../../lib/types';
+import { hostOf } from '../../../lib/format';
 import { mono, muted } from '../../../lib/styles';
 import type { LinkDraft } from './link-draft';
 import { SocialPreview } from './social-preview';
@@ -40,7 +41,7 @@ export function LinkFields({
         <Field>
           <Label htmlFor={`${id}-key`}>Short link</Label>
           <InputGroup class="prefix-group">
-            {linkBase && <legend>{linkBase.replace(/^https?:\/\//, '')}/</legend>}
+            {linkBase && <legend>{hostOf(linkBase)}/</legend>}
             <Input
               id={`${id}-key`}
               style={mono}

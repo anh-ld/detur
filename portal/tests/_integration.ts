@@ -1,5 +1,5 @@
 // real Go binary + fresh SQLite per file. flows (AE1: ADMIN_PASSWORD unset) and admin (gated)
-// each own their server; fileParallelism: false -> :8080 SDK port and portal ports never collide.
+// each own their server.
 import { execSync, spawn, ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { expect } from 'bun:test';
 import { screen, within } from '@testing-library/preact';
 
-const repoRoot = resolve(process.cwd(), '..'); // bun test runs from portal/
+const repoRoot = resolve(import.meta.dir, '../..');
 
 export async function waitForServer(url: string, ms: number, server: ChildProcess, getStderr: () => string): Promise<void> {
   const start = Date.now();

@@ -1,5 +1,6 @@
 import { Badge, Button } from 'kinu';
 import { Webhook } from '../../../lib/types';
+import { fmtDate } from '../../../lib/format';
 import { ConfirmDelete } from '../../../components/confirm-delete';
 import { CopyButton } from '../../../components/copy-button';
 import { mono, muted, row } from '../../../lib/styles';
@@ -30,7 +31,7 @@ export function WebhookRow({
   onRotate: () => void;
   onDelete: () => void;
 }) {
-  const created = new Date(wh.createdAt).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' });
+  const created = fmtDate(wh.createdAt);
   return (
     <tr>
       <td style={mid}>
