@@ -1,6 +1,6 @@
 import { cloneElement, JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Alert, Badge, Button, Card, Checkbox, Dialog, Empty, Table } from 'kinu';
+import { Alert, Badge, Button, Card, Checkbox, Dialog, Empty, Label, Popover, PopoverContent, PopoverTrigger, Table } from 'kinu';
 import { Analytics, api, App, DateRangeFilter, Link, Platform, RedirectProfile, SocialPreset, VariantStat } from './api';
 import { closeDialog, ConfirmDelete, IconButton, ICONS, Loading, muted, PageHeader, row, ShortLink } from './ui';
 import { AnalyticsView, Filters, fmt } from './analytics';
@@ -403,23 +403,27 @@ export function AppPage({
 function TagFilter({ tags, selected, onChange }: { tags: string[]; selected: string[]; onChange: (t: string[]) => void }) {
   const toggle = (t: string) => onChange(selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t]);
   return (
-    <details class="tag-filter">
-      <summary>Tags{selected.length ? ` · ${selected.length}` : ''}</summary>
-      <div class="tag-filter-panel">
-        {tags.length === 0 && <p style={muted}>No tags yet.</p>}
-        {tags.map((t) => (
-          <label class="check-option" key={t}>
-            <Checkbox checked={selected.includes(t)} onChange={() => toggle(t)} />
-            {t}
-          </label>
-        ))}
-        {selected.length > 0 && (
-          <Button size="sm" variant="outline" onClick={() => onChange([])}>
-            Clear
-          </Button>
-        )}
-      </div>
-    </details>
+    <Popover>
+      <PopoverTrigger>
+        <Button variant="outline">Tags{selected.length ? ` · ${selected.length}` : ''}</Button>
+      </PopoverTrigger>
+      <PopoverContent>
+        <div class="tag-filter-panel">
+          {tags.length === 0 && <p style={muted}>No tags yet.</p>}
+          {tags.map((t) => (
+            <Label class="check-option" key={t}>
+              <Checkbox checked={selected.includes(t)} onChange={() => toggle(t)} />
+              {t}
+            </Label>
+          ))}
+          {selected.length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => onChange([])}>
+              Clear
+            </Button>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

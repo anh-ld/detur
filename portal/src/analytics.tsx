@@ -1,6 +1,6 @@
 import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, Empty, Input, Select, Table } from 'kinu';
+import { Badge, Button, Card, Empty, Input, Select, Skeleton as KSkeleton, Table } from 'kinu';
 import { Analytics, DateRangeFilter, DayStat, Link, Mark, Platform, VariantStat } from './api';
 import { mono, muted, row } from './ui';
 
@@ -54,7 +54,7 @@ const sum = (days: DayStat[], k: Metric) => days.reduce((n, d) => n + d[k], 0);
 export const fmt = (n: number) => n.toLocaleString('en');
 
 export const Skeleton = ({ w = '100%', h }: { w?: number | string; h: number }) => (
-  <span class="skeleton" style={{ width: w, height: h }} />
+  <KSkeleton style={{ width: w, height: h }} />
 );
 
 export type RangePreset =

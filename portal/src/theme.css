@@ -105,106 +105,6 @@ main {
   text-decoration: none;
 }
 
-.app-switch {
-  position: relative;
-}
-
-.app-switch > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid hsl(var(--k-border));
-  border-radius: 10px;
-  background: hsl(var(--k-card));
-  box-shadow: rgba(0, 0, 0, 0.04) 0px 1px 2px 0px;
-  color: hsl(var(--k-foreground));
-  font-weight: 500;
-  list-style: none;
-  cursor: pointer;
-  transition: border-color 120ms ease;
-}
-
-.app-switch > summary::-webkit-details-marker {
-  display: none;
-}
-
-.app-switch > summary::before {
-  content: none !important;
-}
-
-.app-switch > summary:hover,
-.app-switch[open] > summary {
-  border-color: hsl(var(--k-input));
-}
-
-.app-switch svg {
-  flex: none;
-  color: hsl(var(--k-muted-foreground));
-}
-
-.app-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 100%;
-  max-height: 320px;
-  overflow-y: auto;
-  box-sizing: border-box;
-  display: grid;
-  gap: 2px;
-  padding: 6px;
-  border: 1px solid hsl(var(--k-border));
-  border-radius: 10px;
-  background: hsl(var(--k-card));
-  box-shadow: rgba(0, 0, 0, 0.08) 0px 8px 24px 0px;
-}
-
-.app-menu a {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 8px;
-  border-radius: 6px;
-  font-size: 14px;
-  color: hsl(var(--k-foreground));
-  text-decoration: none;
-}
-
-.app-menu a:hover {
-  background: hsl(var(--k-muted));
-}
-
-.app-menu a[aria-current] {
-  font-weight: 500;
-}
-
-.app-menu a[aria-current] svg {
-  margin-left: auto;
-  color: hsl(var(--k-primary));
-}
-
-.app-menu hr {
-  margin: 4px 0;
-  border: 0;
-  border-top: 1px solid hsl(var(--k-border));
-}
-
-.app-menu-note {
-  padding: 6px 8px;
-  font-size: 13px;
-  color: hsl(var(--k-muted-foreground));
-}
-
-.app-switch-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .side-nav {
   display: grid;
   gap: 2px;
@@ -321,46 +221,6 @@ button.nav-link {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
-}
-
-/* Admin chip: one pill, Exit inside after a hairline */
-.admin-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding-left: 10px;
-  border: 1px solid hsl(var(--k-border));
-  border-radius: 999px;
-  font-size: 13px;
-  color: hsl(var(--k-foreground));
-  white-space: nowrap;
-}
-
-.admin-chip-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: hsl(142 71% 45%);
-}
-
-.admin-chip button {
-  display: inline-flex;
-  align-items: center;
-  height: 100%;
-  padding: 0 10px 0 8px;
-  border: 0;
-  border-left: 1px solid hsl(var(--k-border));
-  border-radius: 0 999px 999px 0;
-  background: none;
-  font: inherit;
-  color: hsl(var(--k-destructive));
-  cursor: pointer;
-  transition: background 120ms ease;
-}
-
-.admin-chip button:hover {
-  background: hsl(var(--k-destructive) / 0.1);
 }
 
 [k='separator'] {
@@ -804,24 +664,6 @@ button.nav-link {
   background: hsl(var(--chart-wash));
 }
 
-/* Loading placeholders */
-.skeleton {
-  display: block;
-  border-radius: 6px;
-  background: linear-gradient(90deg, hsl(var(--k-muted)) 25%, hsl(var(--k-border)) 50%, hsl(var(--k-muted)) 75%) 0 0 / 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
-}
-
-.skeleton-fill {
-  fill: hsl(var(--k-muted));
-}
-
-@keyframes shimmer {
-  to {
-    background-position: -200% 0;
-  }
-}
-
 .spin {
   animation: spin 0.8s linear infinite;
 }
@@ -929,7 +771,6 @@ button.nav-link {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton,
   .spin {
     animation: none;
   }
@@ -1015,10 +856,6 @@ button.nav-link {
   .app-switch {
     min-width: 0;
     max-width: 50vw;
-  }
-
-  .app-switch > summary {
-    padding: 4px 8px;
   }
 
   .side-foot {
@@ -1364,79 +1201,14 @@ button:disabled {
   }
 }
 
-.tag-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 4px 2px 8px;
-  border-radius: 999px;
-  background: hsl(var(--k-muted));
-  font-size: 12px;
-}
-
-.tag-pill button {
-  border: 0;
-  background: none;
-  padding: 0 2px;
-  font-size: 14px;
-  line-height: 1;
-  color: hsl(var(--k-muted-foreground));
-  cursor: pointer;
-}
-
-.tag-pill button:hover {
-  color: hsl(var(--k-foreground));
-}
-
 /* Tag filter: select-like summary, checkbox panel drops under it */
-.tag-filter {
-  position: relative;
-}
-
-.tag-filter > summary {
-  list-style: none;
-  display: inline-flex;
-  align-items: center;
-  height: 36px;
-  padding: 0 30px 0 12px;
-  border: 1px solid hsl(var(--k-border));
-  border-radius: 10px;
-  background: hsl(var(--k-card))
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><path d='M6 8l4 4 4-4' stroke='%2371717a' stroke-width='1.75' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>")
-    no-repeat right 10px center / 14px;
-  box-shadow: rgba(0, 0, 0, 0.04) 0px 1px 2px 0px;
-  font-size: 14px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.tag-filter > summary::-webkit-details-marker {
-  display: none;
-}
-
-.tag-filter > summary::before {
-  content: none; /* kinu's left disclosure arrow; the chevron sits on the right */
-}
-
-.tag-filter[open] > summary {
-  border-color: hsl(var(--k-input));
-}
-
 .tag-filter-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
   display: grid;
+  padding: 12px;
   gap: 8px;
   min-width: 180px;
   max-height: 280px;
   overflow-y: auto;
-  padding: 12px;
-  border: 1px solid hsl(var(--k-border));
-  border-radius: 10px;
-  background: hsl(var(--k-card));
-  box-shadow: var(--shadow-md);
 }
 
 /* Form sections + optional disclosures */
@@ -1458,35 +1230,6 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
-}
-
-details > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  list-style: none;
-  cursor: pointer;
-  font-weight: 500;
-  padding: 4px 0;
-}
-
-details > summary::-webkit-details-marker {
-  display: none;
-}
-
-details > summary::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  margin: 0 4px 0 2px;
-  border-right: 1.5px solid hsl(var(--k-muted-foreground));
-  border-bottom: 1.5px solid hsl(var(--k-muted-foreground));
-  transform: rotate(-45deg);
-  transition: transform 150ms ease;
-}
-
-details[open] > summary::before {
-  transform: rotate(45deg);
 }
 
 /* Selects inside forms look like inputs (the filled pill style is for page filters) */

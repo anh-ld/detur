@@ -9,6 +9,7 @@ import {
   Field,
   Input,
   Label,
+  Slider,
   Switch,
   Tab,
   TabList,
@@ -827,9 +828,8 @@ export function MatchQualityView({ app }: { app: App }) {
             <Label htmlFor="whatif">
               At threshold {at}: lose {lose} matches, gain up to {gain} organic installs
             </Label>
-            <input
+            <Slider
               id="whatif"
-              type="range"
               min={THRESHOLD.min}
               max={THRESHOLD.max}
               step={50}

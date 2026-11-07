@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { Combobox, ComboboxInput, ComboboxList, ComboboxOption, Field, Input, InputGroup, Label, Select, Separator, Textarea } from 'kinu';
+import { Accordion, Chip, Combobox, ComboboxInput, ComboboxList, ComboboxOption, Field, Input, InputGroup, Label, Select, Separator, Textarea } from 'kinu';
 import { Link, RedirectProfile, SocialPreset } from './api';
 import { mono, muted } from './ui';
 
@@ -161,16 +161,15 @@ export function LinkFields({
         </Label>
         <div class="tag-box">
           {draft.tags.map((t) => (
-            <span class="tag-pill" key={t}>
+            <Chip key={t}>
               {t}
-              <button
-                type="button"
+              <Chip.Button
                 aria-label={`Remove ${t}`}
                 onClick={() => setDraft({ ...draft, tags: draft.tags.filter((x) => x !== t) })}
               >
                 ×
-              </button>
-            </span>
+              </Chip.Button>
+            </Chip>
           ))}
           <Combobox>
             <ComboboxInput
@@ -258,9 +257,11 @@ export function LinkFields({
         <Field.Description>Desktop visitors, and phones with no store page above for their platform.</Field.Description>
       </Field>
 
-      <details open={!!(draft.expiresAt || draft.expiredUrl)}>
+      <Accordion open={!!(draft.expiresAt || draft.expiredUrl)}>
         <summary>
-          Expiry <span style={muted}>optional</span>
+          <span>
+            Expiry <span style={muted}>optional</span>
+          </span>
         </summary>
         <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
           <Field>
@@ -283,11 +284,13 @@ export function LinkFields({
             />
           </Field>
         </div>
-      </details>
+      </Accordion>
 
-      <details open={!!(draft.ogTitle || draft.ogDescription || draft.ogImage)}>
+      <Accordion open={!!(draft.ogTitle || draft.ogDescription || draft.ogImage)}>
         <summary>
-          Social preview <span style={muted}>optional</span>
+          <span>
+            Social preview <span style={muted}>optional</span>
+          </span>
         </summary>
         <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
           {socialPresets.length > 0 && (
@@ -359,7 +362,7 @@ export function LinkFields({
             </figure>
           )}
         </div>
-      </details>
+      </Accordion>
     </>
   );
 }

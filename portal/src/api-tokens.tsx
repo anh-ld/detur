@@ -52,7 +52,7 @@ function AppChecks({
   return (
     <div style={{ display: "grid", gap: 10, marginTop: 4 }}>
       {apps.map((a) => (
-        <label key={a.id} class="check-option">
+        <Label key={a.id} class="check-option">
           <Checkbox
             checked={value.includes(a.id)}
             onChange={() =>
@@ -64,7 +64,7 @@ function AppChecks({
             }
           />
           <span class="check-option-title">{a.name}</span>
-        </label>
+        </Label>
       ))}
     </div>
   );

@@ -105,3 +105,5 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **Self-hosted**: no billing, tiers, or godetour platform API.
 - **SDK**: `effectiveLimit: -1` = unlimited (2.3.x). URLs hardcoded to `godetour.dev` → regenerate the patch per SDK upgrade.
 - **Example app** (`example/expo-app/`): untested on real devices.
+- **Portal tests**: need `:8080` free (a running `detur` makes every server-backed test file fail). Stop it first.
+- **kinu `Collapsible`**: injects its own empty `<summary>`; use `Accordion` for `<details>`-style sections.

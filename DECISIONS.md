@@ -127,6 +127,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 |---|---|---|---|---|
 | P1 | Gateway → everyone is a viewer (internal team). Marketing actions (links, rules, A/B splits, link delete) open; important ones (apps, keys, matching, tagging, fraud, webhooks) admin → `ADMIN_PASSWORD` → 12h signed browser session. No user table, no RBAC. | Ours | One operator, self-hosted, team brings its own auth; one password beats roles at this scale. | 009 |
 | P2 | Portal guard: Host = loopback, listener, or `PORTAL_HOSTS`. Origin = same origin (port included) or a `PORTAL_HOSTS` name; other localhost ports rejected. | Ours | DNS rebinding + CSRF. Cookies ignore ports → any localhost page rode the admin cookie. Gateway names got 403. | — |
+| P3 | Portal UI uses kinu components wherever one fits (`Skeleton`, `Slider`, `Kbd`, `Chip`, `Status`, `Select` (app switcher), `Popover`, `Accordion`, `Label`). Kept hand-rolled: stacked split bar and score histogram (kinu `Meter`/`Progress` are single-value), side nav (kinu `Sidebar` is a mobile drawer), `ConfirmDelete` (`AlertDialog` aliases `Dialog`), code editor overlay. | Ours | Fewer custom CSS rules; kinu handles focus, keyboard, outside-click. | — |
 
 ## Data API
 

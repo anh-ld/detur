@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { ToastContainer } from 'kinu';
+import { Chip, Kbd, Select, Status, ToastContainer } from 'kinu';
 import { api } from './api';
 import {
   AdminPasswordDialog,
@@ -187,7 +187,7 @@ export function App() {
               >
                 <Icon d={t.icon} />
                 {t.label}
-                <kbd aria-hidden="true">{t.key}</kbd>
+                <Kbd aria-hidden="true">{t.key}</Kbd>
               </a>
             ))
           ) : (
@@ -211,10 +211,10 @@ export function App() {
             </button>
           )}
           {ui.admin && (
-            <span role="status" class="admin-chip">
-              <span class="admin-chip-dot" aria-hidden="true" />
+            <Chip role="status" class="admin-chip">
+              <Status variant="success" />
               Admin · until {fmtUntil(ui.until)}
-              <button type="button" aria-label="Exit" title="Exit admin" onClick={exitAdmin}>
+              <Chip.Button aria-label="Exit" title="Exit admin" onClick={exitAdmin}>
                 <svg
                   width="14"
                   height="14"
@@ -228,8 +228,8 @@ export function App() {
                 >
                   <path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0" />
                 </svg>
-              </button>
-            </span>
+              </Chip.Button>
+            </Chip>
           )}
           {logoutUrl && (
             <a class="nav-link" href={logoutUrl}>
@@ -259,49 +259,26 @@ export function App() {
   );
 }
 
-// sidebar app switcher: menu of apps (same tab), All apps last. Native <details>; closes on pick/outside click/Esc
+// sidebar app switcher: native select of apps (same tab), All apps last
 function AppSwitch({ id, tab, name }: { id: string; tab: AppTab; name: string }) {
-  const ref = useRef<HTMLDetailsElement>(null);
-  const [apps, setApps] = useState<AppT[] | null>(null);
-  const close = () => ref.current?.removeAttribute('open');
+  const [apps, setApps] = useState<AppT[]>([]);
   useEffect(() => {
-    const out = (e: Event) => !ref.current?.contains(e.target as Node) && close();
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && close();
-    addEventListener('pointerdown', out);
-    addEventListener('keydown', esc);
-    return () => {
-      removeEventListener('pointerdown', out);
-      removeEventListener('keydown', esc);
-    };
-  }, []);
-  useEffect(close, [id, tab]);
+    api.listApps().then(setApps, () => setApps([]));
+  }, [id]);
   return (
-    <details
-      ref={ref}
+    <Select
       class="app-switch"
-      onToggle={(e) => (e.currentTarget as HTMLDetailsElement).open && api.listApps().then(setApps, () => setApps([]))}
+      aria-label="Switch app"
+      value={id}
+      onChange={(e) => (location.hash = e.currentTarget.value ? tabHref(e.currentTarget.value, tab) : '#/')}
     >
-      <summary aria-label={`Switch app, current: ${name}`}>
-        <span class="app-switch-name">{name || '…'}</span>
-        <Icon d="m7 15 5 5 5-5M7 9l5-5 5 5" />
-      </summary>
-      <div class="app-menu" role="menu">
-        {apps === null ? (
-          <span class="app-menu-note">Loading…</span>
-        ) : (
-          apps.map((a) => (
-            <a key={a.id} role="menuitem" href={tabHref(a.id, tab)} aria-current={a.id === id ? 'true' : undefined}>
-              <span class="app-switch-name">{a.name}</span>
-              {a.id === id && <Icon d="M20 6 9 17l-5-5" />}
-            </a>
-          ))
-        )}
-        <hr />
-        <a role="menuitem" href="#/">
-          <Icon d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" />
-          All apps
-        </a>
-      </div>
-    </details>
+      {!apps.some((a) => a.id === id) && <option value={id}>{name || '…'}</option>}
+      {apps.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.name}
+        </option>
+      ))}
+      <option value="">All apps</option>
+    </Select>
   );
 }

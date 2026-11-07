@@ -460,13 +460,13 @@ function AddWebhookDialog({ appId, onCreated }: { appId: string; onCreated: (wh:
             <Label>Subscribed Events</Label>
             <div style={{ display: 'grid', gap: 12, marginTop: 4 }}>
               {EVENT_OPTIONS.map((o) => (
-                <label key={o.type} class="check-option">
+                <Label key={o.type} class="check-option">
                   <Checkbox checked={types.includes(o.type)} onChange={() => toggleType(o.type)} />
                   <span>
                     <span class="check-option-title">{o.type}</span>
                     <span class="check-option-desc">{o.desc}</span>
                   </span>
-                </label>
+                </Label>
               ))}
             </div>
           </Field>
