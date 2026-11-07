@@ -110,3 +110,4 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **kinu `Collapsible`**: injects its own empty `<summary>`; use `Accordion` for `<details>`-style sections.
 - **Portal dev**: `bun run dev` full-reloads on edit (no state-preserving HMR for Preact). Build prints `@position-try` warnings from kinu CSS: harmless.
 - **Portal tests**: use `gone(el)`, not `expect(el).toBeNull()`. Bun formats a failing DOM node eagerly (millions of lines, blocks the event loop ~1s per `waitFor` poll).
+- **Server tests**: CI runs `-race` only on goroutine tests and non-SQLite packages (`server/scripts/test.sh`). `-race` makes the pure-Go SQLite driver ~16x slower (full suite ~3 min vs ~25s). New concurrency test → add its name to the `-run` list. Full check: `go test -race ./...`.

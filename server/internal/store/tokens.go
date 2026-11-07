@@ -75,7 +75,7 @@ func dedup(ids []string) []string {
 
 // ListTokens: all tokens, oldest first, with allowed app ids.
 func (s *Store) ListTokens() ([]Token, error) {
-	return s.tokens(`ORDER BY created_at, id`)
+	return s.tokens(`ORDER BY created_at, rowid`)
 }
 
 // TokenByPlain: token for a presented secret (hash lookup); ErrNotFound on miss.
