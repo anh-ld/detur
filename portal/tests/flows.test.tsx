@@ -1,4 +1,5 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { vi } from './_vi';
 import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +8,7 @@ import { api, setApiBase } from '../src/api';
 import { App } from '../src/app';
 import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
-import { go, openDialog, saveButton, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './_integration';
+import { gone, go, openDialog, saveButton, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './_integration';
 
 // the sidebar app switcher is a native select: its selected option names the current app
 const currentApp = () => (screen.getByLabelText('Switch app') as HTMLSelectElement).selectedOptions[0]?.textContent;
@@ -150,8 +151,8 @@ describe('portal client flows', () => {
     // row: bare id, no key/copy/Edit (config on settings page)
     const card = (await screen.findByText(name)).closest('tr')!;
     within(card).getByText(appId, { exact: true });
-    expect(within(card).queryByRole('button', { name: /^Copy/ })).toBeNull();
-    expect(within(card).queryByRole('button', { name: 'Edit' })).toBeNull();
+    gone(within(card).queryByRole('button', { name: /^Copy/ }));
+    gone(within(card).queryByRole('button', { name: 'Edit' }));
     expect((await api.listApps()).some((a) => a.id === appId)).toBe(true);
     await api.deleteApp(appId);
   });
@@ -211,7 +212,7 @@ describe('portal client flows', () => {
     fireEvent.keyDown(tagsInput, { key: 'Enter' });
     within(dlg).getByText('alice');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Remove black-friday' }));
-    expect(within(dlg).queryByRole('button', { name: 'Remove black-friday' })).toBeNull(); // chip gone
+    gone(within(dlg).queryByRole('button', { name: 'Remove black-friday' })); // chip gone
     await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await api.listLinks(app.id)).find((l) => l.id === tagged.id)!.tags).toEqual(['spring', 'alice']));
@@ -372,7 +373,7 @@ describe('portal client flows', () => {
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('heading', { name: 'Activity' });
     expect(selectedTab()).toEqual(['Analytics']);
-    expect(screen.queryByRole('button', { name: 'New link' })).toBeNull();
+    gone(screen.queryByRole('button', { name: 'New link' }));
     screen.getByLabelText('Date range');
 
     fireEvent.click(screen.getByRole('link', { name: 'Fraud' }));
@@ -381,22 +382,22 @@ describe('portal client flows', () => {
     await screen.findByRole('region', { name: 'Fraud signals' });
     screen.getByRole('region', { name: 'Flagged installs' });
     expect(selectedTab()).toEqual(['Fraud']);
-    expect(screen.queryByLabelText('Platform')).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Activity' })).toBeNull();
+    gone(screen.queryByLabelText('Platform'));
+    gone(screen.queryByRole('heading', { name: 'Activity' }));
 
     fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
     expect(location.hash).toBe(`#/apps/${app.id}/settings`);
     window.dispatchEvent(new Event('hashchange'));
     await screen.findByRole('heading', { name: 'API key' });
     expect(selectedTab()).toEqual(['Settings']);
-    expect(screen.queryByLabelText('Platform')).toBeNull();
+    gone(screen.queryByLabelText('Platform'));
     // fraud only on its tab: none on Settings, even after all Settings requests land
     fireEvent.click(screen.getByRole('tab', { name: 'Matching' }));
     await screen.findByText('No installs yet.');
     await settle();
-    expect(screen.queryByRole('region', { name: 'Fraud signals' })).toBeNull();
-    expect(screen.queryByRole('region', { name: 'Flagged installs' })).toBeNull();
-    expect(screen.queryByText('Click flooding')).toBeNull();
+    gone(screen.queryByRole('region', { name: 'Fraud signals' }));
+    gone(screen.queryByRole('region', { name: 'Flagged installs' }));
+    gone(screen.queryByText('Click flooding'));
 
     fireEvent.click(screen.getByRole('link', { name: 'Webhooks' }));
     expect(location.hash).toBe(`#/apps/${app.id}/webhooks`);
@@ -427,13 +428,13 @@ describe('portal client flows', () => {
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '' } });
     fireEvent.click(saveButton(screen.getByLabelText('Match threshold')));
     await screen.findByText('threshold and window are required');
-    expect(screen.queryByText('Saved.')).toBeNull();
+    gone(screen.queryByText('Saved.'));
 
     // out of range: rejected client-side, no round trip
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '1300' } });
     fireEvent.click(saveButton(screen.getByLabelText('Match threshold')));
     await screen.findByText(/threshold must be 700–1200/);
-    expect(screen.queryByText('Saved.')).toBeNull();
+    gone(screen.queryByText('Saved.'));
     expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 900, matchWindowMinutes: 30 });
     await api.deleteApp(app.id);
   });
@@ -497,7 +498,7 @@ describe('portal client flows', () => {
 
     fireEvent.click(within(card).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
-    await waitFor(() => expect(screen.queryByText(name)).toBeNull());
+    await waitFor(() => gone(screen.queryByText(name)));
     await expect(api.getApp(app.id)).rejects.toMatchObject({ status: 404 });
   });
 
@@ -517,7 +518,7 @@ describe('portal client flows', () => {
     render(<AppsPage />);
     const row = (await screen.findByText(name)).closest('tr')!;
     within(row).getByText('iOS', { exact: true });
-    expect(within(row).queryByRole('button', { name: 'Edit' })).toBeNull();
+    gone(within(row).queryByRole('button', { name: 'Edit' }));
     await api.deleteApp(app.id);
   });
 
@@ -786,7 +787,7 @@ describe('portal client flows', () => {
     expect(rows).toEqual(['Click flooding', 'Suspicious timing', 'Bot traffic', 'Datacenter IP', 'Repeated device']);
     for (const label of ['Click flooding', 'Suspicious timing', 'Bot traffic', 'Datacenter IP']) expect(pressed(label)).toEqual(['Tagged']);
     within(screen.getByRole('listitem', { name: 'Repeated device' })).getByText('Tag only');
-    expect(within(screen.getByRole('listitem', { name: 'Repeated device' })).queryByRole('group')).toBeNull();
+    gone(within(screen.getByRole('listitem', { name: 'Repeated device' })).queryByRole('group'));
     const shown = Object.fromEntries(
       [
         ['Max clicks per IP', 'velocityIpMax'],
@@ -810,7 +811,7 @@ describe('portal client flows', () => {
 
     // one press = one save, no confirm dialog
     fireEvent.click(within(modeGroup('Bot traffic')).getByRole('button', { name: 'Active' }));
-    expect(document.querySelector('dialog[open]')).toBeNull();
+    gone(document.querySelector('dialog[open]'));
     const t = await findToast('Bot traffic: active');
     expect(t.title).toBe('');
     expect(pressed('Bot traffic')).toEqual(['Active']);
@@ -964,7 +965,7 @@ describe('portal client flows', () => {
     render(<App />);
     const section = await screen.findByRole('region', { name: 'Flagged installs' });
     await within(section).findByText('Nothing flagged in this range.');
-    expect(within(section).queryByLabelText('Flagged installs per signal')).toBeNull();
+    gone(within(section).queryByLabelText('Flagged installs per signal'));
 
     // click -> launch within seconds: timing fires (tagged), install still attributed (IP 400 + iOS version 350 + timezone 200)
     expect((await click(key, IPHONE, true)).status).toBe(302);
@@ -975,7 +976,7 @@ describe('portal client flows', () => {
     const row = (await within(section).findByText(key)).closest('tr')!;
     expect(within(row).getByText('Suspicious timing').closest('[data-label="Signals"]')).not.toBeNull();
     within(row).getByText('Attributed, tagged only');
-    expect(within(row).queryByText(/Flagged click on/)).toBeNull();
+    gone(within(row).queryByText(/Flagged click on/));
     let counts = flaggedCounts(section);
     expect(counts['Suspicious timing']).toBe(1);
     expect(counts['Bot traffic']).toBe(0);
@@ -1016,7 +1017,7 @@ describe('portal client flows', () => {
     render(<AppPage id="does-not-exist" tab="links" />);
     await screen.findByText('App not found');
     screen.getByRole('link', { name: 'Back to apps' });
-    expect(screen.queryByRole('tablist')).toBeNull();
+    gone(screen.queryByRole('tablist'));
   });
 
   it('shell flow: hash routes reach apps and every app tab; malformed hash falls back to apps', async () => {
@@ -1041,7 +1042,7 @@ describe('portal client flows', () => {
     // bad %-encoding: no crash, falls back to apps page
     go('#/apps/%zz');
     await screen.findByRole('heading', { name: 'Apps' });
-    expect(screen.queryByText('Something went wrong')).toBeNull();
+    gone(screen.queryByText('Something went wrong'));
   });
 
   it('AE1: ADMIN_PASSWORD unset — no admin entry, elevation inert, admin APIs open without a session', async () => {
@@ -1050,8 +1051,8 @@ describe('portal client flows', () => {
     location.hash = '#/';
     render(<App />);
     await screen.findByRole('heading', { name: 'Apps' });
-    expect(screen.queryByRole('button', { name: 'Enter admin' })).toBeNull();
-    expect(screen.queryByText(/Admin · until/)).toBeNull();
+    gone(screen.queryByRole('button', { name: 'Enter admin' }));
+    gone(screen.queryByText(/Admin · until/));
 
     // nothing to elevate: POST rejects, GET stays inactive
     await expect(api.enterAdminMode('anything')).rejects.toMatchObject({ status: 403 });
@@ -1070,8 +1071,8 @@ describe('portal client flows', () => {
     fireEvent.click(await side.findByRole('link', { name: 'API' }));
     go('#/api'); // happy-dom: link click does not move the hash
     await screen.findByText(/API tokens need an admin password/);
-    expect(screen.queryByRole('button', { name: 'Create token' })).toBeNull();
+    gone(screen.queryByRole('button', { name: 'Create token' }));
     expect(side.getByRole('link', { name: 'API' }).getAttribute('aria-current')).toBe('page');
-    expect(side.getByRole('link', { name: 'Apps' }).getAttribute('aria-current')).toBeNull();
+    gone(side.getByRole('link', { name: 'Apps' }).getAttribute('aria-current'));
   });
 });

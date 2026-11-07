@@ -4,9 +4,10 @@ import { execSync, spawn, ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { expect } from 'bun:test';
 import { screen, within } from '@testing-library/preact';
 
-const repoRoot = resolve(process.cwd(), '..'); // vitest runs from portal/
+const repoRoot = resolve(process.cwd(), '..'); // bun test runs from portal/
 
 export async function waitForServer(url: string, ms: number, server: ChildProcess, getStderr: () => string): Promise<void> {
   const start = Date.now();
@@ -81,4 +82,10 @@ export function stopServer(server: ChildProcess, dbDir: string, bin: string) {
   server?.kill();
   if (dbDir) rmSync(dbDir, { recursive: true, force: true });
   rmSync(bin, { force: true });
+}
+
+// expect(x).toBeNull() for DOM nodes: bun formats a failing node eagerly (millions of lines, ~1s, blocks the
+// event loop inside waitFor), vitest only on the final failure. Print the tag instead.
+export function gone(el: unknown): void {
+  expect(el instanceof Element ? el.outerHTML.slice(0, 200) : el).toBeNull();
 }

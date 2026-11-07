@@ -1,9 +1,10 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { vi } from './_vi';
 import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { api, setApiBase } from '../src/api';
-import { startServer, stopServer, uniq, waitForServer } from './_integration';
+import { gone, startServer, stopServer, uniq, waitForServer } from './_integration';
 
 // short-link page scripts (safety-net timer, copy page, tap page) from the real Go binary, run in a
 // stubbed browser w/ fake timers. Go tests only see the HTML; these run the code.
@@ -207,7 +208,7 @@ describe('iOS copy page', () => {
       // copied link carries the paste token (server-minted, 16 chars)
       const pasted = params(b.replaced[0]).get('pasted_link');
       if (copyWorks) expect(pasted).toMatch(new RegExp(`^https://links\\.example/${key}\\?_dc=[0-9A-Za-z]{16}$`));
-      else expect(pasted).toBeNull();
+      else gone(pasted);
       vi.useRealTimers();
     }
   });

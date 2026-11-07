@@ -1,8 +1,11 @@
-import { fetch as nodeFetch } from 'undici';
+import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
-// happy-dom fetch enforces CORS; server is same-origin. Use Node's real fetch.
-// + minimal cookie jar (undici 8.11.2 has no CookieJar): Set-Cookie per host -> Cookie header,
+// happy-dom fetch enforces CORS; server is same-origin. Keep Bun's real fetch (captured before register).
+// + minimal cookie jar: Set-Cookie per host -> Cookie header,
 // so the detur_admin session round-trips in integration suites.
+const nodeFetch = globalThis.fetch;
+GlobalRegistrator.register();
+
 const jar = new Map<string, Map<string, string>>();
 
 const hostOf = (input: unknown): string => {

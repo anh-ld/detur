@@ -1,4 +1,6 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it } from 'bun:test';
+import { gone } from './_integration';
+import { vi } from './_vi';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
 import { AppPage } from '../src/detail';
 import { AnalyticsView } from '../src/analytics';
@@ -107,7 +109,7 @@ it('stale flagged installs response: a slow 7-day reply after switching to 30 da
   releaseSlow();
   await new Promise((r) => setTimeout(r, 50));
   screen.getByText('month-link');
-  expect(screen.queryByText('week-link')).toBeNull();
+  gone(screen.queryByText('week-link'));
 });
 
 const install = (o: Record<string, unknown>) => ({
@@ -212,7 +214,7 @@ it('switching apps: the old app, its links and its numbers never show under the 
 
   rerender(<AppPage id="appB" tab="links" onName={onName} />);
   await new Promise((r) => setTimeout(r, 50));
-  expect(screen.queryByText('old-link')).toBeNull();
+  gone(screen.queryByText('old-link'));
   release('links', []);
   await screen.findByText('No links yet');
 });
@@ -251,13 +253,13 @@ it('analytics error: a rejected range shows the alert; the next good range clear
   fireEvent.change(await screen.findByLabelText('Date range'), { target: { value: '30' } });
   expect(location.hash).toBe('#/apps/app1/analytics?days=30');
   rerender(<AppPage id="app1" tab="analytics" range={{ days: 30 }} />);
-  await waitFor(() => expect(screen.queryByText(/730 days/)).toBeNull());
+  await waitFor(() => gone(screen.queryByText(/730 days/)));
 
   rerender(<AppPage id="app1" tab="analytics" />);
   await screen.findByText(/730 days/);
   rerender(<AppPage id="app2" tab="settings" />);
   await screen.findByRole('heading', { name: 'API key' }); // past the loading screen, page rendered
-  expect(screen.queryByText(/730 days/)).toBeNull();
+  gone(screen.queryByText(/730 days/));
 });
 
 const day = (i: number) => ({
@@ -276,7 +278,7 @@ it('chart hover: range shrinks under a resting pointer -> no crash, tooltip gone
   fireEvent.pointerEnter(targets[targets.length - 1]);
   await waitFor(() => expect(container.querySelector('.chart-tip')).not.toBeNull());
   rerender(<AnalyticsView data={days(7)} />);
-  expect(container.querySelector('.chart-tip')).toBeNull();
+  gone(container.querySelector('.chart-tip'));
 });
 
 it('copy without navigator.clipboard (plain-HTTP portal): execCommand copies; a failure says so and a later success clears it', async () => {

@@ -13,13 +13,13 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/detur ./cmd/detur
 # pre-create data dir as runtime uid: new named volumes copy image dir ownership -> writable
 RUN mkdir -p /out/data && chown -R 1000:1000 /out/data
 
-# --- Stage 2: portal (kinu, vite) ---
+# --- Stage 2: portal (kinu, Bun bundler) ---
 FROM oven/bun:1.4.4-alpine AS portal
 WORKDIR /src
-COPY portal/package.json portal/bun.lock ./
-RUN bun install --frozen-lockfile
+COPY portal/package.json ./
+RUN bun install
 COPY portal/ .
-RUN bun run build   # vite outDir=dist -> /src/dist
+RUN bun run build   # bun build -> /src/dist
 
 # --- Stage 3: runtime ---
 FROM alpine:3.24

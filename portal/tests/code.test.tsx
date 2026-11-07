@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { highlightHtml } from '../src/code';
 
 // highlighted output goes in via innerHTML: must be the exact source, escaped, only our spans added

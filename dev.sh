@@ -22,9 +22,9 @@ server() {
 # wait for API (:8081) so first proxied requests don't race the server build
 portal() {
   cd portal
-  [ -d node_modules ] || bun install --frozen-lockfile
+  [ -d node_modules ] || bun install
   until (: >/dev/tcp/127.0.0.1/8081) 2>/dev/null; do sleep 0.3; done
-  bun --bun run dev --port 8000 --strictPort
+  PORT=8000 bun run dev
 }
 
 [ $# -gt 0 ] || set -- server portal

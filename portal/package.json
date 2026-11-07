@@ -3,20 +3,16 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "test": "vitest run"
+    "dev": "bun serve.ts",
+    "build": "rm -rf dist && bun build ./index.html --outdir dist --public-path ./ --minify",
+    "test": "bun test --timeout 120000"
   },
   "dependencies": {
     "kinu": "0.2.0",
     "preact": "10.29.0"
   },
   "devDependencies": {
-    "@testing-library/preact": "3.2.4",
-    "happy-dom": "20.14.5",
-    "typescript": "5.9.3",
-    "undici": "8.11.2",
-    "vite": "8.3.1",
-    "vitest": "5.0.2"
+    "@happy-dom/global-registrator": "20.14.5",
+    "@testing-library/preact": "3.2.4"
   }
 }

@@ -108,3 +108,5 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **Example app** (`example/expo-app/`): untested on real devices.
 - **Portal tests**: need `:8080` free (a running `detur` makes every server-backed test file fail). Stop it first.
 - **kinu `Collapsible`**: injects its own empty `<summary>`; use `Accordion` for `<details>`-style sections.
+- **Portal dev**: `bun run dev` full-reloads on edit (no state-preserving HMR for Preact). Build prints `@position-try` warnings from kinu CSS: harmless.
+- **Portal tests**: use `gone(el)`, not `expect(el).toBeNull()`. Bun formats a failing DOM node eagerly (millions of lines, blocks the event loop ~1s per `waitFor` poll).

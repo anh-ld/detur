@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it } from 'bun:test';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/preact';
 import { AnalyticsView, Filters, RANGE_OPTIONS } from '../src/analytics';
 import { DateRangeFilter } from '../src/api';

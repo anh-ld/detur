@@ -1,6 +1,6 @@
 // gated admin flows: real Go binary w/ ADMIN_PASSWORD set. Unset-password suite: flows.test.tsx.
 // fileParallelism: false + per-file server -> :8080 SDK port and portal ports never collide.
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +11,7 @@ import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
 import { setAdminAvailable, setElevated, AdminPasswordDialog } from '../src/ui';
 import { clearJar, setJarCookie } from './_setup';
-import { go, openDialog, saveButton, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './_integration';
+import { gone, go, openDialog, saveButton, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './_integration';
 
 const PORT = 8092;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -88,7 +88,7 @@ describe('portal admin flows (gated)', () => {
     // wrong password: 401 (server sleeps 1s), error alert, still viewer
     await waitFor(() => within(dlg).getByRole('alert'), { timeout: 5000 });
     expect(within(dlg).getByRole('alert').textContent).toBe('Wrong password');
-    expect(screen.queryByText(/Admin · until/)).toBeNull();
+    gone(screen.queryByText(/Admin · until/));
     expect(await api.getAdminSession()).toMatchObject({ admin: false });
 
     fireEvent.input(within(dlg).getByLabelText('Password'), { target: { value: PW } });
@@ -102,7 +102,7 @@ describe('portal admin flows (gated)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enter admin' }));
     dlg = await waitFor(pwDialog);
     expect((within(dlg).getByLabelText('Password') as HTMLInputElement).value).toBe('');
-    expect(within(dlg).queryByRole('alert')).toBeNull();
+    gone(within(dlg).queryByRole('alert'));
     fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
   });
 
@@ -117,15 +117,15 @@ describe('portal admin flows (gated)', () => {
       </>,
     );
     await screen.findByText(SETTINGS_LOCKED);
-    expect(document.querySelector('dialog[open]')).toBeNull();
-    expect(screen.queryByText(/No SDK call yet/)).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    gone(document.querySelector('dialog[open]'));
+    gone(screen.queryByText(/No SDK call yet/));
+    gone(screen.queryByRole('button', { name: 'Save' }));
 
     // unlock: panel renders, save goes straight through
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
     await screen.findByText(/No SDK call yet/);
-    expect(screen.queryByText(SETTINGS_LOCKED)).toBeNull();
+    gone(screen.queryByText(SETTINGS_LOCKED));
     fireEvent.click(saveButton(screen.getByLabelText('iOS App ID')));
     await screen.findByText('Saved.');
     expect(await api.getAdminSession()).toMatchObject({ admin: true });
@@ -148,7 +148,7 @@ describe('portal admin flows (gated)', () => {
     await screen.findByText(SETTINGS_LOCKED);
     expect(location.hash).toBe(`#/apps/${app.id}/settings`);
     expect(selectedTab()).toEqual(['Settings']);
-    expect(document.querySelector('dialog[open]')).toBeNull();
+    gone(document.querySelector('dialog[open]'));
     await adminCleanup(() => api.deleteApp(app.id));
   });
 
@@ -163,14 +163,14 @@ describe('portal admin flows (gated)', () => {
     const report = await screen.findByRole('region', { name: 'Flagged installs' });
     await within(report).findByText('Nothing flagged in this range.');
     await screen.findByText(SIGNALS_LOCKED);
-    expect(document.querySelector('dialog[open]')).toBeNull();
-    expect(screen.queryByText(/\b403\b/)).toBeNull();
+    gone(document.querySelector('dialog[open]'));
+    gone(screen.queryByText(/\b403\b/));
 
     // Refresh: report reloads, section stays locked, still no prompt
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await within(report).findByText('Nothing flagged in this range.');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' }).getAttribute('aria-busy')).not.toBe('true'));
-    expect(document.querySelector('dialog[open]')).toBeNull();
+    gone(document.querySelector('dialog[open]'));
     screen.getByText(SIGNALS_LOCKED);
     await adminCleanup(() => api.deleteApp(app.id));
   });
@@ -186,12 +186,12 @@ describe('portal admin flows (gated)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
     const group = await screen.findByRole('group', { name: 'Bot traffic mode' });
-    expect(screen.queryByText(SIGNALS_LOCKED)).toBeNull();
+    gone(screen.queryByText(SIGNALS_LOCKED));
     await screen.findByText(/Admin · until/);
 
     fireEvent.click(within(group).getByRole('button', { name: 'Active' }));
     await waitFor(async () => expect((await api.getFraudSettings(app.id)).userAgentMode).toBe('active'));
-    expect(document.querySelector('dialog[open]')).toBeNull();
+    gone(document.querySelector('dialog[open]'));
     await api.deleteApp(app.id); // session is valid
   });
 
@@ -206,10 +206,10 @@ describe('portal admin flows (gated)', () => {
     setJarCookie(`127.0.0.1:${PORT}`, 'detur_admin', 'tampered');
     go(`#/apps/${app.id}/fraud`);
     await screen.findByText(SIGNALS_LOCKED);
-    await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
+    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
     await screen.findByRole('button', { name: 'Enter admin' });
-    expect(document.querySelector('dialog[open]')).toBeNull();
-    expect(screen.queryByText(/\b403\b/)).toBeNull();
+    gone(document.querySelector('dialog[open]'));
+    gone(screen.queryByText(/\b403\b/));
     clearJar();
     await adminCleanup(() => api.deleteApp(app.id));
   });
@@ -225,10 +225,10 @@ describe('portal admin flows (gated)', () => {
     setJarCookie(`127.0.0.1:${PORT}`, 'detur_admin', 'tampered');
     go(`#/apps/${app.id}/webhooks`);
     await screen.findByText('Admin required');
-    await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
-    expect(screen.queryByText('No webhooks yet')).toBeNull();
-    expect(document.querySelector('dialog[open]')).toBeNull();
-    expect(screen.queryByText(/\b403\b/)).toBeNull();
+    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
+    gone(screen.queryByText('No webhooks yet'));
+    gone(document.querySelector('dialog[open]'));
+    gone(screen.queryByText(/\b403\b/));
 
     // the Webhooks 403 already cleared the session: open the API page first, then lift the UI so the page
     // mounts gated and sends its own token request with the dead cookie
@@ -237,10 +237,10 @@ describe('portal admin flows (gated)', () => {
     setElevated(true);
     await screen.findByText(/Admin · until/);
     await screen.findByText('Admin required');
-    await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
-    expect(screen.queryByText('No tokens yet')).toBeNull();
-    expect(document.querySelector('dialog[open]')).toBeNull();
-    expect(screen.queryByText(/\b403\b/)).toBeNull();
+    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
+    gone(screen.queryByText('No tokens yet'));
+    gone(document.querySelector('dialog[open]'));
+    gone(screen.queryByText(/\b403\b/));
     clearJar();
     await adminCleanup(() => api.deleteApp(app.id));
   });
@@ -265,7 +265,7 @@ describe('portal admin flows (gated)', () => {
     await screen.findByText(SETTINGS_LOCKED);
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
-    await waitFor(() => expect(screen.queryByText(SETTINGS_LOCKED)).toBeNull());
+    await waitFor(() => gone(screen.queryByText(SETTINGS_LOCKED)));
     expect((document.getElementById('page-html') as HTMLTextAreaElement).value).toBe('<h1>typed</h1>');
     await api.deleteApp(app.id); // session is valid now
   });
@@ -282,7 +282,7 @@ describe('portal admin flows (gated)', () => {
     await screen.findByText(/Admin · until/);
 
     fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
-    await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
+    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
     await screen.findByRole('button', { name: 'Enter admin' });
     expect(await api.getAdminSession()).toMatchObject({ admin: false });
 
@@ -295,7 +295,7 @@ describe('portal admin flows (gated)', () => {
       </>,
     );
     await screen.findByText(SETTINGS_LOCKED);
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    gone(screen.queryByRole('button', { name: 'Save' }));
     await adminCleanup(() => api.deleteApp(app.id));
   });
 
@@ -315,13 +315,13 @@ describe('portal admin flows (gated)', () => {
     fireEvent.input(screen.getByLabelText('iOS App ID'), { target: { value: 'ABCDE12345.com.draft' } });
     fireEvent.click(saveButton(screen.getByLabelText('iOS App ID')));
     // 403 -> session refresh clears chip -> panel hides behind the notice + re-prompt
-    await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
+    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
     const dlg = await waitFor(pwDialog);
     screen.getByText(SETTINGS_LOCKED);
-    expect(screen.queryByRole('heading', { name: 'API key' })).toBeNull();
+    gone(screen.queryByRole('heading', { name: 'API key' }));
     fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull());
-    expect(screen.queryByText(/\b403\b/)).toBeNull();
+    await waitFor(() => gone(document.querySelector('dialog[open]')));
+    gone(screen.queryByText(/\b403\b/));
     clearJar(); // drop the tampered cookie so the unlock gets a fresh session
     expect((await api.getApp(app.id)).iosAppId).toBe('');
 
@@ -329,7 +329,7 @@ describe('portal admin flows (gated)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
     await screen.findByRole('heading', { name: 'API key' });
-    expect(screen.queryByText(SETTINGS_LOCKED)).toBeNull();
+    gone(screen.queryByText(SETTINGS_LOCKED));
     expect((screen.getByLabelText('iOS App ID') as HTMLInputElement).value).toBe('ABCDE12345.com.draft');
     fireEvent.click(saveButton(screen.getByLabelText('iOS App ID')));
     await screen.findByText('Saved.');
@@ -359,7 +359,7 @@ describe('portal admin flows (gated)', () => {
       return d;
     });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Delete' }));
-    await waitFor(() => expect(screen.queryByText(app.name)).toBeNull());
+    await waitFor(() => gone(screen.queryByText(app.name)));
     await expect(api.getApp(app.id)).rejects.toMatchObject({ status: 404 });
   });
 
@@ -373,9 +373,9 @@ describe('portal admin flows (gated)', () => {
       </>,
     );
     await screen.findByText(SETTINGS_LOCKED);
-    expect(screen.queryByRole('heading', { name: 'API key' })).toBeNull();
-    expect(document.querySelector('dialog[open]')).toBeNull();
-    expect(screen.queryByText(/\b403\b/)).toBeNull();
+    gone(screen.queryByRole('heading', { name: 'API key' }));
+    gone(document.querySelector('dialog[open]'));
+    gone(screen.queryByText(/\b403\b/));
     await adminCleanup(() => api.deleteApp(app.id));
   });
 
@@ -398,12 +398,12 @@ describe('portal admin flows (gated)', () => {
     // no first prompt (module state = lifted): 403 -> session re-read locks the panel -> re-prompt
     await waitFor(pwDialog);
     screen.getByText(SETTINGS_LOCKED);
-    expect(screen.queryByText(/\b403\b/)).toBeNull();
+    gone(screen.queryByText(/\b403\b/));
 
     // right password: the save retries (ui.tsx retry branch); the same form shows the result
     await unlock();
     await screen.findByText('Saved.');
-    expect(screen.queryByText(SETTINGS_LOCKED)).toBeNull();
+    gone(screen.queryByText(SETTINGS_LOCKED));
     expect((screen.getByLabelText('Match threshold') as HTMLInputElement).value).toBe('900');
     expect((await api.getApp(app.id)).matchThreshold).toBe(900);
     expect(await api.getAdminSession()).toMatchObject({ admin: true });
@@ -445,7 +445,7 @@ describe('portal admin flows (gated)', () => {
       return d;
     });
     fireEvent.click(within(secretDlg).getByRole('button', { name: 'Done' }));
-    await waitFor(() => expect(document.querySelector('dialog[open]')).toBeNull());
+    await waitFor(() => gone(document.querySelector('dialog[open]')));
 
     await screen.findByText('https://example.com/detur-hook');
     await screen.findByText('Active');
@@ -460,8 +460,8 @@ describe('portal admin flows (gated)', () => {
     render(<App />);
     await screen.findByText('Admin required');
     // locked: no form, no setup guide
-    expect(screen.queryByRole('button', { name: 'Create token' })).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Connect' })).toBeNull();
+    gone(screen.queryByRole('button', { name: 'Create token' }));
+    gone(screen.queryByRole('heading', { name: 'Connect' }));
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
 
@@ -520,7 +520,7 @@ describe('portal admin flows (gated)', () => {
       return d;
     });
     fireEvent.click(within(confirm).getByRole('button', { name: 'Revoke' }));
-    await waitFor(() => expect(screen.queryByText('ci-agent', { selector: 'td' })).toBeNull());
+    await waitFor(() => gone(screen.queryByText('ci-agent', { selector: 'td' })));
     expect((await api.listTokens()).some((t) => t.name === 'ci-agent')).toBe(false);
 
     await adminCleanup(async () => {

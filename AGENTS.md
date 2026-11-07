@@ -28,7 +28,7 @@ Seline-style. Tokens in `portal/src/theme.css`; no raw hex.
 
 ## Deps & tooling
 
-- Go 1.27, Bun 1.4.4 + `bun.lock`.
+- Go 1.27, Bun 1.4.4 (no lockfile).
 - Exact pins. Patch via `bun patch`.
 
 ## Docs

@@ -113,6 +113,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | ID | Decision | Source | Why | Plan |
 |---|---|---|---|---|
 | O1 | Settings Health: SDK last seen (`X-SDK`), app detail formats, AASA refresh (>1 iOS app, links <48h), proxy (private peers + `TRUST_PROXY=0`). No outbound checks. | Ours | Setup mistakes fail silently. | — |
+| O2 | Portal toolchain is Bun only: `bun build` bundles, `bun test` + happy-dom tests, `bun check` types. No Vite, Vitest, TypeScript, undici. | Ours | Fewest deps. | — |
 
 ## SDK API
 

@@ -1,3 +1,6 @@
 [fmt]
 printWidth = 140
 singleQuote = true
+
+[test]
+preload = ["./tests/_setup.ts"]
