@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Toggle, ToggleGroup } from 'kinu';
 import { api, Link, LinkRule, Platform, RedirectProfile, RuleTargets, SocialPreset, SplitVariant } from './api';
 import { closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink, useLatest } from './ui';
-import { LinkDraft, draftFrom, fromLocalInput, LinkFields, linkPayload, httpsUrl, toLocalInput } from './link-fields';
+import { LinkDraft, draftDirty, draftError, draftFrom, fromLocalInput, LinkFields, linkPayload, toLocalInput } from './link-fields';
 
 const cleanTargets = (t?: RuleTargets): RuleTargets => ({
   destination: t?.destination?.trim() || undefined,
@@ -224,15 +224,12 @@ export function LinkEditor({
     setDraftRule(null);
   };
 
-  const baseDirty = JSON.stringify(draft) !== JSON.stringify(draftFrom(link));
+  const baseDirty = draftDirty(draft, draftFrom(link));
   const saveAllToBackend = async () => {
     setErr('');
-    if (!draft.url.trim()) {
-      setErr('Destination is required');
-      return;
-    }
-    if (draft.ogImage.trim() && !httpsUrl(draft.ogImage.trim())) {
-      setErr('Social preview image must be an absolute https URL');
+    const bad = draftError(draft, 'edit');
+    if (bad) {
+      setErr(bad);
       return;
     }
     setSaving(true);

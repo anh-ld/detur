@@ -620,6 +620,41 @@ describe('portal client flows', () => {
     await api.deleteApp(app.id);
   });
 
+
+  it('link draft round-trip: opening a fully set link leaves Save off; a title change saves and every other field stays', async () => {
+    const app = await api.createApp(uniq('draft-link-app'));
+    const full = {
+      key: 'full-link',
+      url: '/promo',
+      title: 'Old title',
+      tags: ['spring', 'alice'],
+      ios: 'https://apps.apple.com/app/id123',
+      android: 'https://play.google.com/store/apps/details?id=com.example',
+      fallbackUrl: 'https://example.com',
+      ogTitle: 'Share title',
+      ogDescription: 'Share description',
+      ogImage: 'https://example.com/og.png',
+      expiresAt: '2030-01-01T12:34:00Z',
+      expiredUrl: 'https://example.com/ended',
+    };
+    await api.createLink(app.id, full);
+    render(<AppPage id={app.id} tab="links" />);
+    const row = (await screen.findAllByText('full-link'))[0].closest('tr')!;
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+    const dlg = openDialog();
+    await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Add rule' }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
+    expect((within(dlg).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(true); // nothing changed
+
+    fireEvent.input(within(dlg).getByLabelText(/Title \/ Note/), { target: { value: 'New title' } });
+    await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save', exact: true }));
+
+    await waitFor(async () => expect((await api.listLinks(app.id))[0].title).toBe('New title'));
+    expect((await api.listLinks(app.id))[0]).toMatchObject({ ...full, title: 'New title' });
+    await api.deleteApp(app.id);
+  });
+
   it('rules and splits flow: open rules dialog, add rule with split, save, and verify', async () => {
     const app = await api.createApp(uniq('rules-app'));
     const link = await api.createLink(app.id, {

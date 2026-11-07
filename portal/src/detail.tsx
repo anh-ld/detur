@@ -9,7 +9,7 @@ import { SettingsPanel } from './settings';
 import { AddWebhookButton, WebhooksPanel } from './webhooks';
 import { LinkEditor } from './link-editor';
 import { AppTab, filteredHash, TABS } from './route';
-import { LinkDraft, emptyDraft, LinkFields, linkPayload, httpsUrl } from './link-fields';
+import { LinkDraft, draftError, emptyDraft, LinkFields, linkPayload } from './link-fields';
 
 const isExpired = (l: Link) => !!l.expiresAt && new Date(l.expiresAt).getTime() < Date.now();
 
@@ -378,16 +378,12 @@ function LinkDialog({
   const [draft, setDraft] = useState<LinkDraft>(emptyDraft());
   const [err, setErr] = useState('');
   const id = 'dlg-create-link';
-  const ogImageBad = !!draft.ogImage.trim() && !httpsUrl(draft.ogImage.trim());
 
   const save = async () => {
     setErr('');
-    if (!draft.key.trim() || !draft.url.trim()) {
-      setErr('Key and destination are required');
-      return;
-    }
-    if (ogImageBad) {
-      setErr('Social preview image must be an absolute https URL');
+    const bad = draftError(draft, 'create');
+    if (bad) {
+      setErr(bad);
       return;
     }
     try {
