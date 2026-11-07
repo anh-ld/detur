@@ -42,7 +42,7 @@ jobs:
       - run: bun install --frozen-lockfile
         working-directory: portal
       - name: Typecheck portal
-        run: bun run typecheck
+        run: bun check
         working-directory: portal
       - name: Test portal
         run: bun --bun run test

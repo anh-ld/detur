@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
-    "typecheck": "tsc -p ."
+    "check": "tsc -p ."
   },
   "dependencies": {
     "kinu": "0.2.0",
