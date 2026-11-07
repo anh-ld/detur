@@ -1,19 +1,16 @@
 import { JSX } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { Alert, Badge, Card, Empty, Input, Select, Table, toast, Toggle, ToggleGroup } from 'kinu';
-import { api, DateRangeFilter, FlaggedInstall, HttpError, Fraud, FraudMode, FraudSettings } from './api';
+import { api, DateRangeFilter, FlaggedInstall, Fraud, FraudMode, FraudSettings } from './api';
 import {
-  AdminGateAborted,
   adminCall,
+  AdminGateAborted,
   AdminRequired,
-  getAdmin,
-  getAdminSet,
   Loading,
   mono,
   muted,
-  refreshAdminSession,
   row,
-  subscribeAdmin,
+  useGatedLoad,
   useLatest,
 } from './ui';
 import { FRAUD_RANGES, FraudNumKey, SIGNALS } from './matching';
@@ -48,30 +45,12 @@ export function FraudPanel({ appId, tick }: { appId: string; tick: number }) {
 // each change saves alone: mode on press, threshold on blur/Enter. Toast per save; rejected -> revert + toast why.
 // admin-gated: not elevated -> locked notice, no prompt; top-bar unlock reloads
 function Signals({ appId, tick }: { appId: string; tick: number }) {
-  const [view, setView] = useState<FraudSettings | null>(null);
-  const [loadError, setLoadError] = useState('');
-  const [locked, setLocked] = useState(false);
-  const loaded = useRef(false); // unlock reloads only until settings are in
-
-  useEffect(() => {
-    let stale = false;
-    loaded.current = false;
-    const load = () => {
-      setLoadError('');
-      if (getAdminSet() && !getAdmin()) return setLocked(true);
-      api.getFraudSettings(appId).then(
-        (v) => !stale && ((loaded.current = true), setLocked(false), setView(v)),
-        // 403 while the UI thinks elevated = session died: lock + re-read session (chip clears), no prompt
-        (e) => !stale && (e instanceof HttpError && e.status === 403 ? (setLocked(true), refreshAdminSession()) : setLoadError(String(e))),
-      );
-    };
-    load();
-    const unsub = subscribeAdmin(() => !stale && !loaded.current && load());
-    return () => {
-      stale = true;
-      unsub();
-    };
-  }, [appId, tick]);
+  const {
+    data: view,
+    setData: setView,
+    locked,
+    error: loadError,
+  } = useGatedLoad<FraudSettings>({ load: () => api.getFraudSettings(appId), deps: [appId, tick], mode: 'when-set' });
 
   if (!view) {
     if (locked) {

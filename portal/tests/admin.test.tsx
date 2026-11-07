@@ -214,6 +214,60 @@ describe('portal admin flows (gated)', () => {
     await adminCleanup(() => api.deleteApp(app.id));
   });
 
+  it('dead session found by a page load: Webhooks and API tokens lock with the notice, never an empty list or a raw 403', async () => {
+    await api.enterAdminMode(PW);
+    const app = await api.createApp(uniq('wh-dead'));
+    setElevated(true);
+    location.hash = '#/';
+    render(<App />);
+    await screen.findByText(/Admin · until/);
+
+    setJarCookie(`127.0.0.1:${PORT}`, 'detur_admin', 'tampered');
+    go(`#/apps/${app.id}/webhooks`);
+    await screen.findByText('Admin required');
+    await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
+    expect(screen.queryByText('No webhooks yet')).toBeNull();
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(screen.queryByText(/\b403\b/)).toBeNull();
+
+    // the Webhooks 403 already cleared the session: lift the UI again so the API page sends its own request
+    setElevated(true);
+    await screen.findByText(/Admin · until/);
+    go('#/api');
+    await screen.findByText('Admin required');
+    await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
+    expect(screen.queryByText('No tokens yet')).toBeNull();
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(screen.queryByText(/\b403\b/)).toBeNull();
+    clearJar();
+    await adminCleanup(() => api.deleteApp(app.id));
+  });
+
+  it('Page edits survive an exit and re-unlock: the unlock never reloads over typed HTML', async () => {
+    await api.enterAdminMode(PW);
+    const app = await api.createApp(uniq('page-keep'));
+    setElevated(true);
+    location.hash = '#/';
+    render(<App />);
+    await screen.findByText(/Admin · until/);
+    go(`#/apps/${app.id}/settings`);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Page' }));
+    const field = await waitFor(() => {
+      const el = document.getElementById('page-html') as HTMLTextAreaElement | null;
+      if (!el || !el.value) throw new Error('page not loaded');
+      return el;
+    });
+    fireEvent.input(field, { target: { value: '<h1>typed</h1>' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
+    await screen.findByText(SETTINGS_LOCKED);
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
+    await unlock();
+    await waitFor(() => expect(screen.queryByText(SETTINGS_LOCKED)).toBeNull());
+    expect((document.getElementById('page-html') as HTMLTextAreaElement).value).toBe('<h1>typed</h1>');
+    await api.deleteApp(app.id); // session is valid now
+  });
+
   it('exit flow: the chip clears, the entry button returns, and Settings locks again', async () => {
     const app = await makeApp('exit-app');
     location.hash = '#/';

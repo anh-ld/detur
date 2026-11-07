@@ -1,7 +1,7 @@
 import { JSX } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { Alert, Badge, Button, Card, Checkbox, Dialog, Empty, Field, Input, Label, Select, Table } from 'kinu';
-import { api, App, HttpError, Webhook, WebhookEventType } from './api';
+import { api, App, Webhook, WebhookEventType } from './api';
 import {
   adminCall,
   AdminGateAborted,
@@ -10,14 +10,13 @@ import {
   ConfirmDelete,
   CopyButton,
   gateOpen,
-  getAdmin,
-  getAdminSet,
   Loading,
   mono,
   muted,
   openDialog,
   row,
-  subscribeAdmin,
+  useAdmin,
+  useGatedLoad,
 } from './ui';
 
 const EVENT_OPTIONS: { type: WebhookEventType; desc: string }[] = [
@@ -36,21 +35,28 @@ const DEFAULT_TYPES: WebhookEventType[] = ['installs', 'events'];
 
 // Header trigger: opens the dialog WebhooksPanel renders on the same tab.
 export function AddWebhookButton() {
-  const [adminSet, setAdminSet] = useState(getAdminSet);
-  useEffect(() => subscribeAdmin(() => setAdminSet(getAdminSet())), []);
+  const { adminSet } = useAdmin();
   if (!adminSet) return null;
   return <Button onClick={() => gateOpen('dlg-add-webhook')}>Add webhook</Button>;
 }
 
 // tick: page Refresh counter; bump reloads list
 export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
-  const [webhooks, setWebhooks] = useState<Webhook[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [adminState, setAdminState] = useState(() => ({
-    adminSet: getAdminSet(),
-    admin: getAdmin(),
-  }));
+  const [actionError, setError] = useState('');
+  const adminState = useAdmin();
+  const {
+    data: webhooks,
+    setData: setWebhooks,
+    loading,
+    error: loadError,
+    reload,
+  } = useGatedLoad<Webhook[]>({
+    load: () => api.listWebhooks(app.id),
+    deps: [app.id, tick],
+    mode: 'needs-password',
+    empty: [],
+  });
+  const error = actionError || loadError;
 
   // replay dialog
   const [replayTarget, setReplayTarget] = useState<Webhook | null>(null);
@@ -65,42 +71,9 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
   // secret reveal after create
   const [createdSecret, setCreatedSecret] = useState<{ id: string; url: string; secret: string } | null>(null);
 
-  useEffect(() => {
-    return subscribeAdmin(() => {
-      setAdminState({ adminSet: getAdminSet(), admin: getAdmin() });
-    });
-  }, []);
-
   const fail = (e: unknown) => {
     if (!(e instanceof AdminGateAborted)) setError(String(e));
   };
-
-  const reload = async () => {
-    setError('');
-    if (!getAdmin()) {
-      // server 403s until elevated: skip
-      setWebhooks([]);
-      setLoading(false);
-      return;
-    }
-    try {
-      const list = await api.listWebhooks(app.id);
-      setWebhooks(list);
-    } catch (e) {
-      if (e instanceof HttpError && e.status === 403) {
-        // Admin elevation required or ADMIN_PASSWORD unset
-        setWebhooks([]);
-      } else {
-        setError(String(e));
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    reload();
-  }, [app.id, adminState.admin, tick]);
 
   const toggleEnabled = async (wh: Webhook) => {
     setError('');

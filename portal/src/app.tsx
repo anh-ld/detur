@@ -1,17 +1,14 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { Chip, Kbd, Select, Status, ToastContainer } from 'kinu';
 import { api } from './api';
 import {
   AdminPasswordDialog,
   ensureAdmin,
-  getAdmin,
-  getAdminSet,
-  getAdminUntil,
   Icon,
   refreshAdminSession,
   setAdminAvailable,
   setElevated,
-  subscribeAdmin,
+  useAdmin,
 } from './ui';
 import { AppsPage } from './apps';
 import { ApiTokensPage } from './api-tokens';
@@ -86,16 +83,13 @@ const fmtUntil = (iso: string) => {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-const adminSnapshot = () => ({ adminSet: getAdminSet(), admin: getAdmin(), until: getAdminUntil() });
-
 // SPA shell: hash routing (survives refresh), no auth. Gateway gates entry, admin gates management.
 export function App() {
   const [route, setRoute] = useState<Route>(parseHash);
   // server LOGOUT_URL; '' (unset/fetch failed) hides Log out
   const [logoutUrl, setLogoutUrl] = useState('');
-  const [ui, setUi] = useState(adminSnapshot);
+  const ui = useAdmin();
   const [appName, setAppName] = useState('');
-  useEffect(() => subscribeAdmin(() => setUi(adminSnapshot())), []);
   useEffect(() => {
     api.getConfig().then(
       (c) => {

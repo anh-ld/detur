@@ -11,7 +11,7 @@ import {
   Label,
   Table,
 } from "kinu";
-import { api, ApiToken, App, CreatedToken, HttpError } from "./api";
+import { api, ApiToken, App, CreatedToken } from "./api";
 import {
   adminCall,
   AdminGateAborted,
@@ -19,15 +19,14 @@ import {
   closeDialog,
   CopyButton,
   gateOpen,
-  getAdmin,
-  getAdminSet,
   Loading,
   mono,
   muted,
   openDialog,
   PageHeader,
   row,
-  subscribeAdmin,
+  useAdmin,
+  useGatedLoad,
 } from "./ui";
 
 const fmtDate = (iso: string) =>
@@ -72,15 +71,22 @@ function AppChecks({
 
 // Admin-managed data-API / MCP tokens. Plaintext token lives in state only while its dialog is open.
 export function ApiTokensPage() {
-  const [tokens, setTokens] = useState<ApiToken[] | null>(null);
   const [apps, setApps] = useState<App[]>([]);
   const [linkBase, setLinkBase] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [admin, setAdmin] = useState(() => ({
-    adminSet: getAdminSet(),
-    admin: getAdmin(),
-  }));
+  const [actionError, setError] = useState("");
+  const admin = useAdmin();
+  const {
+    data: tokens,
+    setData: setTokens,
+    loading,
+    error: loadError,
+  } = useGatedLoad<ApiToken[]>({
+    load: () => api.listTokens(),
+    deps: [],
+    mode: "needs-password",
+    empty: [],
+  });
+  const error = actionError || loadError;
 
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
@@ -88,14 +94,6 @@ export function ApiTokensPage() {
   const [created, setCreated] = useState<CreatedToken | null>(null);
   const [editing, setEditing] = useState<ApiToken | null>(null);
   const [revoking, setRevoking] = useState<ApiToken | null>(null);
-
-  useEffect(
-    () =>
-      subscribeAdmin(() =>
-        setAdmin({ adminSet: getAdminSet(), admin: getAdmin() }),
-      ),
-    [],
-  );
 
   const fail = (e: unknown) => {
     if (!(e instanceof AdminGateAborted)) setError(String(e));
@@ -108,23 +106,6 @@ export function ApiTokensPage() {
       () => {},
     );
   }, []);
-
-  useEffect(() => {
-    if (!admin.adminSet || !admin.admin) {
-      // server 403s until elevated: skip
-      setTokens([]);
-      setLoading(false);
-      return;
-    }
-    api
-      .listTokens()
-      .then(setTokens, (e) =>
-        e instanceof HttpError && e.status === 403
-          ? setTokens([])
-          : setError(String(e)),
-      )
-      .finally(() => setLoading(false));
-  }, [admin.adminSet, admin.admin]);
 
   const appNames = (ids: string[]) =>
     ids.map((id) => apps.find((a) => a.id === id)?.name ?? id).join(", ");

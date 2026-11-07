@@ -19,24 +19,22 @@ import {
   Toggle,
   ToggleGroup,
 } from 'kinu';
-import { api, App, AppPage, CreatedApp, HealthCheck, HttpError, MatchQuality, PagePreview, RedirectProfile, SocialPreset } from './api';
+import { api, App, AppPage, CreatedApp, HealthCheck, MatchQuality, PagePreview, RedirectProfile, SocialPreset } from './api';
 import {
-  AdminGateAborted,
   adminCall,
+  AdminGateAborted,
   AdminRequired,
   closeDialog,
   ConfirmDelete,
   CopyButton,
   gateOpen,
-  getAdmin,
-  getAdminSet,
   Loading,
   mono,
   muted,
   refreshAdminSession,
   row,
-  subscribeAdmin,
-  useAdminLocked,
+  useAdmin,
+  useGatedLoad,
   useLatest,
 } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
@@ -50,7 +48,7 @@ const sectionTitle = { margin: '40px 0 16px', fontSize: 20 };
 export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: App) => void; onReload: () => void }) {
   const [tab, setTab] = useState<'app' | 'page' | 'matching'>('app');
   const [error, setError] = useState('');
-  const locked = useAdminLocked();
+  const { locked } = useAdmin();
   // tabs hide the admin-only page load, so probe once: a dead session locks the panel on arrival
   useEffect(() => {
     void refreshAdminSession();
@@ -290,31 +288,21 @@ const PREVIEWS: { label: string; p: Pick<PagePreview, 'page' | 'platform'> }[] =
 // One HTML field (starts as the default), preview, save.
 // Text == default -> saved as "" (stays on the built-in page, picks up its future changes).
 function PageEditor({ app }: { app: App }) {
-  const [data, setData] = useState<AppPage | null>(null);
   const [text, setText] = useState('');
   const [view, setView] = useState(0);
   const [preview, setPreview] = useState('');
   const previewLoad = useLatest();
   const [error, setError] = useState('');
-  const [locked, setLocked] = useState(false);
-  const loaded = useRef(false); // unlock reloads only until the page is in (never clobbers edits)
-
-  useEffect(() => {
-    let stale = false;
-    const load = () => {
-      if (getAdminSet() && !getAdmin()) return setLocked(true);
-      api.getPage(app.id).then(
-        (d) => !stale && ((loaded.current = true), setLocked(false), setData(d), setText(d.html || d.defaultHtml)),
-        (e) => !stale && (e instanceof HttpError && e.status === 403 ? (setLocked(true), refreshAdminSession()) : setError(String(e))),
-      );
-    };
-    load();
-    const unsub = subscribeAdmin(() => !stale && !loaded.current && load());
-    return () => {
-      stale = true;
-      unsub();
-    };
-  }, [app.id]);
+  const {
+    data,
+    locked,
+    error: loadError,
+  } = useGatedLoad<AppPage>({
+    load: () => api.getPage(app.id),
+    deps: [app.id],
+    mode: 'when-set',
+    onLoaded: (d) => setText(d.html || d.defaultHtml),
+  });
 
   const html = !data || text === data.defaultHtml ? '' : text;
   // debounced: real renderer on the server; sandboxed frame (no scripts)
@@ -346,7 +334,7 @@ function PageEditor({ app }: { app: App }) {
 
   if (!data) {
     if (locked) return <AdminRequired>Enter your admin password to edit the page.</AdminRequired>;
-    return error ? <Alert variant="destructive">{error}</Alert> : <Loading />;
+    return error || loadError ? <Alert variant="destructive">{error || loadError}</Alert> : <Loading />;
   }
   const bytes = new TextEncoder().encode(text).length;
   return (
