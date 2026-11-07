@@ -14,6 +14,7 @@ import {
   refreshAdminSession,
   row,
   subscribeAdmin,
+  useLatest,
 } from './ui';
 import { FRAUD_RANGES, FraudNumKey, SIGNALS } from './matching';
 import { DateRangePicker, fmt, RANGE_OPTIONS, Skeleton } from './analytics';
@@ -239,21 +240,20 @@ function Outcome({ i }: { i: FlaggedInstall }) {
   );
 }
 
-// flagged installs for range; superseded response dropped (stale flag)
+// flagged installs for range; superseded response dropped
 function Flagged({ appId, tick }: { appId: string; tick: number }) {
   const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
   const [data, setData] = useState<Fraud | null>(null);
   const [error, setError] = useState('');
+  const latest = useLatest();
   useEffect(() => {
-    let stale = false;
+    const live = latest.begin();
     setError('');
     api.getFraud(appId, range).then(
-      (f) => !stale && setData(f),
-      (e) => !stale && setError(String(e)),
+      (f) => live() && setData(f),
+      (e) => live() && setError(String(e)),
     );
-    return () => {
-      stale = true;
-    };
+    return latest.cancel;
   }, [appId, range.days, range.window, range.from, range.to, tick]);
 
   return (

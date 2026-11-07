@@ -37,6 +37,7 @@ import {
   row,
   subscribeAdmin,
   useAdminLocked,
+  useLatest,
 } from './ui';
 import { inRange, THRESHOLD, WINDOW } from './matching';
 import { CodeEditor } from './code';
@@ -293,6 +294,7 @@ function PageEditor({ app }: { app: App }) {
   const [text, setText] = useState('');
   const [view, setView] = useState(0);
   const [preview, setPreview] = useState('');
+  const previewLoad = useLatest();
   const [error, setError] = useState('');
   const [locked, setLocked] = useState(false);
   const loaded = useRef(false); // unlock reloads only until the page is in (never clobbers edits)
@@ -318,15 +320,15 @@ function PageEditor({ app }: { app: App }) {
   // debounced: real renderer on the server; sandboxed frame (no scripts)
   useEffect(() => {
     if (!data) return;
-    let stale = false;
+    const live = previewLoad.begin();
     const t = setTimeout(() => {
       api.previewPage(app.id, { html, ...PREVIEWS[view].p }).then(
-        (h) => !stale && (setPreview(h), setError('')),
-        (e) => !stale && setError(String(e)),
+        (h) => live() && (setPreview(h), setError('')),
+        (e) => live() && setError(String(e)),
       );
     }, 400);
     return () => {
-      stale = true;
+      previewLoad.cancel();
       clearTimeout(t);
     };
   }, [data, html, view, app.id]);

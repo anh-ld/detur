@@ -1,9 +1,26 @@
 import { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Field, Input, Label, Spinner } from 'kinu';
 import { api, HttpError } from './api';
 
 // Shared layout bits: kinu token colors, no layout primitives.
+// latest-wins guard: begin() returns a check that stays true until the next begin(), cancel(), or unmount.
+// Callers keep their own loading/error state; a superseded response just skips its setState.
+export function useLatest() {
+  const seq = useRef(0);
+  const guard = useRef({
+    begin: () => {
+      const n = ++seq.current;
+      return () => seq.current === n;
+    },
+    cancel: () => {
+      seq.current++;
+    },
+  });
+  useEffect(() => guard.current.cancel, []);
+  return guard.current;
+}
+
 export const muted = { color: 'hsl(var(--k-muted-foreground))', fontSize: 14, margin: 0 };
 export const mono = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13 };
 export const row = { display: 'flex', gap: 8, alignItems: 'center' };

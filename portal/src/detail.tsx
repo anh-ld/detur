@@ -1,8 +1,8 @@
 import { cloneElement, JSX } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { Alert, Badge, Button, Card, Checkbox, Dialog, Empty, Label, Popover, PopoverContent, PopoverTrigger, Table } from 'kinu';
 import { Analytics, api, App, DateRangeFilter, Link, Platform, RedirectProfile, SocialPreset, VariantStat } from './api';
-import { closeDialog, ConfirmDelete, IconButton, ICONS, Loading, muted, PageHeader, row, ShortLink } from './ui';
+import { closeDialog, ConfirmDelete, IconButton, ICONS, Loading, muted, PageHeader, row, ShortLink, useLatest } from './ui';
 import { AnalyticsView, Filters, fmt } from './analytics';
 import { FraudPanel } from './fraud';
 import { SettingsPanel } from './settings';
@@ -125,20 +125,20 @@ export function AppPage({
     );
   }, []);
 
-  // drop responses for an app already left
-  const current = useRef(id);
-  current.current = id;
+  // latest load wins: also drops responses for an app already left
+  const appLoad = useLatest();
+  const statsLoad = useLatest();
+  const variantsLoad = useLatest();
   const loadAll = () => {
     setError('');
-    const req = id;
-    const ok = () => current.current === req;
+    const ok = appLoad.begin();
     return Promise.all([
       api
-        .getApp(req)
+        .getApp(id)
         .then((a) => ok() && setApp(a))
         .catch((e) => ok() && setError(String(e))),
       api
-        .listLinks(req)
+        .listLinks(id)
         .then((l) => ok() && setLinks(l))
         .catch((e) => ok() && setError(String(e))),
     ]);
@@ -149,19 +149,19 @@ export function AppPage({
   const [statsLoading, setStatsLoading] = useState(false);
   useEffect(() => {
     if (!filtered) return;
-    let stale = false;
+    const live = statsLoad.begin();
     setStatsLoading(true);
     api
       .getAnalytics(id, range, platform, tab === 'analytics' ? selectedLinkId : undefined)
       .then((s) => {
-        if (stale) return;
+        if (!live()) return;
         setStats(s);
         setStatsError('');
       })
-      .catch((e) => !stale && setStatsError(String(e)))
-      .finally(() => !stale && setStatsLoading(false));
+      .catch((e) => live() && setStatsError(String(e)))
+      .finally(() => live() && setStatsLoading(false));
     return () => {
-      stale = true;
+      statsLoad.cancel();
       setStatsLoading(false);
     };
   }, [id, range.days, range.window, range.from, range.to, platform, selectedLinkId, tick, filtered, tab]);
@@ -216,14 +216,12 @@ export function AppPage({
       setVariants(null);
       return;
     }
-    let alive = true;
+    const live = variantsLoad.begin();
     api.getLinkVariantStats(app.id, l.id, range).then(
-      (v) => alive && setVariants(v),
-      () => alive && setVariants([]),
+      (v) => live() && setVariants(v),
+      () => live() && setVariants([]),
     );
-    return () => {
-      alive = false;
-    };
+    return variantsLoad.cancel;
   }, [tab, app, selectedLinkId, links, range.days, range.window, range.from, range.to]);
   // any selected tag matches (OR), like label filters
   const shown = tagFilter.length ? (links ?? []).filter((l) => l.tags?.some((t) => tagFilter.includes(t))) : (links ?? []);

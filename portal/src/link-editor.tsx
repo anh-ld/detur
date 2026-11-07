@@ -2,7 +2,7 @@ import { cloneElement, JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Empty, Field, Input, Label, Select, Toggle, ToggleGroup } from 'kinu';
 import { api, Link, LinkRule, Platform, RedirectProfile, RuleTargets, SocialPreset, SplitVariant } from './api';
-import { closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink } from './ui';
+import { closeDialog, Icon, IconButton, ICONS, Loading, muted, row, ShortLink, useLatest } from './ui';
 import { LinkDraft, draftFrom, fromLocalInput, LinkFields, linkPayload, httpsUrl, toLocalInput } from './link-fields';
 
 const cleanTargets = (t?: RuleTargets): RuleTargets => ({
@@ -41,7 +41,7 @@ export function LinkEditor({
   const [success, setSuccess] = useState('');
   const [dirty, setDirty] = useState(false);
   const [rulesLoaded, setRulesLoaded] = useState(false); // failed load leaves rules=[]: block edits so Save can't PUT an empty list
-  const reqSeq = useRef(0); // latest load wins, stale dropped
+  const rulesLoad = useLatest(); // latest load wins, stale dropped
 
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftRule, setDraftRule] = useState<LinkRule | null>(null);
@@ -58,20 +58,20 @@ export function LinkEditor({
   };
 
   const loadData = async () => {
-    const seq = ++reqSeq.current;
+    const live = rulesLoad.begin();
     setLoading(true);
     setErr('');
     setRulesLoaded(false);
     try {
       const r = await api.getLinkRules(appId, link.id);
-      if (seq !== reqSeq.current) return;
+      if (!live()) return;
       setRules(r);
       setRulesLoaded(true);
       setDirty(false);
     } catch (e) {
-      if (seq === reqSeq.current) setErr(String(e));
+      if (live()) setErr(String(e));
     } finally {
-      if (seq === reqSeq.current) setLoading(false);
+      if (live()) setLoading(false);
     }
   };
 
