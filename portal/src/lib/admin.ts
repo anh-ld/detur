@@ -80,7 +80,11 @@ export function gateOpen(dialogId: string) {
 // locked = a password is set and the session isn't elevated.
 export function useAdmin() {
   const [, bump] = useState(0);
-  useEffect(() => subscribeAdmin(() => bump((n) => n + 1)), []);
+  useEffect(() => {
+    const off = subscribeAdmin(() => bump((n) => n + 1));
+    bump((n) => n + 1); // a change between render and this effect had no listener: re-read once
+    return off;
+  }, []);
   return { adminSet, admin: elevated, until, locked: adminSet && !elevated };
 }
 // prompt canceled: skip gated action (callers return quietly)
