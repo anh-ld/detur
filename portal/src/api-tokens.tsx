@@ -79,6 +79,7 @@ export function ApiTokensPage() {
     data: tokens,
     setData: setTokens,
     loading,
+    locked,
     error: loadError,
   } = useGatedLoad<ApiToken[]>({
     load: () => api.listTokens(),
@@ -218,6 +219,7 @@ export function ApiTokensPage() {
           {admin.admin && <Connect base={linkBase || location.origin} />}
 
           {admin.admin &&
+            !locked &&
             (tokens && tokens.length === 0 ? (
               <Card>
                 <Empty>

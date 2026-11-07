@@ -646,6 +646,18 @@ describe('portal client flows', () => {
     await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Add rule' }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
     expect((within(dlg).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(true); // nothing changed
 
+    // edit-mode validation: the shared helper blocks an empty destination and a non-https image
+    const dest = within(dlg).getByLabelText('Destination');
+    fireEvent.input(dest, { target: { value: '' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save', exact: true }));
+    await within(dlg).findByText('Destination is required');
+    fireEvent.input(dest, { target: { value: '/promo' } });
+    const img = within(dlg).getByLabelText('Image URL');
+    fireEvent.input(img, { target: { value: 'http://example.com/og.png' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save', exact: true }));
+    await within(dlg).findByText('Social preview image must be an absolute https URL');
+    fireEvent.input(img, { target: { value: full.ogImage } });
+
     fireEvent.input(within(dlg).getByLabelText(/Title \/ Note/), { target: { value: 'New title' } });
     await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save', exact: true }));

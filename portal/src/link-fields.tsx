@@ -3,7 +3,6 @@ import { Accordion, Chip, Combobox, ComboboxInput, ComboboxList, ComboboxOption,
 import { Link, RedirectProfile, SocialPreset } from './api';
 import { mono, muted } from './ui';
 
-// field defaults, stated once: the draft type derives from them
 const BLANK = {
   key: '',
   url: '',

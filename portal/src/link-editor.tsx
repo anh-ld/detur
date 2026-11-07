@@ -41,7 +41,7 @@ export function LinkEditor({
   const [success, setSuccess] = useState('');
   const [dirty, setDirty] = useState(false);
   const [rulesLoaded, setRulesLoaded] = useState(false); // failed load leaves rules=[]: block edits so Save can't PUT an empty list
-  const rulesLoad = useLatest(); // latest load wins, stale dropped
+  const rulesLoad = useLatest();
 
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftRule, setDraftRule] = useState<LinkRule | null>(null);

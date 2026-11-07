@@ -123,7 +123,7 @@ export function buildAppHash(
   return s ? `${base}?${s}` : base;
 }
 
-export type AppRoute = Extract<Route, { name: 'app' }>;
+type AppRoute = Extract<Route, { name: 'app' }>;
 type Filters = { platform?: Platform; range?: DateRangeFilter; linkId?: string };
 
 // Platform and range ride on Links and Analytics; the link filter only on Analytics. Takes inputs as given: no defaults.

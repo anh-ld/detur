@@ -1,5 +1,5 @@
 import { JSX } from 'preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { Alert, Badge, Button, Card, Checkbox, Dialog, Empty, Field, Input, Label, Select, Table } from 'kinu';
 import { api, App, Webhook, WebhookEventType } from './api';
 import {
@@ -48,6 +48,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
     data: webhooks,
     setData: setWebhooks,
     loading,
+    locked,
     error: loadError,
     reload,
   } = useGatedLoad<Webhook[]>({
@@ -57,6 +58,8 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
     empty: [],
   });
   const error = actionError || loadError;
+  // a reload starts clean: stale action errors don't outlive Refresh or an app switch
+  useEffect(() => setError(''), [app.id, tick]);
 
   // replay dialog
   const [replayTarget, setReplayTarget] = useState<Webhook | null>(null);
@@ -163,7 +166,7 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
             </div>
           ) : null}
 
-          {!adminState.adminSet || !adminState.admin ? null : webhooks && webhooks.length === 0 ? (
+          {!adminState.adminSet || !adminState.admin || locked ? null : webhooks && webhooks.length === 0 ? (
             <Card>
               <Empty>
                 <h3>No webhooks yet</h3>

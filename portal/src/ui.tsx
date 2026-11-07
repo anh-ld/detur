@@ -183,7 +183,7 @@ let adminVersion = 0; // bumped on every state change: a session read started be
 let until = ''; // expiresAt ISO; '' = not lifted
 const adminListeners = new Set<() => void>();
 
-export const getAdmin = () => elevated; // tests read the store directly
+export const getAdmin = () => elevated;
 
 export function setAdminAvailable(v: boolean) {
   if (v === adminSet) return;
@@ -354,8 +354,9 @@ export function useGatedLoad<T>(opts: {
           if (e instanceof HttpError && e.status === 403) {
             setLocked(true);
             if (list) setData(empty ?? null);
-            void sessionDied();
-          } else setError(String(e));
+            return sessionDied();
+          }
+          setError(String(e));
         },
       )
       .finally(() => live() && setLoading(false));

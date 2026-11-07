@@ -219,7 +219,6 @@ function Outcome({ i }: { i: FlaggedInstall }) {
   );
 }
 
-// flagged installs for range; superseded response dropped
 function Flagged({ appId, tick }: { appId: string; tick: number }) {
   const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
   const [data, setData] = useState<Fraud | null>(null);

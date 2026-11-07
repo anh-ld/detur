@@ -62,7 +62,6 @@ export function AppPage({
     );
   }, []);
 
-  // latest load wins: also drops responses for an app already left
   const appLoad = useLatest();
   const statsLoad = useLatest();
   const variantsLoad = useLatest();

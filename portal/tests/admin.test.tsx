@@ -230,10 +230,12 @@ describe('portal admin flows (gated)', () => {
     expect(document.querySelector('dialog[open]')).toBeNull();
     expect(screen.queryByText(/\b403\b/)).toBeNull();
 
-    // the Webhooks 403 already cleared the session: lift the UI again so the API page sends its own request
+    // the Webhooks 403 already cleared the session: open the API page first, then lift the UI so the page
+    // mounts gated and sends its own token request with the dead cookie
+    go('#/api');
+    await screen.findByText('Admin required');
     setElevated(true);
     await screen.findByText(/Admin · until/);
-    go('#/api');
     await screen.findByText('Admin required');
     await waitFor(() => expect(screen.queryByText(/Admin · until/)).toBeNull());
     expect(screen.queryByText('No tokens yet')).toBeNull();
