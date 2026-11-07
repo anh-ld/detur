@@ -9,6 +9,9 @@ import { AppsPage } from '../src/apps';
 import { AppPage } from '../src/detail';
 import { go, openDialog, saveButton, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './_integration';
 
+// the sidebar app switcher is a native select: its selected option names the current app
+const currentApp = () => (screen.getByLabelText('Switch app') as HTMLSelectElement).selectedOptions[0]?.textContent;
+
 // client flows: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal :8091.
 const PORT = 8091;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -166,7 +169,7 @@ describe('portal client flows', () => {
     const row = (await screen.findAllByText('summer-sale'))[0].closest('tr')!;
     expect(row.innerText).toContain('/promo');
     expect((await api.listLinks(app.id)).length).toBe(1);
-    expect(document.querySelector('.tag-filter')).toBeTruthy(); // filter stays visible with no tags yet
+    expect(screen.getByRole('button', { name: /^Tags/ })).toBeTruthy(); // filter stays visible with no tags yet
 
     fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
@@ -214,6 +217,7 @@ describe('portal client flows', () => {
     await waitFor(async () => expect((await api.listLinks(app.id)).find((l) => l.id === tagged.id)!.tags).toEqual(['spring', 'alice']));
 
     // filter: any selected tag matches (OR), Clear restores all
+    fireEvent.click(screen.getByRole('button', { name: /^Tags/ })); // opens the popover
     const rows = () => screen.getAllByRole('row').slice(1); // header off
     fireEvent.click(await screen.findByLabelText('alice'));
     await waitFor(() => expect(rows()).toHaveLength(1));
@@ -355,7 +359,7 @@ describe('portal client flows', () => {
     const app = await api.createApp(uniq('tabs-app'));
     location.hash = `#/apps/${app.id}`;
     render(<App />);
-    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
+    await waitFor(() => expect(currentApp()).toBe(app.name));
     expect(tabNames()).toEqual(['Links', 'Analytics', 'Fraud', 'Settings', 'Webhooks']);
     expect(selectedTab()).toEqual(['Links']);
     await screen.findByText('No links yet');
@@ -878,12 +882,12 @@ describe('portal client flows', () => {
 
     location.hash = `#/apps/${a.id}/fraud`;
     render(<App />);
-    await screen.findByText(a.name, { selector: 'summary .app-switch-name' });
+    await waitFor(() => expect(currentApp()).toBe(a.name));
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('33'));
     expect(pressed('Bot traffic')).toEqual(['Active']);
 
     go(`#/apps/${b.id}/fraud`);
-    await screen.findByText(b.name, { selector: 'summary .app-switch-name' });
+    await waitFor(() => expect(currentApp()).toBe(b.name));
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('20'));
     await settle();
     expect(threshold('Max clicks per IP').value).toBe('20');
@@ -898,7 +902,7 @@ describe('portal client flows', () => {
 
     // and back to A: A's values again
     go(`#/apps/${a.id}/fraud`);
-    await screen.findByText(a.name, { selector: 'summary .app-switch-name' });
+    await waitFor(() => expect(currentApp()).toBe(a.name));
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('33'));
     expect(threshold('Max clicks per link').value).toBe('500');
     await api.deleteApp(a.id);
@@ -975,7 +979,7 @@ describe('portal client flows', () => {
     await screen.findByRole('heading', { name: 'Apps' });
 
     go(`#/apps/${app.id}`);
-    await screen.findByText(app.name, { selector: 'summary .app-switch-name' });
+    await waitFor(() => expect(currentApp()).toBe(app.name));
     expect(selectedTab()).toEqual(['Links']);
 
     go(`#/apps/${app.id}/settings`);
