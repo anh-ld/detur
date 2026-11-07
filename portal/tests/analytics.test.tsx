@@ -1,8 +1,10 @@
 import { afterEach, expect, it } from 'bun:test';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/preact';
-import { AnalyticsView, Filters, RANGE_OPTIONS } from '../src/analytics';
-import { DateRangeFilter } from '../src/api';
-import { buildAppHash, parseHash } from '../src/route';
+import { AnalyticsView } from '../src/pages/app/analytics';
+import { Filters } from '../src/components/filters';
+import { RANGE_OPTIONS } from '../src/components/date-range-picker';
+import { DateRangeFilter } from '../src/lib/range';
+import { buildAppHash, parseHash } from '../src/lib/route';
 
 afterEach(cleanup);
 

@@ -3,7 +3,7 @@ import 'kinu/style.css';
 import './theme.css';
 import { Button } from 'kinu';
 import { App } from './app';
-import { muted } from './ui';
+import { muted } from './lib/styles';
 
 class ErrorBoundary extends Component<{ children: ComponentChildren }, { err: Error | null }> {
   state = { err: null as Error | null };

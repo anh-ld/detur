@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { highlightHtml } from '../src/code';
+import { highlightHtml } from '../src/components/code-editor';
 
 // highlighted output goes in via innerHTML: must be the exact source, escaped, only our spans added
 const text = (h: string) =>

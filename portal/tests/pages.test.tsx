@@ -3,7 +3,7 @@ import { vi } from './_vi';
 import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { api, setApiBase } from '../src/api';
+import { api, setApiBase } from '../src/lib/api';
 import { gone, startServer, stopServer, uniq, waitForServer } from './_integration';
 
 // short-link page scripts (safety-net timer, copy page, tap page) from the real Go binary, run in a

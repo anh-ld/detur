@@ -4,10 +4,10 @@ import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
-import { api, setApiBase } from '../src/api';
+import { api, setApiBase } from '../src/lib/api';
 import { App } from '../src/app';
-import { AppsPage } from '../src/apps';
-import { AppPage } from '../src/detail';
+import { AppsPage } from '../src/pages/apps';
+import { AppPage } from '../src/pages/app';
 import { gone, go, openDialog, saveButton, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './_integration';
 
 // the sidebar app switcher is a native select: its selected option names the current app

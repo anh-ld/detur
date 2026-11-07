@@ -5,11 +5,12 @@ import { ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
-import { api, setApiBase } from '../src/api';
+import { api, setApiBase } from '../src/lib/api';
 import { App } from '../src/app';
-import { AppsPage } from '../src/apps';
-import { AppPage } from '../src/detail';
-import { setAdminAvailable, setElevated, AdminPasswordDialog } from '../src/ui';
+import { AppsPage } from '../src/pages/apps';
+import { AppPage } from '../src/pages/app';
+import { setAdminAvailable, setElevated } from '../src/lib/admin';
+import { AdminPasswordDialog } from '../src/components/admin';
 import { clearJar, setJarCookie } from './_setup';
 import { gone, go, openDialog, saveButton, selectedTab, startServer, stopServer, tabs, uniq, waitForServer } from './_integration';
 

@@ -1,20 +1,14 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Chip, Kbd, Select, Status, ToastContainer } from 'kinu';
-import { api } from './api';
-import {
-  AdminPasswordDialog,
-  ensureAdmin,
-  Icon,
-  refreshAdminSession,
-  setAdminAvailable,
-  setElevated,
-  useAdmin,
-} from './ui';
-import { AppsPage } from './apps';
-import { ApiTokensPage } from './api-tokens';
-import { AppPage } from './detail';
-import { AppTab, parseHash, Route, switchTab, tabHref, TABS } from './route';
-import type { App as AppT } from './api';
+import { api } from './lib/api';
+import { AdminPasswordDialog } from './components/admin';
+import { ensureAdmin, refreshAdminSession, setAdminAvailable, setElevated, useAdmin } from './lib/admin';
+import { Icon } from './components/icons';
+import { AppsPage } from './pages/apps';
+import { ApiTokensPage } from './pages/api-tokens';
+import { AppPage } from './pages/app';
+import { AppTab, parseHash, Route, switchTab, tabHref, TABS } from './lib/route';
+import type { App as AppT } from './lib/types';
 
 // top-bar "Admin · until HH:MM"; local clock, server enforces expiry
 const fmtUntil = (iso: string) => {

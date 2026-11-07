@@ -2,9 +2,10 @@ import { afterEach, expect, it } from 'bun:test';
 import { gone } from './_integration';
 import { vi } from './_vi';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
-import { AppPage } from '../src/detail';
-import { AnalyticsView } from '../src/analytics';
-import { CopyButton, getAdmin, refreshAdminSession, setElevated } from '../src/ui';
+import { AppPage } from '../src/pages/app';
+import { AnalyticsView } from '../src/pages/app/analytics';
+import { CopyButton } from '../src/components/copy-button';
+import { getAdmin, refreshAdminSession, setElevated } from '../src/lib/admin';
 
 // unit, mocked fetch: cases the real binary can't produce on demand (delayed reply, every outcome/signal at once)
 
