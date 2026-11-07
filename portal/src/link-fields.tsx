@@ -175,12 +175,12 @@ export function LinkFields({
                 .map((t) => (
                   <ComboboxOption
                     key={t}
-                    onClick={(e) => {
+                    onClick={(e: MouseEvent) => {
                       e.preventDefault();
                       e.stopPropagation(); // add straight away instead of refilling the input
                       setDraft({ ...draft, tags: [...draft.tags, t] });
                       setTagText('');
-                      (e.currentTarget.closest('[k="combobox-list"]') as HTMLDialogElement | null)?.close();
+                      ((e.currentTarget as HTMLElement).closest('[k="combobox-list"]') as HTMLDialogElement | null)?.close();
                     }}
                   >
                     {t}

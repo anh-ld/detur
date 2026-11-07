@@ -9,7 +9,8 @@
     "strictNullChecks": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": false
   },
   "include": ["src"]
 }
