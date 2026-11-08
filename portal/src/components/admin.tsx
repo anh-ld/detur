@@ -1,10 +1,27 @@
-import { ComponentChildren } from 'preact';
+import { ComponentChildren, ComponentProps } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Field, Input, Label } from 'kinu';
+import { ICONS, Icon } from './icons';
 import { api, HttpError } from '../lib/api';
-import { ADMIN_PW_DIALOG, ensureAdmin, setElevated, settleAdminGate } from '../lib/admin';
+import { ADMIN_PW_DIALOG, ensureAdmin, setElevated, settleAdminGate, useAdmin } from '../lib/admin';
 import { closeDialog } from '../lib/dialog';
 import { muted, row } from '../lib/styles';
+
+export const LOCKED_HINT = 'Admin required: use Enter admin in the sidebar';
+
+// locked: press shows the admin prompt instead of the action
+export const lockedProps = (locked: boolean) => (locked ? { title: LOCKED_HINT, onClick: () => void ensureAdmin() } : {});
+
+// trigger for an admin-gated action: locked -> lock icon, press opens the admin prompt
+export function AdminButton({ children, ...rest }: ComponentProps<typeof Button>) {
+  const { locked } = useAdmin();
+  return (
+    <Button {...rest} {...lockedProps(locked)}>
+      {locked && <Icon d={ICONS.lock} />}
+      {children}
+    </Button>
+  );
+}
 
 // locked-section notice: shared look for admin-gated panels before elevation.
 // elevating notifies subscribeAdmin -> panels reload.

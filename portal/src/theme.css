@@ -1,3 +1,6 @@
+/* kinu first: Bun dev orders separate CSS imports unpredictably, so theme overrides lost to kinu. */
+@import 'kinu/style.css';
+
 /* Seline-style tokens: neutral zinc, one blue accent. */
 :root {
   /* fill under white text: #2563eb = 5.2:1 */
@@ -20,6 +23,7 @@
   --k-border: 240 6% 92%; /* #e9e9ec */
   --k-input: 240 6% 86%; /* #d9d9de */
   --k-muted: 240 5% 96%; /* #f4f4f5 */
+  --k-muted-hover: 240 5% 92%; /* button hover on muted */
   --k-secondary: 240 5% 96%;
   --k-background: 0 0% 98.5%; /* canvas #fbfbfb */
   --k-card: 0 0% 100%;
@@ -260,50 +264,39 @@ button.nav-link {
   transform: scale(0.97);
 }
 
+/* Neutral actions (outline, ghost, secondary, icon-only): light grey fill, black text. No transparent buttons. */
 [k='button'][variant='ghost'],
-[k='button'][variant='outline'] {
-  color: hsl(var(--k-foreground));
-  font-weight: 400;
-}
-
-[k='button'][variant='outline'] {
-  border: 1px solid hsl(var(--k-input));
-  background: hsl(var(--k-card));
-  box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
-}
-
-/* Soft cyan: secondary actions beside a primary */
-[k='button'][variant='secondary'] {
-  background: hsl(var(--k-accent) / 0.55);
-  color: hsl(var(--k-accent-foreground));
-  border: 1px solid hsl(var(--k-accent));
-}
-
-[k='button'][variant='secondary']:hover {
-  background: hsl(var(--k-accent));
-}
-
-[k='button'][variant='ghost']:hover,
-[k='button'][variant='outline']:hover {
+[k='button'][variant='outline'],
+[k='button'][variant='secondary'],
+[k='button'].icon-btn {
   background: hsl(var(--k-muted));
-}
-
-[k='button'][variant='destructive']:hover,
-[k='button'][variant='destructive']:focus-visible {
-  background-color: hsl(0 66% 46%);
-}
-
-/* row delete quiet; confirm dialog keeps solid red */
-[k='table'] [k='button'][variant='destructive'] {
-  background: transparent;
-  color: hsl(var(--k-destructive));
+  color: hsl(var(--k-foreground));
   border: 1px solid hsl(var(--k-border));
   font-weight: 400;
 }
 
-[k='table'] [k='button'][variant='destructive']:hover {
-  background: hsl(0 72% 51% / 0.06);
-  border-color: hsl(0 72% 51% / 0.3);
+[k='button'][variant='ghost']:hover,
+[k='button'][variant='outline']:hover,
+[k='button'][variant='secondary']:hover,
+[k='button'].icon-btn:hover:not(:disabled) {
+  background: hsl(var(--k-muted-hover));
+  color: hsl(var(--k-foreground));
+}
+
+/* Destructive (delete, trash, remove, revoke): solid red, white text, everywhere */
+[k='button'][variant='destructive'],
+[k='button'].icon-btn.danger {
+  background: hsl(var(--k-destructive));
+  color: hsl(var(--k-destructive-foreground));
+  border: 1px solid hsl(var(--k-destructive));
+  font-weight: 400;
+}
+
+[k='button'][variant='destructive']:hover,
+[k='button'][variant='destructive']:focus-visible,
+[k='button'].icon-btn.danger:hover:not(:disabled) {
+  background: hsl(0 66% 46%);
+  color: hsl(var(--k-destructive-foreground));
 }
 
 [k='button']:focus-visible {
@@ -518,8 +511,8 @@ button.nav-link {
 
 /* 1px same-colour shadow hides Chrome's antialias seam at fractional column edges */
 [k='table'] thead th {
-  background: hsl(var(--k-card));
-  box-shadow: 1px 0 0 hsl(var(--k-card));
+  background: hsl(var(--k-muted));
+  box-shadow: 1px 0 0 hsl(var(--k-muted));
   color: hsl(var(--k-muted-foreground));
   font-size: 12px;
   font-weight: 500;
@@ -1039,7 +1032,7 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Icon-only buttons: 32px square, quiet until hover */
+/* Icon-only buttons: 32px square */
 [k='button'].icon-btn {
   display: inline-grid;
   place-items: center;
@@ -1047,20 +1040,10 @@ button:disabled {
   height: 32px;
   padding: 0;
   flex: none;
-  color: hsl(var(--k-muted-foreground));
-}
-
-[k='button'].icon-btn:hover:not(:disabled) {
-  color: hsl(var(--k-foreground));
 }
 
 .settings-tabs {
   margin-bottom: 24px;
-}
-
-[k='button'].icon-btn.danger:hover:not(:disabled) {
-  color: hsl(var(--k-destructive));
-  background: hsl(var(--k-destructive) / 0.08);
 }
 
 /* Header icon actions match the normal button box */
@@ -1209,6 +1192,12 @@ button:disabled {
   min-width: 180px;
   max-height: 280px;
   overflow-y: auto;
+}
+
+/* accordion body clips overflow: a flush field's 2px focus ring lost its sides */
+[k='accordion']::details-content {
+  margin-inline: -4px;
+  padding-inline: 4px;
 }
 
 /* Form sections + optional disclosures */
@@ -1724,4 +1713,19 @@ main p code,
   color: #8250df;
   background: rgba(130, 80, 223, 0.1);
   border-radius: 3px;
+}
+
+/* preset row: one bordered block per preset, remove sits in its corner */
+.preset-item {
+  position: relative;
+  padding: 16px 52px 16px 16px;
+  border: 1px solid hsl(var(--k-border));
+  border-radius: 10px;
+  background: hsl(var(--k-card));
+}
+
+.preset-item > .icon-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }

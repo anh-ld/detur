@@ -11,6 +11,7 @@ export const ICONS = {
   trash: 'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6',
   close: 'M18 6 6 18M6 6l12 12',
   plus: 'M12 5v14M5 12h14',
+  lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
 };
 
 export const Icon = ({ d, spin, size = 16 }: { d: string; spin?: boolean; size?: number }) => (

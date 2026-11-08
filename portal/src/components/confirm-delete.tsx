@@ -1,11 +1,12 @@
 import { ComponentChildren } from 'preact';
 import { Button, Dialog } from 'kinu';
-import { gateOpen } from '../lib/admin';
+import { useAdmin } from '../lib/admin';
 import { closeDialog, openDialog } from '../lib/dialog';
 import { muted, row } from '../lib/styles';
+import { AdminButton, lockedProps } from './admin';
 import { ICONS, IconButton } from './icons';
 
-// requireAdmin gates the trigger: prompt first, confirm opens only on successful elevation. Open/close by id: kinu Dialog.Close needs the
+// requireAdmin: trigger is disabled (lock) until admin is entered. Open/close by id: kinu Dialog.Close needs the
 // Dialog.Trigger polyfill, absent here.
 export function ConfirmDelete({
   title,
@@ -22,12 +23,23 @@ export function ConfirmDelete({
   requireAdmin?: boolean;
   icon?: boolean;
 }) {
+  const locked = useAdmin().locked && !!requireAdmin;
   return (
     <Dialog id={id}>
       {icon ? (
-        <IconButton icon={ICONS.trash} label="Delete" danger onClick={() => (requireAdmin ? gateOpen(id) : openDialog(id))} />
+        <IconButton
+          icon={ICONS.trash}
+          label="Delete"
+          danger
+          onClick={() => openDialog(id)}
+          {...lockedProps(locked)}
+        />
+      ) : requireAdmin ? (
+        <AdminButton size="sm" variant="destructive" onClick={() => openDialog(id)}>
+          Delete
+        </AdminButton>
       ) : (
-        <Button size="sm" variant="destructive" onClick={() => (requireAdmin ? gateOpen(id) : openDialog(id))}>
+        <Button size="sm" variant="destructive" onClick={() => openDialog(id)}>
           Delete
         </Button>
       )}

@@ -36,7 +36,7 @@ export function SocialPresetsForm({ app, onSaved }: { app: App; onSaved: (a: App
             placeholder="https://example.com/card.png"
             onInput={(e) => set({ image: e.currentTarget.value })}
           />
-          <Field>
+          <Field style={{ gridColumn: '1 / -1' }}>
             <Label htmlFor={`social-desc-${i}`}>Preview description</Label>
             <Textarea
               id={`social-desc-${i}`}

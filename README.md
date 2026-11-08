@@ -79,7 +79,8 @@ Portal: `:8081`.
 - Links: `/key` → app route (`/product/42`) + optional title/note, iOS / Android / fallback.
 - App details (iOS app ID, Android package, cert fingerprint) → well-known files.
 - Settings → Get-app page: default, or custom HTML (`{{cta}}`, `{{icon_url}}`, …) for the iOS copy page + in-app tap page.
-- `ADMIN_PASSWORD` set → app changes need admin (top bar).
+- API page: tokens table first, `New token` drawer, tabbed Connect guide.
+- `ADMIN_PASSWORD` set → app changes need admin (top bar "Enter admin"); gated buttons stay locked until then.
 
 ### 3. Point SDK at detur
 

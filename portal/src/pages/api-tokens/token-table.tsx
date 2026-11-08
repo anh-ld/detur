@@ -1,9 +1,9 @@
-import { Button, Table } from 'kinu';
+import { Badge, Button, Table } from 'kinu';
 import { ApiToken, App } from '../../lib/types';
 import { fmtDate } from '../../lib/format';
-import { gateOpen } from '../../lib/admin';
+import { AdminButton } from '../../components/admin';
 import { openDialog } from '../../lib/dialog';
-import { mono, row } from '../../lib/styles';
+import { mono, muted, row } from '../../lib/styles';
 
 export function TokenTable({
   tokens,
@@ -16,7 +16,7 @@ export function TokenTable({
   onEdit: (t: ApiToken) => void;
   onRevoke: (t: ApiToken) => void;
 }) {
-  const appNames = (ids: string[]) => ids.map((id) => apps.find((a) => a.id === id)?.name ?? id).join(', ');
+  const appName = (id: string) => apps.find((a) => a.id === id)?.name ?? id;
   return (
     <Table>
       <thead>
@@ -34,9 +34,17 @@ export function TokenTable({
           <tr key={t.id}>
             <td>{t.name}</td>
             <td style={mono}>{t.prefix}…</td>
-            <td>{appNames(t.appIds)}</td>
+            <td data-label="Apps">
+              <div style={{ ...row, flexWrap: 'wrap' }}>
+                {t.appIds.map((id) => (
+                  <Badge key={id} variant="secondary">
+                    {appName(id)}
+                  </Badge>
+                ))}
+              </div>
+            </td>
             <td>{fmtDate(t.createdAt)}</td>
-            <td>{t.lastUsedAt ? fmtDate(t.lastUsedAt) : 'Never'}</td>
+            <td style={t.lastUsedAt ? undefined : muted}>{t.lastUsedAt ? fmtDate(t.lastUsedAt) : 'Never'}</td>
             <td style={{ textAlign: 'right' }}>
               <div style={{ ...row, justifyContent: 'flex-end' }}>
                 <Button
@@ -49,16 +57,16 @@ export function TokenTable({
                 >
                   Edit
                 </Button>
-                <Button
+                <AdminButton
                   size="sm"
                   variant="destructive"
                   onClick={() => {
                     onRevoke(t);
-                    gateOpen('dlg-revoke-token');
+                    openDialog('dlg-revoke-token');
                   }}
                 >
                   Revoke
-                </Button>
+                </AdminButton>
               </div>
             </td>
           </tr>

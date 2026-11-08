@@ -5,6 +5,7 @@ import { api } from '../../../lib/api';
 import { adminCall } from '../../../lib/admin';
 import { muted, row } from '../../../lib/styles';
 import { App } from '../../../lib/types';
+import { ICONS, Icon, IconButton } from '../../../components/icons';
 import { formGrid, useSave } from './save';
 
 const MAX = 10;
@@ -58,26 +59,24 @@ export function PresetForm<T>({
     <form style={formGrid} onSubmit={onSubmit}>
       <p style={muted}>{intro}</p>
       {items.map((p, i) => (
-        <div style={{ ...row, alignItems: 'flex-end', gap: 8 }} key={i}>
-          <div class="form-grid" style={{ flex: 1 }}>
+        <div class="preset-item" key={i}>
+          <div class="form-grid">
             {fields(p, (change) => setItems(items.map((x, j) => (j === i ? { ...x, ...change } : x))), i)}
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-label={`Remove ${noun} ${i + 1}`}
+          <IconButton
+            icon={ICONS.trash}
+            label={`Remove ${noun} ${i + 1}`}
+            danger
             onClick={() => setItems(items.filter((_, j) => j !== i))}
-          >
-            Remove
-          </Button>
+          />
         </div>
       ))}
       <div style={{ ...row, justifyContent: 'space-between' }}>
-        <Button type="button" variant="outline" disabled={items.length >= MAX} onClick={() => setItems([...items, blank])}>
+        <Button type="button" variant="ghost" disabled={items.length >= MAX} onClick={() => setItems([...items, blank])}>
+          <Icon d={ICONS.plus} />
           Add {noun}
         </Button>
-        <Button type="submit" variant="outline">
+        <Button type="submit">
           Save
         </Button>
       </div>

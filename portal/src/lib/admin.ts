@@ -67,15 +67,6 @@ export function settleAdminGate(ok: boolean) {
   pendingAdmin = null;
 }
 
-// gate at a dialog trigger: open sync if gate passes (no password or lifted), else prompt first
-export function gateOpen(dialogId: string) {
-  if (adminSet && !elevated) {
-    ensureAdmin().then((ok) => ok && openDialog(dialogId));
-  } else {
-    openDialog(dialogId);
-  }
-}
-
 // the one admin snapshot: password set?, elevated?, until; re-renders its component on any change.
 // locked = a password is set and the session isn't elevated.
 export function useAdmin() {

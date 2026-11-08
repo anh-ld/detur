@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Alert, Badge, Button, Card, Dialog, Empty, Field, Input, Label, Table } from 'kinu';
 import { api } from '../lib/api';
 import { App, CreatedApp } from '../lib/types';
-import { AdminGateAborted, adminCall, gateOpen } from '../lib/admin';
-import { closeDialog } from '../lib/dialog';
+import { AdminGateAborted, adminCall } from '../lib/admin';
+import { AdminButton } from '../components/admin';
+import { closeDialog, openDialog } from '../lib/dialog';
 import { ConfirmDelete } from '../components/confirm-delete';
 import { CopyButton } from '../components/copy-button';
 import { Loading, PageHeader } from '../components/page';
@@ -25,14 +26,14 @@ export function AppsPage() {
   };
   useEffect(load, []);
 
-  // on trigger click, before dialog opens (elevate first if gated)
+  // on trigger click: reset form, open (button is disabled while admin is locked)
   const resetCreate = () => {
     setCreated(null);
     setName('');
   };
   const createClick = () => {
     resetCreate();
-    gateOpen(CREATE_ID);
+    openDialog(CREATE_ID);
   };
 
   // ref, not just state: a double-click submits twice before the disabled re-render lands
@@ -69,7 +70,7 @@ export function AppsPage() {
 
   const createDialog = (
     <Dialog id="dlg-create-app">
-      <Button onClick={createClick}>Create app</Button>
+      <AdminButton onClick={createClick}>Create app</AdminButton>
       <Dialog.Content>
         {created ? (
           <div style={{ display: 'grid', gap: 16 }}>

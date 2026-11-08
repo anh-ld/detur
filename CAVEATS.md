@@ -111,3 +111,5 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **Portal dev**: `bun run dev` full-reloads on edit (no state-preserving HMR for Preact). Build prints `@position-try` warnings from kinu CSS: harmless.
 - **Portal tests**: use `gone(el)`, not `expect(el).toBeNull()`. Bun formats a failing DOM node eagerly (millions of lines, blocks the event loop ~1s per `waitFor` poll).
 - **Server tests**: CI runs `-race` only on goroutine tests and non-SQLite packages (`server/scripts/test.sh`). `-race` makes the pure-Go SQLite driver ~16x slower (full suite ~3 min vs ~25s). New concurrency test → add its name to the `-run` list. Full check: `go test -race ./...`.
+- **Portal CSS order**: `bun run dev` serves each CSS import as its own sheet, order not guaranteed (theme loaded before kinu → drawer, card, table overrides lost). `theme.css` starts with `@import 'kinu/style.css'`; never import kinu CSS from JS.
+- **kinu `Accordion`**: body is `overflow: hidden`, so a flush field loses its 2px focus ring on the sides. `theme.css` pads the body 4px and pulls it back with a −4px margin.

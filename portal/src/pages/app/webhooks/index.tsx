@@ -2,8 +2,8 @@ import { useEffect, useState } from 'preact/hooks';
 import { Alert, Button, Card, Empty, Table } from 'kinu';
 import { api } from '../../../lib/api';
 import { App, Webhook } from '../../../lib/types';
-import { adminCall, gateOpen, useAdmin, useGatedLoad } from '../../../lib/admin';
-import { AdminRequired } from '../../../components/admin';
+import { adminCall, useAdmin, useGatedLoad } from '../../../lib/admin';
+import { AdminButton, AdminRequired } from '../../../components/admin';
 import { openDialog } from '../../../lib/dialog';
 import { Loading } from '../../../components/page';
 import { actionErrors } from '../../../components/action-errors';
@@ -17,7 +17,7 @@ import { WebhookRow } from './webhook-row';
 export function AddWebhookButton() {
   const { adminSet } = useAdmin();
   if (!adminSet) return null;
-  return <Button onClick={() => gateOpen('dlg-add-webhook')}>Add webhook</Button>;
+  return <AdminButton onClick={() => openDialog('dlg-add-webhook')}>Add webhook</AdminButton>;
 }
 
 // tick: page Refresh counter; bump reloads list

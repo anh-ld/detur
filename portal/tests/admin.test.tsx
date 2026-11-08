@@ -337,7 +337,7 @@ describe('portal admin flows (gated)', () => {
     await api.deleteApp(app.id); // session is valid now
   });
 
-  it('delete app flow as viewer: password first, the ConfirmDelete still confirms, the row disappears', async () => {
+  it('delete app flow as viewer: locked Delete shows the admin prompt on press, unlocking enables it, the row disappears', async () => {
     const app = await makeApp('del-viewer');
 
     render(
@@ -347,12 +347,16 @@ describe('portal admin flows (gated)', () => {
       </>,
     );
     const card = (await screen.findByText(app.name)).closest('tr')!;
+    const del = within(card).getByRole('button', { name: 'Delete' });
+    expect(del.querySelector('svg')).not.toBeNull(); // lock icon
+    fireEvent.click(del);
+    const pw = await waitFor(pwDialog); // press on the locked button shows the admin prompt
+    fireEvent.click(within(pw).getByRole('button', { name: 'Cancel' }));
+    await api.enterAdminMode(PW);
+    setElevated(true);
+    await waitFor(() => expect(within(card).getByRole('button', { name: 'Delete' }).querySelector('svg')).toBeNull());
     fireEvent.click(within(card).getByRole('button', { name: 'Delete' }));
-    // viewer: password prompt before confirm
-    let dlg = await waitFor(pwDialog);
-    fireEvent.input(within(dlg).getByLabelText('Password'), { target: { value: PW } });
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
-    // gate opens the confirm dialog, which still asks
+    let dlg: HTMLElement;
     dlg = await waitFor(() => {
       const d = openDialog();
       if (!within(d).queryByRole('heading', { name: `Delete ${app.name}?` })) throw new Error('not the confirm dialog');
@@ -459,17 +463,18 @@ describe('portal admin flows (gated)', () => {
     go('#/api');
     render(<App />);
     await screen.findByText('Admin required');
-    // locked: no form, no setup guide
+    // locked: no form, no setup guide (New token is the lock button)
     gone(screen.queryByRole('button', { name: 'Create token' }));
     gone(screen.queryByRole('heading', { name: 'Connect' }));
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
 
+    // setup guide stays on the page with a placeholder, never a real token
+    await screen.findByRole('heading', { name: 'Connect' });
+    screen.getByText('Authorization: Bearer <token>');
+    fireEvent.click(screen.getByRole('button', { name: 'New token' }));
     const create = (await screen.findByRole('button', { name: 'Create token' })) as HTMLButtonElement;
     const form = create.closest('form')!;
-    // setup guide stays on the page with a placeholder, never a real token
-    screen.getByRole('heading', { name: 'Connect' });
-    screen.getByText('Authorization: Bearer <token>');
     fireEvent.input(within(form).getByLabelText('Name'), { target: { value: 'ci-agent' } });
     expect(create.disabled).toBe(true); // no app picked
     fireEvent.click(await within(form).findByLabelText(a.name));

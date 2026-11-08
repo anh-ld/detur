@@ -3,14 +3,14 @@ import { Alert, Card, Empty } from 'kinu';
 import { api } from '../../lib/api';
 import { ApiToken, App, CreatedToken } from '../../lib/types';
 import { adminCall, useAdmin, useGatedLoad } from '../../lib/admin';
-import { AdminRequired } from '../../components/admin';
+import { AdminButton, AdminRequired } from '../../components/admin';
 import { actionErrors } from '../../components/action-errors';
 import { openDialog } from '../../lib/dialog';
 import { Loading, PageHeader } from '../../components/page';
 import { Connect } from './connect';
 import { CreatedTokenDialog } from './created-token-dialog';
 import { EditTokenDialog } from './edit-token-dialog';
-import { NewTokenForm } from './new-token-form';
+import { NEW_TOKEN_DIALOG, NewTokenDialog } from './new-token-form';
 import { RevokeTokenDialog } from './revoke-token-dialog';
 import { TokenTable } from './token-table';
 
@@ -62,7 +62,11 @@ export function ApiTokensPage() {
 
   return (
     <div>
-      <PageHeader title="API" description="Tokens let agents and scripts read analytics, read-only, for the apps you pick." />
+      <PageHeader
+        title="API"
+        description="Tokens let agents and scripts read analytics, read-only, for the apps you pick."
+        actions={admin.adminSet && <AdminButton onClick={() => openDialog(NEW_TOKEN_DIALOG)}>New token</AdminButton>}
+      />
 
       {error && (
         <Alert variant="destructive" style={{ marginBottom: 16 }}>
@@ -78,37 +82,35 @@ export function ApiTokensPage() {
         <div style={{ display: 'grid', gap: 24 }}>
           {!admin.admin && <AdminRequired>Enter your admin password to view, create, edit or revoke API tokens.</AdminRequired>}
 
-          {admin.admin && (
-            <>
-              <NewTokenForm
-                apps={apps}
-                errors={errors}
-                onCreated={(t) => {
-                  const { token: _plain, ...rest } = t;
-                  setTokens((prev) => [...(prev ?? []), rest]);
-                  setCreated(t);
-                  openDialog('dlg-created-token');
-                }}
-              />
-              <Connect base={base} />
-            </>
-          )}
-
           {admin.admin &&
             !locked &&
             (tokens && tokens.length === 0 ? (
               <Card>
                 <Empty>
                   <h3>No tokens yet</h3>
-                  Create one to connect an agent.
+                  Use New token to connect an agent.
                 </Empty>
               </Card>
             ) : (
               <TokenTable tokens={tokens ?? []} apps={apps} onEdit={setEditing} onRevoke={setRevoking} />
             ))}
+
+          {admin.admin && <Connect base={base} />}
         </div>
       )}
 
+      {admin.admin && (
+        <NewTokenDialog
+          apps={apps}
+          errors={errors}
+          onCreated={(t) => {
+            const { token: _plain, ...rest } = t;
+            setTokens((prev) => [...(prev ?? []), rest]);
+            setCreated(t);
+            openDialog('dlg-created-token');
+          }}
+        />
+      )}
       <CreatedTokenDialog created={created} base={base} onDone={() => setCreated(null)} />
       <EditTokenDialog
         token={editing}

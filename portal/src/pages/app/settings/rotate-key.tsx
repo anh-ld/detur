@@ -1,9 +1,10 @@
 import { useRef, useState } from 'preact/hooks';
 import { Alert, Button, Dialog, Field, Input, Label } from 'kinu';
 import { api } from '../../../lib/api';
-import { adminCall, AdminGateAborted, gateOpen } from '../../../lib/admin';
+import { adminCall, AdminGateAborted } from '../../../lib/admin';
 import { CopyButton } from '../../../components/copy-button';
-import { closeDialog } from '../../../lib/dialog';
+import { AdminButton } from '../../../components/admin';
+import { closeDialog, openDialog } from '../../../lib/dialog';
 import { mono, muted, row } from '../../../lib/styles';
 import { App, CreatedApp } from '../../../lib/types';
 
@@ -38,9 +39,9 @@ export function RotateKeyDialog({ app, onChanged }: { app: App; onChanged: () =>
 
   return (
     <Dialog id={id}>
-      <Button size="sm" variant="outline" onClick={() => gateOpen(id)}>
+      <AdminButton size="sm" variant="outline" onClick={() => openDialog(id)}>
         Rotate
-      </Button>
+      </AdminButton>
       <Dialog.Content>
         {rotated ? (
           <div style={stack}>

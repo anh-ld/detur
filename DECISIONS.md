@@ -172,4 +172,6 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 
 ## Security, ops
 
-Trust boundaries → [CAVEATS.md](CAVEATS.md). Log out → `LOGOUT_URL` (gateway sign-out). Admin: `ADMIN_PASSWORD` → 12h browser session (P1); unset = no gating. Webhooks always need it (W6).
+Trust boundaries → [CAVEATS.md](CAVEATS.md). Log out → `LOGOUT_URL` (gateway sign-out). Admin: `ADMIN_PASSWORD` → 12h browser session (P1); unset = no gating. Webhooks always need it (W6). Gated buttons (create/delete app, rotate/revoke key, add webhook, revoke token) show a lock icon until admin is entered; pressing one opens the admin prompt (not disabled).
+
+Portal buttons: primary = blue; delete/trash/remove/revoke = solid red + white text; every other action = light grey fill + black text; none transparent. Table header = light grey.

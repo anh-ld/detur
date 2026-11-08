@@ -1,5 +1,4 @@
 import { Component, ComponentChildren, render } from 'preact';
-import 'kinu/style.css';
 import './theme.css';
 import { Button } from 'kinu';
 import { App } from './app';
