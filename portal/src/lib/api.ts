@@ -68,7 +68,7 @@ export async function req<T>(method: string, path: string, body?: unknown): Prom
 export const api = {
   getMatchQuality: (id: string) => req<MatchQuality>('GET', `/api/apps/${id}/match-quality?days=30`),
   getHealth: (id: string) => req<HealthCheck[]>('GET', `/api/apps/${id}/health`),
-  getConfig: () => req<{ logoutUrl: string; adminSet: boolean; linkBase: string }>('GET', '/api/config'),
+  getConfig: () => req<{ logoutUrl: string; adminSet: boolean; linkBase: string; version: string }>('GET', '/api/config'),
   getAdminSession: () => req<AdminSession>('GET', '/api/admin/session'),
   enterAdminMode: (password: string) => req<{ expiresAt: string }>('POST', '/api/admin/session', { password }),
   exitAdminMode: () => req<AdminSession>('DELETE', '/api/admin/session'),

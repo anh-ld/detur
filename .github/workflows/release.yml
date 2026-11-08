@@ -82,6 +82,7 @@ jobs:
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           push: true
+          build-args: VERSION=${{ steps.ver.outputs.version }}
           tags: |
             ${{ steps.ver.outputs.image }}:${{ steps.ver.outputs.version }}
             ${{ steps.ver.outputs.image }}:latest

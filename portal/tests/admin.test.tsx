@@ -88,12 +88,12 @@ describe('portal admin flows (gated)', () => {
     // wrong password: 401 (server sleeps 1s), error alert, still viewer
     await waitFor(() => within(dlg).getByRole('alert'), { timeout: 5000 });
     expect(within(dlg).getByRole('alert').textContent).toBe('Wrong password');
-    gone(screen.queryByText(/Admin · until/));
+    gone(screen.queryByTitle(/^Admin until/));
     expect(await api.getAdminSession()).toMatchObject({ admin: false });
 
     fireEvent.input(within(dlg).getByLabelText('Password'), { target: { value: PW } });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
-    await waitFor(() => screen.getByText(/Admin · until/));
+    await waitFor(() => screen.getByTitle(/^Admin until/));
     expect(await api.getAdminSession()).toMatchObject({ admin: true });
 
     // exit + re-enter: prompt opens empty, no old error
@@ -134,7 +134,7 @@ describe('portal admin flows (gated)', () => {
     cleanup();
     location.hash = '#/';
     render(<App />);
-    await screen.findByText(/Admin · until/);
+    await screen.findByTitle(/^Admin until/);
     await api.deleteApp(app.id); // session is still valid
   });
 
@@ -187,7 +187,7 @@ describe('portal admin flows (gated)', () => {
     await unlock();
     const group = await screen.findByRole('group', { name: 'Bot traffic mode' });
     gone(screen.queryByText(SIGNALS_LOCKED));
-    await screen.findByText(/Admin · until/);
+    await screen.findByTitle(/^Admin until/);
 
     fireEvent.click(within(group).getByRole('button', { name: 'Active' }));
     await waitFor(async () => expect((await api.getFraudSettings(app.id)).userAgentMode).toBe('active'));
@@ -201,12 +201,12 @@ describe('portal admin flows (gated)', () => {
     setElevated(true);
     location.hash = '#/';
     render(<App />);
-    await screen.findByText(/Admin · until/);
+    await screen.findByTitle(/^Admin until/);
 
     setJarCookie(`127.0.0.1:${PORT}`, 'detur_admin', 'tampered');
     go(`#/apps/${app.id}/fraud`);
     await screen.findByText(SIGNALS_LOCKED);
-    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
+    await waitFor(() => gone(screen.queryByTitle(/^Admin until/)));
     await screen.findByRole('button', { name: 'Enter admin' });
     gone(document.querySelector('dialog[open]'));
     gone(screen.queryByText(/\b403\b/));
@@ -220,12 +220,12 @@ describe('portal admin flows (gated)', () => {
     setElevated(true);
     location.hash = '#/';
     render(<App />);
-    await screen.findByText(/Admin · until/);
+    await screen.findByTitle(/^Admin until/);
 
     setJarCookie(`127.0.0.1:${PORT}`, 'detur_admin', 'tampered');
     go(`#/apps/${app.id}/webhooks`);
     await screen.findByText('Admin required');
-    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
+    await waitFor(() => gone(screen.queryByTitle(/^Admin until/)));
     gone(screen.queryByText('No webhooks yet'));
     gone(document.querySelector('dialog[open]'));
     gone(screen.queryByText(/\b403\b/));
@@ -235,9 +235,9 @@ describe('portal admin flows (gated)', () => {
     go('#/api');
     await screen.findByText('Admin required');
     setElevated(true);
-    await screen.findByText(/Admin · until/);
+    await screen.findByTitle(/^Admin until/);
     await screen.findByText('Admin required');
-    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
+    await waitFor(() => gone(screen.queryByTitle(/^Admin until/)));
     gone(screen.queryByText('No tokens yet'));
     gone(document.querySelector('dialog[open]'));
     gone(screen.queryByText(/\b403\b/));
@@ -251,7 +251,7 @@ describe('portal admin flows (gated)', () => {
     setElevated(true);
     location.hash = '#/';
     render(<App />);
-    await screen.findByText(/Admin · until/);
+    await screen.findByTitle(/^Admin until/);
     go(`#/apps/${app.id}/settings`);
     fireEvent.click(await screen.findByRole('tab', { name: 'Page' }));
     const field = await waitFor(() => {
@@ -279,10 +279,10 @@ describe('portal admin flows (gated)', () => {
     const dlg = await waitFor(pwDialog);
     fireEvent.input(within(dlg).getByLabelText('Password'), { target: { value: PW } });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
-    await screen.findByText(/Admin · until/);
+    await screen.findByTitle(/^Admin until/);
 
     fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
-    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
+    await waitFor(() => gone(screen.queryByTitle(/^Admin until/)));
     await screen.findByRole('button', { name: 'Enter admin' });
     expect(await api.getAdminSession()).toMatchObject({ admin: false });
 
@@ -306,7 +306,7 @@ describe('portal admin flows (gated)', () => {
     setElevated(true);
     location.hash = '#/';
     render(<App />);
-    await screen.findByText(/Admin · until/);
+    await screen.findByTitle(/^Admin until/);
     go(`#/apps/${app.id}/settings`);
     await screen.findByLabelText('iOS App ID'); // gated panel loaded
 
@@ -315,7 +315,7 @@ describe('portal admin flows (gated)', () => {
     fireEvent.input(screen.getByLabelText('iOS App ID'), { target: { value: 'ABCDE12345.com.draft' } });
     fireEvent.click(saveButton(screen.getByLabelText('iOS App ID')));
     // 403 -> session refresh clears chip -> panel hides behind the notice + re-prompt
-    await waitFor(() => gone(screen.queryByText(/Admin · until/)));
+    await waitFor(() => gone(screen.queryByTitle(/^Admin until/)));
     const dlg = await waitFor(pwDialog);
     screen.getByText(SETTINGS_LOCKED);
     gone(screen.queryByRole('heading', { name: 'API key' }));

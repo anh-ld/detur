@@ -25,6 +25,9 @@ import (
 	"detur.dev/server/internal/store"
 )
 
+// Version: release tag without "v", set at startup from the -ldflags build value; "dev" for source runs.
+var Version = "dev"
+
 // matching defaults from store's exported defaults; settings table overrides at runtime.
 type portalServer struct {
 	linkBase string // short-link origin shown in the portal (https://DOMAIN)
@@ -324,7 +327,7 @@ func parseExpiry(v *string) (*time.Time, error) {
 
 // config: UI settings from env. logoutUrl "" = no Log out link; adminSet = ADMIN_PASSWORD configured.
 func (p *portalServer) config(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"logoutUrl": p.logout, "adminSet": p.adminPassword != "", "linkBase": p.linkBase})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"logoutUrl": p.logout, "adminSet": p.adminPassword != "", "linkBase": p.linkBase, "version": Version})
 }
 
 func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {

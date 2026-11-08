@@ -9,7 +9,8 @@ RUN go mod download
 COPY server/cmd ./cmd
 COPY server/internal ./internal
 ENV CGO_ENABLED=0
-RUN go build -trimpath -ldflags="-s -w" -o /out/detur ./cmd/detur
+ARG VERSION=dev
+RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/detur ./cmd/detur
 # pre-create data dir as runtime uid: new named volumes copy image dir ownership -> writable
 RUN mkdir -p /out/data && chown -R 1000:1000 /out/data
 

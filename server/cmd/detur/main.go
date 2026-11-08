@@ -19,6 +19,9 @@ import (
 	"detur.dev/server/internal/webhook"
 )
 
+// version: set by the Docker build (-ldflags -X main.version=...).
+var version = "dev"
+
 // main: config -> store -> HTTP listeners. Public: SDK, browser pipeline, well-known. Loopback: portal (API + static UI), origin/host-guarded. Clicks/events purged at startup, then hourly.
 // SIGTERM/SIGINT (docker stop): stop accepting, drain in-flight requests, stop the webhook worker, close the DB.
 func main() {
@@ -27,6 +30,7 @@ func main() {
 	// Not env: Docker passes 0.0.0.0:8081 to publish it; bare runs keep unauthenticated portal on loopback.
 	portalAddr := flag.String("portal-addr", "127.0.0.1:8081", "portal listen address")
 	flag.Parse()
+	api.Version = version
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)

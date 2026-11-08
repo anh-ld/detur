@@ -1052,7 +1052,7 @@ describe('portal client flows', () => {
     render(<App />);
     await screen.findByRole('heading', { name: 'Apps' });
     gone(screen.queryByRole('button', { name: 'Enter admin' }));
-    gone(screen.queryByText(/Admin · until/));
+    gone(screen.queryByTitle(/^Admin until/));
 
     // nothing to elevate: POST rejects, GET stays inactive
     await expect(api.enterAdminMode('anything')).rejects.toMatchObject({ status: 403 });

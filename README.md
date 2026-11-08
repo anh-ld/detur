@@ -50,7 +50,7 @@ docker run -d --restart unless-stopped --env-file .env \
   ghcr.io/anh-ld/detur:0.15.1
 ```
 
-- Prod: pin a version ([GitHub tags](https://github.com/anh-ld/detur/tags), no `v`).
+- Prod: pin a version ([GitHub tags](https://github.com/anh-ld/detur/tags), no `v`). Portal sidebar shows the running version (`dev` outside release images).
 - `-v`: no named volume → `docker rm` loses every app, key, install. Bind mount → writable by uid 1000.
 - `127.0.0.1:8081`: portal has no login; bare `-p 8081:8081` → public (Docker bypasses ufw).
 
