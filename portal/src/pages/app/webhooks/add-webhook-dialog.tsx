@@ -3,9 +3,10 @@ import { useState } from 'preact/hooks';
 import { Alert, Button, Checkbox, Dialog, Field, Input, Label } from 'kinu';
 import { api } from '../../../lib/api';
 import { Webhook, WebhookEventType } from '../../../lib/types';
-import { adminCall, AdminGateAborted } from '../../../lib/admin';
+import { adminCall } from '../../../lib/admin';
+import { actionErrors } from '../../../components/action-errors';
 import { closeDialog } from '../../../lib/dialog';
-import { muted, row } from '../../../lib/styles';
+import { muted, stack, end } from '../../../lib/styles';
 
 const EVENT_OPTIONS: { type: WebhookEventType; desc: string }[] = [
   { type: 'installs', desc: 'Deferred installs attributed from links · permanent retention' },
@@ -15,11 +16,14 @@ const EVENT_OPTIONS: { type: WebhookEventType; desc: string }[] = [
 
 const DEFAULT_TYPES: WebhookEventType[] = ['installs', 'events'];
 
+export const ADD_WEBHOOK_DIALOG = 'dlg-add-webhook';
+
 export function AddWebhookDialog({ appId, onCreated }: { appId: string; onCreated: (wh: Webhook) => void }) {
   const [url, setUrl] = useState('');
   const [types, setTypes] = useState<WebhookEventType[]>(DEFAULT_TYPES);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const errors = actionErrors(setErr);
 
   const toggleType = (t: WebhookEventType) =>
     setTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
@@ -32,21 +36,21 @@ export function AddWebhookDialog({ appId, onCreated }: { appId: string; onCreate
     setBusy(true);
     try {
       const created = await adminCall(() => api.createWebhook(appId, { url: url.trim(), types }));
-      closeDialog('dlg-add-webhook');
+      closeDialog(ADD_WEBHOOK_DIALOG);
       setUrl('');
       setTypes(DEFAULT_TYPES);
       onCreated(created);
     } catch (e) {
-      if (!(e instanceof AdminGateAborted)) setErr(String(e));
+      errors.fail(e);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Dialog id="dlg-add-webhook">
+    <Dialog id={ADD_WEBHOOK_DIALOG}>
       <Dialog.Content>
-        <form style={{ display: 'grid', gap: 16 }} onSubmit={submit}>
+        <form style={stack} onSubmit={submit}>
           <div style={{ display: 'grid', gap: 4 }}>
             <h2 style={{ margin: 0 }}>Add Webhook Endpoint</h2>
             <p style={muted}>Configure an HTTPS URL to receive real-time batched app activity.</p>
@@ -80,12 +84,12 @@ export function AddWebhookDialog({ appId, onCreated }: { appId: string; onCreate
             </div>
           </Field>
 
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
+          <div style={end}>
             <Button
               type="button"
               variant="outline"
               onClick={() => {
-                closeDialog('dlg-add-webhook');
+                closeDialog(ADD_WEBHOOK_DIALOG);
                 setErr('');
               }}
             >

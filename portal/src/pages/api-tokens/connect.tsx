@@ -4,8 +4,6 @@ import { muted } from '../../lib/styles';
 import { mcpJson, mcpUrl } from './mcp';
 import { Snippet } from './snippet';
 
-// how-to, agent-agnostic: placeholder token; real token only in the created dialog.
-// One tab at a time: the page stays short, each tab is one copy-paste job.
 export function Connect({ base }: { base: string }) {
   const url = mcpUrl(base);
   const tabs = [

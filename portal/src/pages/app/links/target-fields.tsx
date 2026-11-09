@@ -1,7 +1,6 @@
 import { Field, Input, Label } from 'kinu';
 import type { Link, RuleTargets } from '../../../lib/types';
 
-// Placeholders show what an empty field falls back to.
 export function TargetFields({ idp, t, link, onChange }: { idp: string; t?: RuleTargets; link: Link; onChange: (patch: RuleTargets) => void }) {
   const fields: { k: keyof RuleTargets; label: string; base: string; hint: string }[] = [
     { k: 'destination', label: 'App route', base: link.url, hint: '/promo/special' },

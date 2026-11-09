@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Alert, Button, Card, Empty } from 'kinu';
 import { Platform } from '../../lib/types';
 import { DateRangeFilter } from '../../lib/range';
-import { IconButton } from '../../components/icons';
+import { ICONS, IconButton } from '../../components/icons';
 import { Loading, PageHeader } from '../../components/page';
 import { Filters } from '../../components/filters';
-import { AppTab, filteredHash, TABS } from '../../lib/route';
+import { AppTab, filtered, filteredHash, TABS } from '../../lib/route';
 import { AnalyticsView } from './analytics';
 import { FraudPanel } from './fraud';
 import { SettingsPanel } from './settings';
@@ -15,7 +15,6 @@ import { LinksTab } from './links-tab';
 import { TagFilter } from './tag-filter';
 import { useApp } from './use-app';
 
-// One header, a tab per job. Links first: most touched.
 export function AppPage({
   id,
   tab,
@@ -34,8 +33,12 @@ export function AppPage({
   const d = useApp(id, tab, range, platform, routeLinkId);
   const { app, links, selectedLinkId } = d;
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const allTags = useMemo(() => [...new Set((links ?? []).flatMap((l) => l.tags ?? []))].sort((a, b) => a.localeCompare(b)), [links]);
+  const shown = useMemo(
+    () => (tagFilter.length ? (links ?? []).filter((l) => l.tags?.some((t) => tagFilter.includes(t))) : (links ?? [])),
+    [links, tagFilter],
+  );
 
-  // filters live in the hash; route re-parses and re-renders
   const go = (p: { platform?: Platform; range?: DateRangeFilter; linkId?: string }) => {
     const next = filteredHash(id, tab, {
       platform: p.platform ?? platform,
@@ -48,7 +51,6 @@ export function AppPage({
     if (tab === 'analytics' && links && routeLinkId && !selectedLinkId) go({ linkId: '' });
   }, [tab, links, routeLinkId]);
   useEffect(() => setTagFilter([]), [id]);
-  // sidebar switcher follows renames too
   useEffect(() => onName?.(app?.name ?? ''), [app?.name]);
 
   if (app === null && d.error === '') return <Loading />;
@@ -64,12 +66,8 @@ export function AppPage({
       </Card>
     );
 
-  const filtered = tab === 'links' || tab === 'analytics';
-  const allTags = [...new Set((links ?? []).flatMap((l) => l.tags ?? []))].sort((a, b) => a.localeCompare(b));
-  // any selected tag matches (OR), like label filters
-  const shown = tagFilter.length ? (links ?? []).filter((l) => l.tags?.some((t) => tagFilter.includes(t))) : (links ?? []);
   const busy = d.refreshing || d.statsLoading;
-  const error = d.error || (filtered && d.statsError);
+  const error = d.error || (filtered(tab) && d.statsError);
 
   return (
     <div>
@@ -77,7 +75,7 @@ export function AppPage({
         title={TABS.find((t) => t.tab === tab)!.label}
         actions={
           <>
-            {filtered && (
+            {filtered(tab) && (
               <Filters
                 range={range}
                 platform={platform}
@@ -92,7 +90,7 @@ export function AppPage({
             )}
             {tab !== 'settings' && (
               <IconButton
-                icon="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"
+                icon={ICONS.refresh}
                 label="Refresh"
                 spin={busy}
                 aria-busy={busy}

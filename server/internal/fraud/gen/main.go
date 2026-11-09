@@ -30,7 +30,6 @@ const (
 // cdnOrg: Akamai, Cloudflare and Fastly carry real-user egress (Private Relay, WARP), so their ASNs are dropped; Linode is Akamai-owned VPS hosting and stays.
 var cdnOrg = regexp.MustCompile(`(?i)akamai|cloudflare|fastly`)
 
-// span: inclusive address interval.
 type span struct{ lo, hi netip.Addr }
 
 func main() {
@@ -178,7 +177,7 @@ func botSubstrings() ([]string, error) {
 	if err := json.NewDecoder(body).Decode(&defs); err != nil {
 		return nil, err
 	}
-	// in-app browser tokens: real users tapping links inside these apps; their crawlers carry "bot" and C3 drops them already
+	// in-app browser tokens: real users tapping links inside these apps; their crawlers carry "bot"
 	seen := map[string]bool{"pinterest": true, "whatsapp": true, "viber": true}
 	var out []string
 	for _, d := range defs {
@@ -195,7 +194,6 @@ func botSubstrings() ([]string, error) {
 	return out, nil
 }
 
-// prefixSpan: first and last address of a prefix.
 func prefixSpan(p netip.Prefix) span {
 	p = p.Masked()
 	lo := p.Addr()
@@ -214,7 +212,6 @@ func prefixSpan(p netip.Prefix) span {
 	return span{lo, hi}
 }
 
-// merge: sort and coalesce overlapping or adjacent spans.
 func merge(s []span) []span {
 	slices.SortFunc(s, func(a, b span) int { return a.lo.Compare(b.lo) })
 	var out []span
@@ -233,7 +230,6 @@ func merge(s []span) []span {
 	return out
 }
 
-// subtract: h minus e; both sorted and merged.
 func subtract(h, e []span) []span {
 	var out []span
 	j := 0

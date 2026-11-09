@@ -7,7 +7,6 @@ import type { LinkDraft } from './link-draft';
 import { SocialPreview } from './social-preview';
 import { TagInput } from './tag-input';
 
-// Where the link sends people; rules sit below this in the same editor.
 export function LinkFields({
   id,
   draft,
@@ -28,7 +27,6 @@ export function LinkFields({
   showKey?: boolean;
 }) {
   const [profileName, setProfileName] = useState('');
-  // profiles are templates: picking one copies its URLs into this link
   const applyProfile = (name: string) => {
     setProfileName(name);
     const p = profiles.find((x) => x.name === name);

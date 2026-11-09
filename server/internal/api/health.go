@@ -1,7 +1,5 @@
 package api
 
-// Health: per-app setup checks. Local data only, no outbound calls.
-
 import (
 	"fmt"
 	"net/http"
@@ -15,7 +13,7 @@ import (
 
 type healthCheck struct {
 	Check  string `json:"check"`
-	Status string `json:"status"` // ok | warn | fail
+	Status string `json:"status"`
 	Detail string `json:"detail"`
 }
 
@@ -27,16 +25,13 @@ var (
 // aasaLag: Apple CDN AASA cache; newer links may open the browser.
 const aasaLag = 48 * time.Hour
 
-// Server-wide checks (not app-scoped); the data API drops them (Forwarded detail carries a peer IP).
 const (
 	checkProxy     = "Proxy"
 	checkForwarded = "Forwarded headers"
 )
 
-// minPeers: proxy check needs this many peers.
 const minPeers = 20
 
-// health: GET /api/apps/{id}/health.
 func (p *portalServer) health(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	app, err := p.st.GetApp(id)
@@ -91,15 +86,9 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 
 	// >1 iOS app: per-app paths, new links wait for AASA refresh.
 	if app.IOSAppID != "" {
-		apps, err := p.st.ListApps()
+		ios, err := p.st.CountIOSApps()
 		if err != nil {
 			return nil, err
-		}
-		ios := 0
-		for _, a := range apps {
-			if a.IOSAppID != "" {
-				ios++
-			}
 		}
 		if ios > 1 {
 			keys, err := p.st.RecentLinkKeys(app.ID, now.Add(-aasaLag))
@@ -112,12 +101,12 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 				add("AASA refresh", "ok", "No links newer than 48h.")
 			}
 			// Multi-app AASA risk: links past the enumeration cap open the browser until trimmed.
-			links, err := p.st.ListLinks(app.ID)
+			links, err := p.st.CountLinks(app.ID)
 			if err != nil {
 				return nil, err
 			}
-			if len(links) > store.MaxAASAKeys {
-				add("AASA keys", "warn", fmt.Sprintf("%s: %d links, AASA serves only the newest %d; the rest open the browser until trimmed", app.IOSAppID, len(links), store.MaxAASAKeys))
+			if links > store.MaxAASAKeys {
+				add("AASA keys", "warn", fmt.Sprintf("%s: %d links, AASA serves only the newest %d; the rest open the browser until trimmed", app.IOSAppID, links, store.MaxAASAKeys))
 			}
 		}
 	}
@@ -133,13 +122,12 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 	default:
 		add(checkProxy, "ok", "Client IPs look public.")
 	}
-	if httpx.XFFIgnored() > 0 { // count is per header read (several per request): show the peer, not a number
+	if httpx.XFFIgnored() > 0 {
 		add(checkForwarded, "warn", fmt.Sprintf("X-Forwarded-For/X-Real-IP from %s ignored: outside TRUSTED_PROXIES, its clients share one IP. If that is your proxy, add its CIDR to TRUSTED_PROXIES; if not, firewall the origin.", httpx.LastXFFPeer()))
 	}
 	return out, nil
 }
 
-// allMatch: every comma value matches re.
 func allMatch(list string, re *regexp.Regexp) bool {
 	for _, v := range strings.Split(list, ",") {
 		if !re.MatchString(strings.TrimSpace(v)) {

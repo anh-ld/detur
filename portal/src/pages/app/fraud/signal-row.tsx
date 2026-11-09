@@ -6,7 +6,6 @@ import { fmt } from '../../../lib/format';
 import { muted } from '../../../lib/styles';
 import { Threshold } from './threshold';
 
-// thresholds = one sentence w/ inline number fields; threshold-less signals explain in the meaning line
 const RULES: Record<string, (n: (k: FraudNumKey) => JSX.Element) => JSX.Element> = {
   velocity: (n) => (
     <>

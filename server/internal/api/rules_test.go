@@ -8,7 +8,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// One case per validateLinkRules reject branch + valid controls. Full input per case.
 func TestValidateLinkRules(t *testing.T) {
 	direct := func(name string) store.LinkRule {
 		return store.LinkRule{Name: name, Action: store.RuleAction{Targets: &store.RuleTargets{Destination: "/x"}}}
@@ -25,7 +24,7 @@ func TestValidateLinkRules(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		rules []store.LinkRule
-		want  string // "" = valid, else exact substring of the error
+		want  string
 	}{
 		{"empty list", nil, ""},
 		{"direct + split", []store.LinkRule{direct("promo"), split("ab", v("A", 50), v("B", 50))}, ""},
@@ -46,7 +45,6 @@ func TestValidateLinkRules(t *testing.T) {
 		{"weights not 100", []store.LinkRule{split("r", v("A", 50), v("B", 40))}, `must sum to 100 (got 90)`},
 		{"unsafe variant target", []store.LinkRule{split("r", v("A", 50), store.SplitVariant{Name: "B", Weight: 50, Targets: store.RuleTargets{IOS: "/relative"}})}, `ios must be an absolute URL`},
 
-		// labels are the variant_days key: unique across the whole link
 		{"dup variant in one rule", []store.LinkRule{split("r", v("A", 50), v("A", 50))}, `variant name "A" already used`},
 		{"dup variant across rules", []store.LinkRule{split("r1", v("A", 50), v("B", 50)), split("r2", v("A", 50), v("C", 50))}, `variant name "A" already used`},
 		{"direct name = variant name", []store.LinkRule{split("r1", v("A", 50), v("B", 50)), direct("B")}, `rule "B": name already used`},

@@ -15,9 +15,7 @@ import { RedirectProfilesForm } from './redirect-profiles';
 import { SocialPresetsForm } from './social-presets';
 import { TagLinksRow } from './tag-links';
 
-export { MatchQualityView };
-
-const TABS = [
+const SETTINGS_TABS = [
   ['app', 'App'],
   ['page', 'Page'],
   ['matching', 'Matching'],
@@ -35,16 +33,15 @@ function Section({ title, hint, first, children }: { title: string; hint?: strin
   );
 }
 
-// Admin only: not elevated -> locked notice, nothing else. A session dying after the panel rendered
-// hides it instead, so drafts and an in-flight save's retry survive the re-unlock.
 export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: App) => void; onReload: () => void }) {
-  const [tab, setTab] = useState<(typeof TABS)[number][0]>('app');
+  const [tab, setTab] = useState<(typeof SETTINGS_TABS)[number][0]>('app');
   const { locked } = useAdmin();
-  // tabs hide the admin-only page load, so probe once: a dead session locks the panel on arrival
   useEffect(() => {
     void refreshAdminSession();
   }, []);
   const shown = useRef(false);
+  const pageSeen = useRef(false);
+  if (tab === 'page') pageSeen.current = true;
   const notice = <AdminRequired>Enter your admin password to view and change settings.</AdminRequired>;
   if (locked && !shown.current) return notice;
   shown.current = true;
@@ -54,7 +51,7 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
       {locked && notice}
       <div hidden={locked}>
         <TabList class="settings-tabs">
-          {TABS.map(([id, label]) => (
+          {SETTINGS_TABS.map(([id, label]) => (
             <Tab key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
               {label}
             </Tab>
@@ -79,12 +76,11 @@ export function SettingsPanel({ app, onApp, onReload }: { app: App; onApp: (a: A
           </Section>
         </div>
 
-        {/* stays mounted: unsaved HTML survives tab switches */}
         <div hidden={tab !== 'page'}>
           <p style={{ ...muted, marginTop: 0, marginBottom: 16 }}>
             What visitors see before the store: iOS browsers (copy page) and in-app browsers (tap page). Default, or your own HTML.
           </p>
-          <PageEditor app={app} />
+          {pageSeen.current && <PageEditor app={app} />}
         </div>
 
         <div hidden={tab !== 'matching'}>

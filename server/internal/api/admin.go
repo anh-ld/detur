@@ -1,8 +1,5 @@
 package api
 
-// Admin elevation: stateless signed session cookie. Token = <expiry-unix>.<hex hmac_sha256(secret, expiry-unix)>,
-// constant-time compare, expiry on server clock only. Session endpoints + requireAdmin gate live here.
-
 import (
 	"crypto/hmac"
 	"crypto/sha256"
@@ -18,7 +15,6 @@ import (
 	"detur.dev/server/internal/httpx"
 )
 
-// adminCookie: elevation cookie (HttpOnly, SameSite=Lax; origin/host guard covers CSRF).
 const adminCookie = "detur_admin"
 
 // sessionCookie: elevation cookie with value; maxAge -1 clears (wire: Max-Age=0). Secure when the browser reached us over HTTPS
@@ -32,21 +28,18 @@ func sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
 	}
 }
 
-// sign: HMAC-SHA256 hex of msg, key = admin password.
 func sign(secret, msg string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(msg))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// mintToken: token valid until now+hours, signed with admin password.
 func mintToken(secret string, hours int, now time.Time) (token string, expiresAt time.Time) {
 	expiresAt = now.Add(time.Duration(hours) * time.Hour)
 	exp := strconv.FormatInt(expiresAt.Unix(), 10)
 	return exp + "." + sign(secret, exp), expiresAt
 }
 
-// verifyToken: recompute HMAC over embedded expiry, constant-time compare, check expiry vs now. Malformed/tampered/expired = fail.
 func verifyToken(token, secret string, now time.Time) (expiresAt time.Time, ok bool) {
 	exp, sig, ok := strings.Cut(token, ".")
 	if !ok {
@@ -66,14 +59,12 @@ func verifyToken(token, secret string, now time.Time) (expiresAt time.Time, ok b
 	return expiresAt, true
 }
 
-// peerLock: one socket peer's login lock; n = holders + waiters, idle entries dropped.
 type peerLock struct {
 	mu sync.Mutex
 	n  int
 }
 
-// lockPeer: serialize logins per socket peer; returns unlock. Keyed on RemoteAddr, never XFF: client-chosen key
-// = unlimited parallel guesses. Behind a gateway all requests share one peer = one global lock.
+// lockPeer: keyed on RemoteAddr, never XFF: client-chosen key = unlimited parallel guesses.
 func (p *portalServer) lockPeer(r *http.Request) func() {
 	peer, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -98,7 +89,6 @@ func (p *portalServer) lockPeer(r *http.Request) func() {
 	}
 }
 
-// elevate: POST /api/admin/session. No password -> 403. Wrong -> 401 after 1s; compare + delay serialized per socket peer: parallel conns can't multiply guess rate, one peer's failed burst doesn't queue another's login. Right -> signed HttpOnly cookie for session TTL.
 func (p *portalServer) elevate(w http.ResponseWriter, r *http.Request) {
 	if p.adminPassword == "" {
 		http.Error(w, "admin not configured", http.StatusForbidden)
@@ -119,21 +109,23 @@ func (p *portalServer) elevate(w http.ResponseWriter, r *http.Request) {
 	}
 	token, expiresAt := mintToken(p.adminPassword, p.adminHours, time.Now())
 	http.SetCookie(w, sessionCookie(r, token, p.adminHours*3600))
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"admin": true, "expiresAt": expiresAt.UTC().Format(time.RFC3339)})
+	writeElevated(w, expiresAt)
 }
 
-// sessionStatus: GET /api/admin/session. Valid cookie -> {admin:true, expiresAt}, else {admin:false}. No password -> always inactive.
+func writeElevated(w http.ResponseWriter, expiresAt time.Time) {
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"admin": true, "expiresAt": fmtTime(expiresAt)})
+}
+
 func (p *portalServer) sessionStatus(w http.ResponseWriter, r *http.Request) {
 	if p.adminPassword != "" {
 		if at, ok := p.session(r); ok {
-			httpx.WriteJSON(w, http.StatusOK, map[string]any{"admin": true, "expiresAt": at.UTC().Format(time.RFC3339)})
+			writeElevated(w, at)
 			return
 		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"admin": false})
 }
 
-// session: request's valid, unexpired elevation cookie, if any.
 func (p *portalServer) session(r *http.Request) (expiresAt time.Time, ok bool) {
 	c, err := r.Cookie(adminCookie)
 	if err != nil {
@@ -141,20 +133,27 @@ func (p *portalServer) session(r *http.Request) (expiresAt time.Time, ok bool) {
 	}
 	now := time.Now()
 	expiresAt, ok = verifyToken(c.Value, p.adminPassword, now)
-	// lowered ADMIN_SESSION_HOURS shortens tokens already issued
 	if ok && expiresAt.Sub(now) > time.Duration(p.adminHours)*time.Hour {
 		return time.Time{}, false
 	}
 	return expiresAt, ok
 }
 
-// clearSession: DELETE /api/admin/session. Clears cookie (Max-Age=0); stateless token itself dies at embedded expiry.
 func (p *portalServer) clearSession(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, sessionCookie(r, "", -1))
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"admin": false})
 }
 
-// requireAdmin: route gate. AdminPassword "" -> pass. Else valid unexpired detur_admin cookie required, else 403.
+func (p *portalServer) requireAdminSet(msg string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if p.adminPassword == "" {
+			http.Error(w, msg, http.StatusForbidden)
+			return
+		}
+		p.requireAdmin(next)(w, r)
+	}
+}
+
 func (p *portalServer) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if p.adminPassword == "" {

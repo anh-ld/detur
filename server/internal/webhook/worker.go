@@ -16,7 +16,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// Worker: periodically scans new app activity, delivers signed webhook batches.
 type Worker struct {
 	st       *store.Store
 	client   *http.Client
@@ -28,7 +27,6 @@ type Worker struct {
 	doneCh chan struct{}
 }
 
-// NewWorker: delivery worker with SSRF-safe HTTP client.
 func NewWorker(st *store.Store, interval time.Duration) *Worker {
 	if interval <= 0 {
 		interval = 15 * time.Second
@@ -41,12 +39,10 @@ func NewWorker(st *store.Store, interval time.Duration) *Worker {
 	}
 }
 
-// SetClient: override HTTP client (tests).
 func (w *Worker) SetClient(c *http.Client) {
 	w.client = c
 }
 
-// Start: periodic processing in background goroutine.
 func (w *Worker) Start() {
 	w.mu.Lock()
 	if w.stopCh != nil {
@@ -62,7 +58,6 @@ func (w *Worker) Start() {
 		defer close(w.doneCh)
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
-		// Stop cancels an in-flight POST: shutdown never waits out a slow endpoint (cursor unmoved -> redelivered next start)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		go func() {
@@ -90,7 +85,6 @@ func (w *Worker) Start() {
 	}()
 }
 
-// Stop: signal worker, wait for exit.
 func (w *Worker) Stop() {
 	w.mu.Lock()
 	if w.stopCh == nil {
@@ -102,7 +96,6 @@ func (w *Worker) Stop() {
 	<-w.doneCh
 }
 
-// ProcessOnce: one cycle over all active webhooks.
 func (w *Worker) ProcessOnce(ctx context.Context) {
 	webhooks, err := w.st.ListActiveWebhooks()
 	if err != nil {
@@ -126,7 +119,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) {
 
 const (
 	batchSize       = 100
-	batchesPerCycle = 10 // max 1,000 records per stream per cycle
+	batchesPerCycle = 10
 )
 
 func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream string, now time.Time) {
@@ -135,8 +128,6 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 		return
 	}
 
-	// Rowids only grow (row_seq). Cursor > high-water mark = DB swapped (restored backup);
-	// `rowid > cursor` would skip new rows forever. Rewind to 0: duplicates beat silent loss.
 	tableMax, err := w.st.WebhookStreamMaxRowID(stream)
 	if err != nil {
 		w.logger.Printf("webhook %s %s max rowid failed: %v", wh.ID, stream, err)
@@ -150,13 +141,11 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 	}
 
 	for range batchesPerCycle {
-		// re-read per batch: disable/delete/stream removal stops delivery now; URL/secret edits apply to the next POST
 		cur, err := w.st.GetWebhook(wh.ID)
 		if err != nil || !cur.Enabled || !slices.Contains(cur.Types, stream) {
 			return
 		}
 		wh.URL, wh.Secret = cur.URL, cur.Secret
-		// replaying: stop batches at replay_until -> every replayed row carries Detur-Replay, no live row does.
 		records, err := w.st.FetchPendingWebhookBatch(wh.AppID, stream, st.Cursor, st.ReplayUntil, batchSize)
 		if err != nil {
 			w.logger.Printf("webhook %s fetch %s failed: %v", wh.ID, stream, err)
@@ -164,7 +153,6 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 		}
 		isReplay := st.ReplayUntil > 0
 		if len(records) == 0 {
-			// replay window empty (purged or none): close it, continue live.
 			if isReplay && w.advance(wh.ID, stream, &st, st.ReplayUntil, true) {
 				continue
 			}
@@ -198,7 +186,7 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 
 		resp, err := w.client.Do(req)
 		if err != nil && ctx.Err() != nil {
-			return // shutting down: not the endpoint's failure, no backoff
+			return
 		}
 		if err != nil {
 			var ue *url.Error
@@ -209,7 +197,7 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 			w.handleFailure(wh.ID, stream, st.Fails)
 			return
 		}
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10)) // drained body -> connection reused
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 		resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -222,13 +210,11 @@ func (w *Worker) processStream(ctx context.Context, wh store.Webhook, stream str
 			return
 		}
 		if len(records) < batchSize && !isReplayComplete {
-			return // drained
+			return
 		}
 	}
 }
 
-// advance: persist new cursor (clears failures/backoff; replay window too when replayDone), mirror into st.
-// false = write failed or concurrent replay moved cursor; stream waits for next cycle.
 func (w *Worker) advance(webhookID, stream string, st *store.WebhookStream, cursor int64, replayDone bool) bool {
 	if err := w.st.UpdateWebhookCursor(webhookID, stream, *st, cursor, replayDone); err != nil {
 		if !errors.Is(err, store.ErrWebhookCursorMoved) {
@@ -243,20 +229,9 @@ func (w *Worker) advance(webhookID, stream string, st *store.WebhookStream, curs
 	return true
 }
 
-// ComputeBackoff: min(30s * 2^fails, 1h).
 func ComputeBackoff(fails int) time.Duration {
-	if fails < 1 {
-		fails = 1
-	}
-	shift := fails
-	if shift > 10 {
-		shift = 10
-	}
-	dur := 30 * time.Second * time.Duration(1<<shift)
-	if dur > time.Hour {
-		return time.Hour
-	}
-	return dur
+	shift := min(max(fails, 1), 10)
+	return min(30*time.Second*time.Duration(1<<shift), time.Hour)
 }
 
 func (w *Worker) handleFailure(webhookID, stream string, currentFails int) {

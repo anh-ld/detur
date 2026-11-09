@@ -3,7 +3,7 @@ import { Webhook } from '../../../lib/types';
 import { fmtDate } from '../../../lib/format';
 import { ConfirmDelete } from '../../../components/confirm-delete';
 import { CopyButton } from '../../../components/copy-button';
-import { mono, muted, row } from '../../../lib/styles';
+import { mono, muted, row, end } from '../../../lib/styles';
 
 const mid = { verticalAlign: 'middle' } as const;
 
@@ -66,7 +66,7 @@ export function WebhookRow({
         )}
       </td>
       <td style={{ ...mid, textAlign: 'right' }}>
-        <div style={{ ...row, justifyContent: 'flex-end' }}>
+        <div style={end}>
           <Button size="sm" variant="outline" onClick={onToggle}>
             {wh.enabled ? 'Pause' : 'Resume'}
           </Button>

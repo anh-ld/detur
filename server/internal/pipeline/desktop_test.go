@@ -8,7 +8,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// Desktop + app-scheme target, no fallback: page with QR, alt text, short link; store buttons only when set.
 func TestDesktopSchemeTargetGetsPage(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)
@@ -32,7 +31,6 @@ func TestDesktopSchemeTargetGetsPage(t *testing.T) {
 	if n, _ := s.CountClicks(app.ID); n != 1 {
 		t.Errorf("clicks = %d; want 1 recorded", n)
 	}
-	// market: is a store target but not a web page a desktop can open
 	if _, err := s.CreateLink(store.Link{AppID: app.ID, Key: "mkt", URL: "myapp://p", Android: "market://details?id=x"}); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +39,6 @@ func TestDesktopSchemeTargetGetsPage(t *testing.T) {
 	}
 }
 
-// Web fallback keeps the 302; bots never get the page.
 func TestDesktopPageOnlyForSchemeTargets(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -56,7 +53,6 @@ func TestDesktopPageOnlyForSchemeTargets(t *testing.T) {
 	}
 }
 
-// Route destination is never a redirect target: phones without a store target, bots and desktop get the app page, no relative Location.
 func TestRouteDestinationNeverRedirects(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)

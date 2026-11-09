@@ -5,14 +5,12 @@ import { ICONS, Icon } from './icons';
 import { api, HttpError } from '../lib/api';
 import { ADMIN_PW_DIALOG, ensureAdmin, setElevated, settleAdminGate, useAdmin } from '../lib/admin';
 import { closeDialog } from '../lib/dialog';
-import { muted, row } from '../lib/styles';
+import { muted, row, stack, end } from '../lib/styles';
 
 export const LOCKED_HINT = 'Admin required: use Enter admin in the sidebar';
 
-// locked: press shows the admin prompt instead of the action
 export const lockedProps = (locked: boolean) => (locked ? { title: LOCKED_HINT, onClick: () => void ensureAdmin() } : {});
 
-// trigger for an admin-gated action: locked -> lock icon, press opens the admin prompt
 export function AdminButton({ children, ...rest }: ComponentProps<typeof Button>) {
   const { locked } = useAdmin();
   return (
@@ -23,8 +21,6 @@ export function AdminButton({ children, ...rest }: ComponentProps<typeof Button>
   );
 }
 
-// locked-section notice: shared look for admin-gated panels before elevation.
-// elevating notifies subscribeAdmin -> panels reload.
 export function AdminRequired({ children }: { children: ComponentChildren }) {
   return (
     <div
@@ -49,7 +45,6 @@ export function AdminRequired({ children }: { children: ComponentChildren }) {
   );
 }
 
-// one instance in App shell, opened by ensureAdmin(). Server's only 401 = wrong password (1s delay).
 export function AdminPasswordDialog() {
   const [pw, setPw] = useState('');
   const [err, setErr] = useState('');
@@ -58,8 +53,6 @@ export function AdminPasswordDialog() {
   useEffect(() => {
     const el = document.getElementById(ADMIN_PW_DIALOG) as HTMLDialogElement | null;
     if (!el) return;
-    // any close aborts a pending gate (success already settled it) + clears the form:
-    // next prompt never opens prefilled or with a stale error.
     const abort = () => {
       setPw('');
       setErr('');
@@ -79,7 +72,7 @@ export function AdminPasswordDialog() {
     try {
       const { expiresAt } = await api.enterAdminMode(pw);
       setElevated(true, expiresAt);
-      settleAdminGate(true); // resolve before close, else close event aborts
+      settleAdminGate(true);
       closeDialog(ADMIN_PW_DIALOG);
     } catch (e) {
       setErr(e instanceof HttpError && e.status === 401 ? 'Wrong password' : String(e));
@@ -92,7 +85,7 @@ export function AdminPasswordDialog() {
     <Dialog id={ADMIN_PW_DIALOG}>
       <Dialog.Content>
         <form
-          style={{ display: 'grid', gap: 16 }}
+          style={stack}
           onSubmit={(e) => {
             e.preventDefault();
             submit();
@@ -111,7 +104,7 @@ export function AdminPasswordDialog() {
               {err}
             </Alert>
           )}
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
+          <div style={end}>
             <Button
               type="button"
               variant="outline"

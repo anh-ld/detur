@@ -9,7 +9,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// cleanProfiles: trim, require a unique name, validate each URL like a link target.
 func cleanProfiles(in []store.RedirectProfile) ([]store.RedirectProfile, error) {
 	if len(in) > maxRedirectProfiles {
 		return nil, fmt.Errorf("at most %d redirect profiles", maxRedirectProfiles)
@@ -49,7 +48,6 @@ const (
 	maxSocialDesc       = 300
 )
 
-// cleanSocialPresets: trim, unique name, title/description limits, https-only image.
 func cleanSocialPresets(in []store.SocialPreset) ([]store.SocialPreset, error) {
 	if len(in) > maxSocialPresets {
 		return nil, fmt.Errorf("at most %d social presets", maxSocialPresets)

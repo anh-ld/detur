@@ -11,7 +11,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// Platform + language rule (ios + de) -> German iOS store; Android falls through.
 func TestRulesPlatformAndLangMatch(t *testing.T) {
 	baseLink := store.Link{
 		ID:          "link-1",
@@ -41,7 +40,6 @@ func TestRulesPlatformAndLangMatch(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	// iOS, "de-DE,de;q=0.9" -> match
 	reqIOSDe, _ := http.NewRequest("GET", "https://detur.dev/promo", nil)
 	reqIOSDe.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X)")
 	reqIOSDe.Header.Set("Accept-Language", "de-DE,de;q=0.9,en;q=0.8")
@@ -53,12 +51,10 @@ func TestRulesPlatformAndLangMatch(t *testing.T) {
 	if route.Destination != "myapp://promo/de" {
 		t.Errorf("expected German destination, got %q", route.Destination)
 	}
-	// Android target inherited
 	if route.Android != baseLink.Android {
 		t.Errorf("expected Android target %q, got %q", baseLink.Android, route.Android)
 	}
 
-	// Android, "de" -> platform mismatch, falls through
 	reqAndroidDe, _ := http.NewRequest("GET", "https://detur.dev/promo", nil)
 	reqAndroidDe.Header.Set("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7)")
 	reqAndroidDe.Header.Set("Accept-Language", "de-DE,de;q=0.9")
@@ -71,7 +67,6 @@ func TestRulesPlatformAndLangMatch(t *testing.T) {
 		t.Errorf("expected default destination, got %q", route.Destination)
 	}
 
-	// iOS, "en-US" -> lang mismatch, falls through
 	reqIOSEn, _ := http.NewRequest("GET", "https://detur.dev/promo", nil)
 	reqIOSEn.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X)")
 	reqIOSEn.Header.Set("Accept-Language", "en-US,en;q=0.9")
@@ -82,7 +77,6 @@ func TestRulesPlatformAndLangMatch(t *testing.T) {
 	}
 }
 
-// 50/50 split over 10k synthetic IPs/UAs: 45-55%, 100% sticky on same IP+UA.
 func TestRulesABSplitDistributionAndStickiness(t *testing.T) {
 	baseLink := store.Link{
 		ID:  "ab-link",
@@ -93,7 +87,7 @@ func TestRulesABSplitDistributionAndStickiness(t *testing.T) {
 		{
 			Position: 1,
 			Name:     "50/50 Split",
-			Cond:     store.RuleCond{}, // matches all
+			Cond:     store.RuleCond{},
 			Action: store.RuleAction{
 				Split: []store.SplitVariant{
 					{
@@ -130,7 +124,6 @@ func TestRulesABSplitDistributionAndStickiness(t *testing.T) {
 		route1 := EvaluateRules(rules, baseLink, req, now)
 		counts[route1.Variant]++
 
-		// sticky: same IP + UA -> same variant
 		route2 := EvaluateRules(rules, baseLink, req, now)
 		if route1.Variant != route2.Variant {
 			t.Fatalf("stickiness failure for visitor %d: got %s then %s", i, route1.Variant, route2.Variant)
@@ -150,7 +143,6 @@ func TestRulesABSplitDistributionAndStickiness(t *testing.T) {
 	}
 }
 
-// Destination override; partial rule targets inherit base link.
 func TestRulesTargetInheritanceAndDestinationOverride(t *testing.T) {
 	baseLink := store.Link{
 		ID:          "link-inherit",
@@ -181,7 +173,6 @@ func TestRulesTargetInheritanceAndDestinationOverride(t *testing.T) {
 
 	route := EvaluateRules(rules, baseLink, reqDesktop, time.Now().UTC())
 
-	// overridden
 	if route.FallbackURL != "https://example.com/new-desktop-landing" {
 		t.Errorf("expected overridden fallback, got %q", route.FallbackURL)
 	}
@@ -189,7 +180,6 @@ func TestRulesTargetInheritanceAndDestinationOverride(t *testing.T) {
 		t.Errorf("expected overridden destination, got %q", route.Destination)
 	}
 
-	// not in rule -> inherited
 	if route.IOS != baseLink.IOS {
 		t.Errorf("expected inherited IOS %q, got %q", baseLink.IOS, route.IOS)
 	}
@@ -238,28 +228,24 @@ func TestRulesQueryParamAndDateWindow(t *testing.T) {
 		},
 	}
 
-	// before 'from' -> no rule 1
 	req1, _ := http.NewRequest("GET", "https://detur.dev/p?campaign=summer", nil)
 	r1 := EvaluateRules(rules, baseLink, req1, t0)
 	if r1.Destination != baseLink.URL {
 		t.Errorf("expected base destination before start date, got %q", r1.Destination)
 	}
 
-	// inside window -> rule 1
 	midWindow := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	r2 := EvaluateRules(rules, baseLink, req1, midWindow)
 	if r2.Destination != "myapp://summer-sale" {
 		t.Errorf("expected summer sale destination, got %q", r2.Destination)
 	}
 
-	// other campaign value -> no rule 1
 	reqDiffVal, _ := http.NewRequest("GET", "https://detur.dev/p?campaign=winter", nil)
 	r3 := EvaluateRules(rules, baseLink, reqDiffVal, midWindow)
 	if r3.Destination != baseLink.URL {
 		t.Errorf("expected base destination for different campaign param, got %q", r3.Destination)
 	}
 
-	// ?ref present (any value) -> rule 2
 	reqRef, _ := http.NewRequest("GET", "https://detur.dev/p?ref=influencer123", nil)
 	r4 := EvaluateRules(rules, baseLink, reqRef, t0)
 	if r4.Destination != "myapp://ref-partner" {
@@ -267,7 +253,6 @@ func TestRulesQueryParamAndDateWindow(t *testing.T) {
 	}
 }
 
-// E2E via Register handler.
 func TestPipelineShortLinkWithRulesE2E(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "pipeline_rules_test.db"))
 	if err != nil {
@@ -301,7 +286,7 @@ func TestPipelineShortLinkWithRulesE2E(t *testing.T) {
 				Split: []store.SplitVariant{
 					{
 						Name:   "v-landing-a",
-						Weight: 100, // 100% a: deterministic
+						Weight: 100,
 						Targets: store.RuleTargets{
 							FallbackURL: "https://example.com/landing-a",
 							Destination: "myapp://variant-a",
@@ -325,7 +310,6 @@ func TestPipelineShortLinkWithRulesE2E(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	// desktop: 302 to FallbackURL
 	if w.Code != http.StatusFound {
 		t.Fatalf("expected status 302, got %d", w.Code)
 	}
@@ -334,7 +318,6 @@ func TestPipelineShortLinkWithRulesE2E(t *testing.T) {
 		t.Fatalf("expected redirect to https://example.com/landing-a, got %q", loc)
 	}
 
-	// click: Variant "v-landing-a", Destination "myapp://variant-a"
 	clicks, err := st.ClicksSince(app.ID, "", time.Now().Add(-1*time.Hour))
 	if err != nil {
 		t.Fatalf("ClicksSince: %v", err)
@@ -349,7 +332,6 @@ func TestPipelineShortLinkWithRulesE2E(t *testing.T) {
 		t.Errorf("expected click destination 'myapp://variant-a', got %q", clicks[0].Destination)
 	}
 
-	// variant_days rollup
 	stats, err := st.GetLinkVariantStats(app.ID, link.ID, time.Now().AddDate(0, 0, -1), time.Now().AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("GetLinkVariantStats: %v", err)
@@ -359,7 +341,6 @@ func TestPipelineShortLinkWithRulesE2E(t *testing.T) {
 	}
 }
 
-// HashBucket is pinned: changing it re-buckets every live visitor mid-experiment.
 func TestHashBucketPinned(t *testing.T) {
 	for _, c := range []struct {
 		ip   string
@@ -371,7 +352,6 @@ func TestHashBucketPinned(t *testing.T) {
 	}
 }
 
-// First match wins; 70/30 split: bucket 69 -> A, 70 -> B; direct match records rule name.
 func TestRulesFirstMatchAndSplitBoundary(t *testing.T) {
 	base := store.Link{ID: "link-1", URL: "https://example.com/base"}
 	direct := store.LinkRule{Name: "campaign", Cond: store.RuleCond{ParamKey: "campaign"},
@@ -389,21 +369,18 @@ func TestRulesFirstMatchAndSplitBoundary(t *testing.T) {
 	}
 	now := time.Now()
 
-	// both rules match: order decides
 	if got := EvaluateRules([]store.LinkRule{direct, split}, base, req("campaign=1&ref=1", "10.1.0.175"), now); got.Variant != "campaign" || got.Destination != "myapp://campaign" {
 		t.Errorf("direct first: got %+v", got)
 	}
 	if got := EvaluateRules([]store.LinkRule{split, direct}, base, req("campaign=1&ref=1", "10.1.0.175"), now); got.Variant != "A" {
 		t.Errorf("split first: got %+v", got)
 	}
-	// boundary: bucket 69 -> A, bucket 70 -> B
 	if got := EvaluateRules([]store.LinkRule{split}, base, req("ref=1", "10.1.0.175"), now); got.Variant != "A" || got.Destination != "myapp://a" {
 		t.Errorf("bucket 69: got %+v", got)
 	}
 	if got := EvaluateRules([]store.LinkRule{split}, base, req("ref=1", "10.1.0.80"), now); got.Variant != "B" || got.Destination != "myapp://b" {
 		t.Errorf("bucket 70: got %+v", got)
 	}
-	// no match: base targets, no variant
 	if got := EvaluateRules([]store.LinkRule{direct, split}, base, req("", "10.1.0.80"), now); got.Variant != "" || got.Destination != base.URL {
 		t.Errorf("no match: got %+v", got)
 	}

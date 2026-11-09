@@ -12,7 +12,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// newDataEnv: public listener with data API + MCP + short-link pipeline, plus the portal, one store.
 func newDataEnv(t *testing.T, adminPassword string) (portal, pub *httptest.Server, st *store.Store) {
 	t.Helper()
 	portal, _, st = newPortalEnvAdmin(t, adminPassword, 12)
@@ -68,7 +67,6 @@ func TestDataAPI(t *testing.T) {
 				t.Errorf("B%s = %d; want 404", p, c)
 			}
 		}
-		// B's link under A's path: 404 for rules and variants
 		for _, p := range []string{"/rules", "/variants"} {
 			if c, _ := get("/api/v1/apps/"+a.ID+"/links/"+linkB.ID+p, h); c != 404 {
 				t.Errorf("B link %s under A = %d; want 404", p, c)
@@ -161,7 +159,6 @@ func portalReq2(t *testing.T, ts *httptest.Server, path string) (int, string) {
 	return resp.StatusCode, string(b)
 }
 
-// KTD5: ADMIN_PASSWORD unset -> data API and MCP refuse every token, even valid rows.
 func TestDataAPIFailsClosedWithoutAdminPassword(t *testing.T) {
 	_, pub, st := newDataEnv(t, "")
 	a, _ := st.CreateApp("A", "k1")

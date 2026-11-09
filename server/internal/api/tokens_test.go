@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// AE4: no ADMIN_PASSWORD -> every token route 403. With password: session needed; create shows plaintext once, list only prefix; validation; PATCH; DELETE.
 func TestTokenAdminRoutes(t *testing.T) {
 	open, _, _ := newPortalEnv(t)
 	for _, ep := range [][2]string{{"GET", "/api/tokens"}, {"POST", "/api/tokens"}, {"PATCH", "/api/tokens/x"}, {"DELETE", "/api/tokens/x"}} {

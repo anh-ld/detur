@@ -34,7 +34,7 @@ export function TagInput({ id, tags, existing, onChange }: { id: string; tags: s
             onInput={(e) => setText(e.currentTarget.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                e.preventDefault(); // don't submit the form
+                e.preventDefault();
                 add();
               } else if (e.key === 'Backspace' && !text && tags.length) {
                 onChange(tags.slice(0, -1));
@@ -50,7 +50,7 @@ export function TagInput({ id, tags, existing, onChange }: { id: string; tags: s
                   key={t}
                   onClick={(e: MouseEvent) => {
                     e.preventDefault();
-                    e.stopPropagation(); // add straight away instead of refilling the input
+                    e.stopPropagation();
                     onChange([...tags, t]);
                     setText('');
                     ((e.currentTarget as HTMLElement).closest('[k="combobox-list"]') as HTMLDialogElement | null)?.close();

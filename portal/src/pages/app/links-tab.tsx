@@ -4,7 +4,7 @@ import { api } from '../../lib/api';
 import { DateRangeFilter } from '../../lib/range';
 import { filteredHash } from '../../lib/route';
 import { fmt } from '../../lib/format';
-import { row } from '../../lib/styles';
+import { row, stack, end } from '../../lib/styles';
 import { ConfirmDelete } from '../../components/confirm-delete';
 import { IconButton, ICONS } from '../../components/icons';
 import { Loading } from '../../components/page';
@@ -97,9 +97,9 @@ function LinkRow({ app, link: l, stats, linkBase, allTags, platform, range, onCh
         {fmt(stats?.matches ?? 0)}
       </td>
       <td>
-        <div style={{ ...row, justifyContent: 'flex-end' }}>
+        <div style={end}>
           <IconButton
-            icon="M3 3v18h18M18 17V9M13 17V5M8 17v-3"
+            icon={ICONS.analytics}
             label="Analytics"
             onClick={() => {
               location.hash = filteredHash(app.id, 'analytics', { linkId: l.id, platform, range });
@@ -137,7 +137,7 @@ type TabProps = Omit<RowProps, 'link' | 'stats'> & {
 export function LinksTab({ links, shown, stats, ...rest }: TabProps) {
   const byId = new Map(stats?.links.map((s) => [s.linkId, s]));
   return (
-    <section aria-label="Links" style={{ display: 'grid', gap: 16 }}>
+    <section aria-label="Links" style={stack}>
       {links === null ? (
         <Loading />
       ) : links.length === 0 ? (

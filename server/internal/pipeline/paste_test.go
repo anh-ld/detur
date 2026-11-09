@@ -10,7 +10,6 @@ import (
 
 var reCopyToken = regexp.MustCompile(`"\?_dc=([0-9A-Za-z]{16})"`)
 
-// Copy page mints a paste token; the reload's pasted_link carries it onto the click; `_dc` never forwarded.
 func TestCopyPagePasteToken(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -31,7 +30,6 @@ func TestCopyPagePasteToken(t *testing.T) {
 	}
 }
 
-// iOS tap page copies a link with its own token.
 func TestTapPagePasteToken(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)

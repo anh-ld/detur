@@ -10,10 +10,8 @@ import { AppsPage } from '../src/pages/apps';
 import { AppPage } from '../src/pages/app';
 import { gone, go, openDialog, saveButton, selectedTab, startServer, stopServer, tabNames, uniq, waitForServer } from './_integration';
 
-// the sidebar app switcher is a native select: its selected option names the current app
 const currentApp = () => (screen.getByLabelText('Switch app') as HTMLSelectElement).selectedOptions[0]?.textContent;
 
-// client flows: real pages vs real Go binary + fresh SQLite. SDK :8080 hardcoded (must be free); portal :8091.
 const PORT = 8091;
 const BASE = `http://127.0.0.1:${PORT}`;
 const bin = join(tmpdir(), 'detur-integ');
@@ -22,10 +20,8 @@ let server: ChildProcess;
 let dbDir: string;
 let getStderr: () => string = () => '';
 
-// short links + SDK API share :8080
 const SDK = 'http://127.0.0.1:8080';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
-// 2nd iPhone, same iOS + IP; own UA so server doesn't merge it into the first click
 const IPHONE_B = IPHONE.replace('15E148', '15E149');
 const MESSENGER =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBSN/iOS]';
@@ -35,7 +31,6 @@ async function click(key: string, ua: string, done = false): Promise<Response> {
   return fetch(`${SDK}/${key}${done ? '?_dt=1&tz=UTC&screen=393x852%403' : ''}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
 }
 
-// first SDK launch on the clicking iPhone: same IP + iOS + screen -> matches latest click. UA = distinct device.
 async function matchLink(app: { id: string; apiKey: string }, userAgent = IPHONE): Promise<Response> {
   return fetch(`${SDK}/api/link/match-link`, {
     method: 'POST',
@@ -58,7 +53,6 @@ async function matchLink(app: { id: string; apiKey: string }, userAgent = IPHONE
   });
 }
 
-// on-screen toasts (kinu ToastContainer in App): ids monotonic -> no new toast = no id above last seen
 const toasts = () =>
   Array.from(document.querySelectorAll('[k=toast]')).map((t) => ({
     id: Number(t.getAttribute('data-toast')),
@@ -99,7 +93,6 @@ const flaggedCounts = (section: HTMLElement): Record<string, number> => {
   );
 };
 
-// stat number by label (labels repeat in legends). First text node: some stats append a share.
 const tileValue = (label: string): number => {
   const stat = screen
     .getAllByText(label, { exact: true })
@@ -134,7 +127,6 @@ describe('portal client flows', () => {
     fireEvent.input(within(openDialog()).getByLabelText('Name'), { target: { value: name } });
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Create', exact: true }));
 
-    // show-once panel: plaintext key + app id
     await screen.findByText('App created');
     const dlg = openDialog();
     const keyInput = within(dlg).getByDisplayValue(/^dk_/) as HTMLInputElement;
@@ -142,13 +134,11 @@ describe('portal client flows', () => {
     const appId = (within(dlg).getByDisplayValue(/^[A-Za-z0-9]{21}$/) as HTMLInputElement).value;
     within(dlg).getByRole('button', { name: 'Copy API key' });
 
-    // copy feedback: ghost button flashes "Copied"
     fireEvent.click(within(dlg).getByRole('button', { name: 'Copy API key' }));
     await waitFor(() => within(dlg).getByRole('button', { name: 'Copied' }));
 
     fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
 
-    // row: bare id, no key/copy/Edit (config on settings page)
     const card = (await screen.findByText(name)).closest('tr')!;
     within(card).getByText(appId, { exact: true });
     gone(within(card).queryByRole('button', { name: /^Copy/ }));
@@ -170,7 +160,7 @@ describe('portal client flows', () => {
     const row = (await screen.findAllByText('summer-sale'))[0].closest('tr')!;
     expect(row.innerText).toContain('/promo');
     expect((await api.listLinks(app.id)).length).toBe(1);
-    expect(screen.getByRole('button', { name: /^Tags/ })).toBeTruthy(); // filter stays visible with no tags yet
+    expect(screen.getByRole('button', { name: /^Tags/ })).toBeTruthy();
 
     fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Delete' }));
@@ -194,18 +184,15 @@ describe('portal client flows', () => {
 
     render(<AppPage id={app.id} tab="links" />);
     const row = (await screen.findAllByText(tagged.key))[0].closest('tr')!;
-    within(row.querySelector('.link-cell')!).getByText('black-friday'); // badge on the row (the row also hosts its edit dialog)
+    within(row.querySelector('.link-cell')!).getByText('black-friday');
 
-    // chips: Enter adds, × removes
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
     const dlg = openDialog();
-    // combobox offers tags used on other links; tags already on this link are not listed
     const offered = [...dlg.querySelectorAll('[k="item"]')].map((o) => o.textContent);
     expect(offered).toContain('spring');
     expect(offered).not.toContain('black-friday');
-    // pick an existing tag, type a new one, remove one
     const tagsInput = within(dlg).getByLabelText(/Tags/);
-    fireEvent.focus(tagsInput); // opens the suggestion list
+    fireEvent.focus(tagsInput);
     fireEvent.click(within(dlg).getByRole('button', { name: 'spring' }));
     within(dlg).getByText('spring');
     fireEvent.input(tagsInput, { target: { value: 'alice' } });
@@ -213,13 +200,12 @@ describe('portal client flows', () => {
     within(dlg).getByText('alice');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Remove black-friday' }));
     gone(within(dlg).queryByRole('button', { name: 'Remove black-friday' }));
-    await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
+    await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await api.listLinks(app.id)).find((l) => l.id === tagged.id)!.tags).toEqual(['spring', 'alice']));
 
-    // filter: any selected tag matches (OR), Clear restores all
-    fireEvent.click(screen.getByRole('button', { name: /^Tags/ })); // opens the popover
-    const rows = () => screen.getAllByRole('row').slice(1); // header off
+    fireEvent.click(screen.getByRole('button', { name: /^Tags/ }));
+    const rows = () => screen.getAllByRole('row').slice(1);
     fireEvent.click(await screen.findByLabelText('alice'));
     await waitFor(() => expect(rows()).toHaveLength(1));
     fireEvent.click(screen.getByLabelText('spring'));
@@ -240,7 +226,6 @@ describe('portal client flows', () => {
       fallbackUrl: 'https://example.com',
     });
 
-    // desktop -> web fallback; iPhone after interstitial hop -> App Store
     expect((await click(key, DESKTOP)).headers.get('location')).toBe('https://example.com');
     expect((await click(key, IPHONE, true)).headers.get('location')).toBe('https://apps.apple.com/app/id123');
     const ev = await fetch(`${SDK}/api/analytics/event`, {
@@ -254,7 +239,7 @@ describe('portal client flows', () => {
       body: JSON.stringify({ event_name: 'purchase' }),
     });
     expect(ev.status).toBe(200);
-    expect((await matchLink(app)).status).toBe(200); // the iPhone installs: one match, iOS
+    expect((await matchLink(app)).status).toBe(200);
 
     location.hash = `#/apps/${app.id}/analytics`;
     render(<App />);
@@ -269,8 +254,7 @@ describe('portal client flows', () => {
     await waitFor(() => expect(tileValue('Clicks')).toBe(1));
     expect(tileValue('Web fallbacks')).toBe(0);
 
-    // filter is page-level: Links tab counts follow; clearing restores both clicks
-    fireEvent.click(screen.getByRole('link', { name: /^Links/ })); // sidebar tab keeps the filter query
+    fireEvent.click(screen.getByRole('link', { name: /^Links/ }));
     const linkCounts = () => {
       const tr = screen.getAllByText(key)[0].closest('tr')!;
       return [tr.querySelector('[data-label="Clicks"]')!.textContent, tr.querySelector('[data-label="Matches"]')!.textContent];
@@ -327,7 +311,7 @@ describe('portal client flows', () => {
     location.hash = `#/apps/${app.id}/analytics`;
     render(<App />);
     const conv = await screen.findByRole('region', { name: 'Conversions by link' });
-    await waitFor(() => expect(within(conv).getAllByRole('row')).toHaveLength(2)); // header + purchase; tag marker isn't a conversion
+    await waitFor(() => expect(within(conv).getAllByRole('row')).toHaveLength(2));
     expect(within(conv).getByText('purchase').closest('tr')!.querySelector('[data-label="Count"]')!.textContent).toBe('1');
     const ret = screen.getByRole('region', { name: 'Retention by link' });
     const tr = within(ret).getByText(key).closest('tr')!;
@@ -367,7 +351,6 @@ describe('portal client flows', () => {
     screen.getByRole('button', { name: 'New link' });
     screen.getByLabelText('Platform');
 
-    // tab click writes hash (refresh/back keep tab)
     fireEvent.click(screen.getByRole('link', { name: 'Analytics' }));
     expect(location.hash).toBe(`#/apps/${app.id}/analytics`);
     window.dispatchEvent(new Event('hashchange'));
@@ -391,7 +374,6 @@ describe('portal client flows', () => {
     await screen.findByRole('heading', { name: 'API key' });
     expect(selectedTab()).toEqual(['Settings']);
     gone(screen.queryByLabelText('Platform'));
-    // fraud only on its tab: none on Settings, even after all Settings requests land
     fireEvent.click(screen.getByRole('tab', { name: 'Matching' }));
     await screen.findByText('No installs yet.');
     await settle();
@@ -424,13 +406,11 @@ describe('portal client flows', () => {
     await screen.findByText('Saved.');
     expect(await api.getApp(app.id)).toMatchObject({ matchThreshold: 900, matchWindowMinutes: 30 });
 
-    // empty fields: honest error, no false "Saved."
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '' } });
     fireEvent.click(saveButton(screen.getByLabelText('Match threshold')));
     await screen.findByText('threshold and window are required');
     gone(screen.queryByText('Saved.'));
 
-    // out of range: rejected client-side, no round trip
     fireEvent.input(screen.getByLabelText('Match threshold'), { target: { value: '1300' } });
     fireEvent.click(saveButton(screen.getByLabelText('Match threshold')));
     await screen.findByText(/threshold must be 700–1200/);
@@ -452,12 +432,15 @@ describe('portal client flows', () => {
   it('page flow: editor shows the default HTML on load, edits save as custom, a bad page shows the server error, Reset saves default', async () => {
     const app = await api.createApp(uniq('page-app'));
     location.hash = `#/apps/${app.id}/settings`;
-    render(<App />); // toasts live in App's ToastContainer
+    render(<App />);
     fireEvent.click(await screen.findByRole('tab', { name: 'Page' }));
     const html = (await screen.findByLabelText('HTML')) as HTMLTextAreaElement;
-    expect(html.value).toContain('{{cta}}'); // one field, starts as the default
+    expect(html.value).toContain('{{cta}}');
     expect(screen.getByRole('button', { name: 'Reset to default' })).toHaveProperty('disabled', true);
     fireEvent.input(html, { target: { value: '<p>hi</p>' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Matching' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Page' }));
+    expect(((await screen.findByLabelText('HTML')) as HTMLTextAreaElement).value).toBe('<p>hi</p>');
     fireEvent.click(saveButton(screen.getByRole('button', { name: 'Reset to default' })));
     await screen.findByText(/needs the button/);
     fireEvent.input(html, { target: { value: '<p>hi</p>{{cta}}' } });
@@ -468,7 +451,7 @@ describe('portal client flows', () => {
     expect(html.value).toContain('{{cta}}');
     fireEvent.click(saveButton(screen.getByRole('button', { name: 'Reset to default' })));
     await findToast('Default page saved');
-    expect((await api.getPage(app.id)).html).toBe(''); // unchanged default stored as "", not a copy
+    expect((await api.getPage(app.id)).html).toBe('');
     await api.deleteApp(app.id);
   });
 
@@ -481,7 +464,7 @@ describe('portal client flows', () => {
     const rotate = vi.spyOn(api, 'rotateKey');
     const submit = within(openDialog()).getByRole('button', { name: 'Rotate key' });
     fireEvent.click(submit);
-    fireEvent.click(submit); // double click: a second rotate would kill the key about to be shown
+    fireEvent.click(submit);
     await screen.findByText('Key rotated');
     expect(rotate).toHaveBeenCalledTimes(1);
     rotate.mockRestore();
@@ -514,7 +497,6 @@ describe('portal client flows', () => {
     expect((await api.getApp(app.id)).iosAppId).toBe('ABCDE12345.com.example.app');
     cleanup();
 
-    // list: no Edit, row has badge
     render(<AppsPage />);
     const row = (await screen.findByText(name)).closest('tr')!;
     within(row).getByText('iOS', { exact: true });
@@ -613,7 +595,7 @@ describe('portal client flows', () => {
     fireEvent.input(within(openDialog()).getByLabelText('Destination'), {
       target: { value: '/v2' },
     });
-    await waitFor(() => expect((within(openDialog()).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
+    await waitFor(() => expect((within(openDialog()).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(within(openDialog()).getByRole('button', { name: 'Save', exact: true }));
 
     await waitFor(() => screen.getByText('/v2'));
@@ -644,10 +626,9 @@ describe('portal client flows', () => {
 
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
     const dlg = openDialog();
-    await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Add rule' }) as HTMLButtonElement).disabled).toBe(false)); // rules loaded
-    expect((within(dlg).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(true); // nothing changed
+    await waitFor(() => expect((within(dlg).getByRole('button', { name: 'Add rule' }) as HTMLButtonElement).disabled).toBe(false));
+    expect((within(dlg).getByRole('button', { name: 'Save', exact: true }) as HTMLButtonElement).disabled).toBe(true);
 
-    // edit-mode validation: the shared helper blocks an empty destination and a non-https image
     const dest = within(dlg).getByLabelText('Destination');
     fireEvent.input(dest, { target: { value: '' } });
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save', exact: true }));
@@ -693,7 +674,6 @@ describe('portal client flows', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
 
     await within(dlg).findByText('Split Test 1');
-    // leaving the editor moves focus to the next step, never onto Discard
     await waitFor(() => expect(document.activeElement).toBe(within(dlg).getByRole('button', { name: 'Save' })));
 
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
@@ -704,10 +684,8 @@ describe('portal client flows', () => {
     expect(storedRules[0].name).toBe('Split Test 1');
     expect(storedRules[0].action.split).toHaveLength(2);
 
-    // the row carries the rule beside the target, no need to open the drawer
     await waitFor(() => expect(within(document.querySelector('tbody tr .link-cell')!).getByText(/Split Test 1/)).toBeTruthy());
 
-    // deleting the last rule still saves
     fireEvent.click(within(dlg).getByRole('button', { name: 'Delete' }));
     await within(dlg).findByText('No rules yet');
     fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
@@ -750,7 +728,6 @@ describe('portal client flows', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
     fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
 
-    // another teammate saves a rule meanwhile
     await api.setLinkRules(app.id, link.id, [
       { name: 'Saved Elsewhere', cond: { platform: 'ios' }, action: { targets: { fallback_url: 'https://example.com/x' } } },
     ] as never);
@@ -782,7 +759,6 @@ describe('portal client flows', () => {
     await screen.findByRole('region', { name: 'Fraud signals' });
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('20'));
 
-    // fresh app: moded signals Tagged, Repeated device tag only, server-default thresholds
     const rows = Array.from(document.querySelectorAll('li.signal-row')).map((li) => li.getAttribute('aria-label'));
     expect(rows).toEqual(['Click flooding', 'Suspicious timing', 'Bot traffic', 'Datacenter IP', 'Repeated device']);
     for (const label of ['Click flooding', 'Suspicious timing', 'Bot traffic', 'Datacenter IP']) expect(pressed(label)).toEqual(['Tagged']);
@@ -809,7 +785,6 @@ describe('portal client flows', () => {
       fingerprintWindowDays: 7,
     });
 
-    // one press = one save, no confirm dialog
     fireEvent.click(within(modeGroup('Bot traffic')).getByRole('button', { name: 'Active' }));
     gone(document.querySelector('dialog[open]'));
     const t = await findToast('Bot traffic: active');
@@ -823,7 +798,6 @@ describe('portal client flows', () => {
       velocityIpMax: 20,
     });
 
-    // re-press current mode: no save, no toast
     const seen = lastToastId();
     fireEvent.click(within(modeGroup('Bot traffic')).getByRole('button', { name: 'Active' }));
     fireEvent.click(within(modeGroup('Click flooding')).getByRole('button', { name: 'Tagged' }));
@@ -832,18 +806,15 @@ describe('portal client flows', () => {
     expect(pressed('Bot traffic')).toEqual(['Active']);
     expect(pressed('Click flooding')).toEqual(['Tagged']);
 
-    // and back: Tagged saves too
     fireEvent.click(within(modeGroup('Bot traffic')).getByRole('button', { name: 'Tagged' }));
     await findToast('Bot traffic: tagged');
     expect((await api.getFraudSettings(app.id)).userAgentMode).toBe('tagged');
 
-    // changed elsewhere (another tab): Refresh shows server values
     await api.saveFraudSettings(app.id, { ...(await api.getFraudSettings(app.id)), velocityMode: 'active', velocityIpMax: 44 });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(pressed('Click flooding')).toEqual(['Active']));
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('44'));
 
-    // fresh mount reads server state
     fireEvent.click(within(modeGroup('Datacenter IP')).getByRole('button', { name: 'Active' }));
     await findToast('Datacenter IP: active');
     cleanup();
@@ -860,7 +831,6 @@ describe('portal client flows', () => {
     render(<App />);
     await waitFor(() => expect(pressed('Click flooding')).toEqual(['Tagged']));
 
-    // app deleted elsewhere (another tab): save fails server-side
     await api.deleteApp(app.id);
     fireEvent.click(within(modeGroup('Click flooding')).getByRole('button', { name: 'Active' }));
     const t = await findToast(/not found/i);
@@ -874,12 +844,10 @@ describe('portal client flows', () => {
     render(<App />);
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('20'));
 
-    // blur w/ new value saves only that field
     await editAndBlur('Max clicks per IP', '30');
     await findToast('Click flooding: max clicks per ip set to 30');
     expect(await api.getFraudSettings(app.id)).toMatchObject({ velocityIpMax: 30, velocityLinkMax: 500, velocityMode: 'tagged' });
 
-    // Enter commits too
     const soon = threshold('Too soon (seconds)');
     soon.focus();
     await settle();
@@ -889,12 +857,10 @@ describe('portal client flows', () => {
     await findToast('Suspicious timing: too soon (seconds) set to 5');
     expect(await api.getFraudSettings(app.id)).toMatchObject({ timingShortSeconds: 5, velocityIpMax: 30 });
 
-    // toast shows thousands separators
     await editAndBlur('Max clicks per link', '12000');
     await findToast('Click flooding: max clicks per link set to 12,000');
     expect((await api.getFraudSettings(app.id)).velocityLinkMax).toBe(12000);
 
-    // unchanged or cleared: no save, no toast; cleared field shows saved value again
     let seen = lastToastId();
     await editAndBlur('Max clicks per IP', '30');
     await editAndBlur('Max installs', '');
@@ -902,7 +868,6 @@ describe('portal client flows', () => {
     expect(toasts().filter((x) => x.id > seen)).toEqual([]);
     expect(threshold('Max installs').value).toBe('5');
 
-    // out of range (server 2..10000): rejected, field reverts, server keeps saved value
     seen = lastToastId();
     await editAndBlur('Max clicks per IP', '1');
     const t = await findToast(/velocity IP max out of range/i);
@@ -916,7 +881,6 @@ describe('portal client flows', () => {
       fingerprintMax: 5,
     });
 
-    // later save after rejection carries saved values, not the rejected one
     await editAndBlur('Window (days)', '14');
     await findToast('Repeated device: window (days) set to 14');
     expect(await api.getFraudSettings(app.id)).toMatchObject({ fingerprintWindowDays: 14, velocityIpMax: 30 });
@@ -942,13 +906,11 @@ describe('portal client flows', () => {
     expect(pressed('Bot traffic')).toEqual(['Tagged']);
     expect(selectedTab()).toEqual(['Fraud']);
 
-    // a save on B lands on B only
     await editAndBlur('Max clicks per link', '600');
     await findToast('Click flooding: max clicks per link set to 600');
     expect(await api.getFraudSettings(b.id)).toMatchObject({ velocityLinkMax: 600, velocityIpMax: 20, userAgentMode: 'tagged' });
     expect(await api.getFraudSettings(a.id)).toMatchObject({ velocityLinkMax: 500, velocityIpMax: 33, userAgentMode: 'active' });
 
-    // and back to A: A's values again
     go(`#/apps/${a.id}/fraud`);
     await waitFor(() => expect(currentApp()).toBe(a.name));
     await waitFor(() => expect(threshold('Max clicks per IP').value).toBe('33'));
@@ -967,11 +929,9 @@ describe('portal client flows', () => {
     await within(section).findByText('Nothing flagged in this range.');
     gone(within(section).queryByLabelText('Flagged installs per signal'));
 
-    // click -> launch within seconds: timing fires (tagged), install still attributed (IP 400 + iOS version 350 + timezone 200)
     expect((await click(key, IPHONE, true)).status).toBe(302);
     expect((await matchLink(app)).status).toBe(200);
 
-    // Refresh reloads the Fraud tab
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     const row = (await within(section).findByText(key)).closest('tr')!;
     expect(within(row).getByText('Suspicious timing').closest('[data-label="Signals"]')).not.toBeNull();
@@ -984,16 +944,14 @@ describe('portal client flows', () => {
       { linkKey: key, attribution: 'non_organic', fraudAction: '', fraud: expect.arrayContaining(['timing']) },
     ]);
 
-    // operator sets timing active on Fraud tab
     fireEvent.click(within(modeGroup('Suspicious timing')).getByRole('button', { name: 'Active' }));
     await findToast('Suspicious timing: active');
     expect((await api.getFraudSettings(app.id)).timingMode).toBe('active');
 
-    // next fast install (another iPhone) loses credit: SDK gets no link, install organic w/ flagged click named
     expect((await click(key, IPHONE_B, true)).status).toBe(302);
     expect((await matchLink(app, IPHONE_B)).status).toBe(404);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-    await waitFor(() => expect(within(section).getAllByRole('row')).toHaveLength(3)); // header + 2
+    await waitFor(() => expect(within(section).getAllByRole('row')).toHaveLength(3));
     const [, newest, older] = within(section).getAllByRole('row');
     within(newest).getByText('Kept as organic');
     within(newest).getByText(`Flagged click on ${key}`);
@@ -1004,7 +962,6 @@ describe('portal client flows', () => {
     const stored = (await api.getFraud(app.id, 7)).installs;
     expect(stored[0]).toMatchObject({ attribution: 'organic', fraudAction: 'excluded', fraudLinkKey: key });
 
-    // wider range: same two installs
     fireEvent.change(within(section).getByLabelText('Flagged range'), { target: { value: '90' } });
     await settle();
     await waitFor(() => expect(within(section).getAllByRole('row')).toHaveLength(3));
@@ -1034,19 +991,16 @@ describe('portal client flows', () => {
     await screen.findByRole('heading', { name: 'API key' });
     expect(selectedTab()).toEqual(['Settings']);
 
-    // unknown tab segment -> app page, Links tab
     go(`#/apps/${app.id}/bogus`);
     await waitFor(() => expect(selectedTab()).toEqual(['Links']));
     await api.deleteApp(app.id);
 
-    // bad %-encoding: no crash, falls back to apps page
     go('#/apps/%zz');
     await screen.findByRole('heading', { name: 'Apps' });
     gone(screen.queryByText('Something went wrong'));
   });
 
   it('AE1: ADMIN_PASSWORD unset — no admin entry, elevation inert, admin APIs open without a session', async () => {
-    // adminSet false: no admin button or chip
     expect(await api.getConfig()).toMatchObject({ logoutUrl: '', adminSet: false });
     location.hash = '#/';
     render(<App />);
@@ -1054,11 +1008,9 @@ describe('portal client flows', () => {
     gone(screen.queryByRole('button', { name: 'Enter admin' }));
     gone(screen.queryByTitle(/^Admin until/));
 
-    // nothing to elevate: POST rejects, GET stays inactive
     await expect(api.enterAdminMode('anything')).rejects.toMatchObject({ status: 403 });
     expect(await api.getAdminSession()).toMatchObject({ admin: false });
 
-    // admin routes open without session (current behavior)
     const app = await api.createApp(uniq('ae1-app'));
     expect((await api.getApp(app.id)).id).toBe(app.id);
     await api.deleteApp(app.id);

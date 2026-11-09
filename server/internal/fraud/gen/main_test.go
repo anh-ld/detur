@@ -14,7 +14,6 @@ func spans(cidrs ...string) []span {
 	return s
 }
 
-// TestMergeSubtract: adjacent prefixes coalesce, families stay apart, egress cuts holes and trims edges.
 func TestMergeSubtract(t *testing.T) {
 	h := merge(spans("10.0.1.0/24", "10.0.0.0/24", "10.0.2.0/25", "2001:db8::/32", "2001:db9::/32"))
 	e := merge(spans("10.0.0.0/28", "10.0.1.0/30", "10.0.2.64/26", "2001:db9::/33"))

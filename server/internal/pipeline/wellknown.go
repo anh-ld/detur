@@ -1,9 +1,5 @@
 package pipeline
 
-// Well-known hosting: per-app association files (AASA for iOS Universal Links,
-// assetlinks.json for Android App Links) on operator's configured domains.
-// Other hosts 404.
-
 import (
 	"net"
 	"net/http"
@@ -13,15 +9,11 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// wellKnownServer: .well-known routes.
 type wellKnownServer struct {
 	st      *store.Store
 	domains []string
 }
 
-// RegisterWellKnown: well-known routes on mux; literal patterns beat GET /{key}.
-// domains = config.DomainSet; other hosts 404, so one instance never serves
-// another operator's domain.
 func RegisterWellKnown(mux *http.ServeMux, st *store.Store, domains []string) {
 	w := &wellKnownServer{st: st, domains: domains}
 	mux.HandleFunc("GET /.well-known/apple-app-site-association", w.handleAASA)
@@ -46,7 +38,6 @@ type aasaDetails struct {
 	Components []map[string]string `json:"components"`
 }
 
-// assetlinkEntry: one Android assetlinks.json entry.
 type assetlinkEntry struct {
 	Relation []string        `json:"relation"`
 	Target   assetlinkTarget `json:"target"`
@@ -59,7 +50,7 @@ type assetlinkTarget struct {
 }
 
 // handleAASA: iOS association file, one details entry per app with ios_app_id.
-// Single iOS app claims wildcard ["*"] and components [{"/": "/*"}] (R7) to prevent
+// Single iOS app claims wildcard ["*"] and components [{"/": "/*"}] to prevent
 // Apple CDN caching from breaking newly generated short links.
 // Multiple iOS apps partition paths by app link keys to prevent the first app
 // in the details array from shadowing Universal Links intended for sibling apps.
@@ -90,14 +81,14 @@ func (w *wellKnownServer) handleAASA(rw http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if len(links) > store.MaxAASAKeys {
-				links = links[len(links)-store.MaxAASAKeys:] // ListLinks is created_at-ascending: keep newest
+				links = links[len(links)-store.MaxAASAKeys:]
 			}
 			paths = paths[:0]
 			for _, l := range links {
 				paths = append(paths, "/"+l.Key)
 			}
 			if len(paths) == 0 {
-				continue // zero-link app claims nothing; omit the entry
+				continue
 			}
 		}
 		d := aasaDetails{
@@ -148,7 +139,6 @@ func (w *wellKnownServer) handleAssetLinks(rw http.ResponseWriter, r *http.Reque
 	httpx.WriteJSON(rw, http.StatusOK, entries)
 }
 
-// splitList: comma-separated value, blanks dropped.
 func splitList(s string) []string {
 	out := []string{}
 	for _, v := range strings.Split(s, ",") {
@@ -159,7 +149,6 @@ func splitList(s string) []string {
 	return out
 }
 
-// allowedHost: request Host in configured domain set? Port + leading "www." stripped (Dub parse.ts); case-insensitive.
 func (w *wellKnownServer) allowedHost(r *http.Request) bool {
 	host := strings.TrimPrefix(strings.ToLower(hostnameOnly(r.Host)), "www.")
 	for _, d := range w.domains {
@@ -170,7 +159,6 @@ func (w *wellKnownServer) allowedHost(r *http.Request) bool {
 	return false
 }
 
-// hostnameOnly: Host minus port (and IPv6 brackets) and the root dot ("lnk.example." = same DNS name).
 func hostnameOnly(h string) string {
 	if host, _, err := net.SplitHostPort(h); err == nil {
 		h = host

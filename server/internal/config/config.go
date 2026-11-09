@@ -10,21 +10,19 @@ import (
 	"strings"
 )
 
-// Config: runtime config from env vars: DOMAIN, DB_PATH, RETENTION_HOURS, CLICK_ID_DAYS, TRUST_PROXY, TRUSTED_PROXIES, LOGOUT_URL, ADMIN_PASSWORD, ADMIN_SESSION_HOURS, PORTAL_HOSTS.
 type Config struct {
-	Domain            string // public domain for links, well-known, redirects
+	Domain            string
 	DBPath            string
-	RetentionHours    int      // click + event retention floor
-	ClickIDDays       int      // unmatched click_id lifetime
-	TrustProxy        bool     // honor X-Forwarded-For (only behind a trusted proxy)
-	TrustedProxies    []string // TRUSTED_PROXIES: CIDR ranges, comma-separated; empty = default RFC 1918 + loopback
-	LogoutURL         string   // gateway sign-out URL for the Log out link; "" hides it
-	AdminPassword     string   // master password for admin elevation; "" = no gating
-	AdminSessionHours int      // elevated session TTL (1-72h, default 12)
-	PortalHosts       []string // PORTAL_HOSTS: gateway hostnames, comma-separated
+	RetentionHours    int
+	ClickIDDays       int
+	TrustProxy        bool
+	TrustedProxies    []string
+	LogoutURL         string
+	AdminPassword     string
+	AdminSessionHours int
+	PortalHosts       []string
 }
 
-// Load: config from env, with defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
 		Domain:            normalizeDomain(envOr("DOMAIN", "localhost")),
@@ -63,7 +61,6 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// parseTrustedProxies: comma-separated list of CIDR strings.
 func parseTrustedProxies(v string) ([]string, error) {
 	var out []string
 	for _, raw := range strings.Split(v, ",") {
@@ -79,7 +76,6 @@ func parseTrustedProxies(v string) ([]string, error) {
 	return out, nil
 }
 
-// checkLogoutURL: "", http(s) URL, or "/path". Rejects the rest (javascript:, "//host"): it lands in an href.
 func checkLogoutURL(v string) error {
 	if v == "" {
 		return nil
@@ -94,7 +90,6 @@ func checkLogoutURL(v string) error {
 	return nil
 }
 
-// normalizeDomain: bare lowercase host. "https://Lnk.Example/" or "lnk.example." would never equal a request Host -> every AASA/assetlinks fetch 404s.
 func normalizeDomain(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	if i := strings.Index(v, "://"); i >= 0 {
@@ -113,7 +108,6 @@ func envOr(key, def string) string {
 	return def
 }
 
-// envBool: 1/true/yes/on or 0/false/no/off (any case), unset = false. Anything else fails fast: "true" read as off would silently share one proxy IP.
 func envBool(key string) (bool, error) {
 	switch v := strings.ToLower(strings.TrimSpace(os.Getenv(key))); v {
 	case "", "0", "false", "no", "off":
@@ -125,7 +119,6 @@ func envBool(key string) (bool, error) {
 	}
 }
 
-// envIntRange: int env var; malformed/out-of-range = fail fast, no silent misconfig.
 func envIntRange(key string, def, min, max int) (int, error) {
 	v := os.Getenv(key)
 	if v == "" {

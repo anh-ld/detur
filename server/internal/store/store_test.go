@@ -128,7 +128,6 @@ func TestClickExpiryIsRetention(t *testing.T) {
 	}
 }
 
-// RecordClick: same link + device (IP + UA) within the hour reuses the click (Dub click cache); other device -> new row.
 func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -147,7 +146,6 @@ func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	if n, _ := s.CountClicks(app.ID); n != 1 {
 		t.Errorf("clicks = %d; want 1 (deduped)", n)
 	}
-	// other UA, same link: new click
 	other := Fingerprint{IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7)"}
 	third, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Fingerprint: other, Destination: link.URL}, 24)
 	if err != nil {
@@ -161,7 +159,6 @@ func TestRecordClickDedupSameDeviceWithinHour(t *testing.T) {
 	}
 }
 
-// re-tap after the first click was matched: new click, never the consumed one
 func TestRecordClickDedupSkipsMatched(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -182,7 +179,6 @@ func TestRecordClickDedupSkipsMatched(t *testing.T) {
 	}
 }
 
-// Re-tap within dedup hour refreshes click: same id, created_at = now, new signals kept (Dub rewrites deepLinkClickCache per tap).
 func TestRecordClickDedupRefreshesClick(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -278,11 +274,9 @@ func TestPurgeExpired(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
 	c, _ := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL}, 24)
-	// force expiry
 	if _, err := s.rawExec(`UPDATE clicks SET expires_at = ? WHERE id = ?`, rfc3339(time.Now().Add(-time.Hour)), c.ID); err != nil {
 		t.Fatalf("force expiry: %v", err)
 	}
-	// recent event (kept) + old event past retention floor (purged)
 	if err := s.RecordEvent(app.ID, "install", `{}`); err != nil {
 		t.Fatalf("RecordEvent: %v", err)
 	}
@@ -309,12 +303,10 @@ func TestInstallAttributionIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordInstall: %v", err)
 	}
-	// duplicate call → same surviving row, no double count
 	dup, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "hash-a", ClickID: "click-1", Attribution: AttributionNonOrganic})
 	if err != nil || dup.ID != in.ID {
 		t.Fatalf("duplicate upsert = %+v (%v); want surviving row %s", dup, err, in.ID)
 	}
-	// organic retry with empty clickId → still one row
 	org, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "hash-b", ClickID: "", Attribution: AttributionOrganic})
 	if err != nil {
 		t.Fatalf("RecordInstall organic: %v", err)
@@ -323,7 +315,6 @@ func TestInstallAttributionIdempotent(t *testing.T) {
 	if err != nil || org2.ID != org.ID {
 		t.Fatalf("organic retry = %+v (%v); want single row", org2, err)
 	}
-	// unknown attribution stored, excluded from counts
 	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "hash-c", ClickID: "", Attribution: AttributionUnknown}); err != nil {
 		t.Fatalf("RecordInstall unknown: %v", err)
 	}
@@ -336,7 +327,6 @@ func TestInstallAttributionIdempotent(t *testing.T) {
 	}
 }
 
-// backend-error unknown must not block a later real attribution; real ones stay immutable
 func TestInstallUnknownUpgradedByRealAttribution(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -356,7 +346,6 @@ func TestInstallUnknownUpgradedByRealAttribution(t *testing.T) {
 	if o, n, _ := s.CountInstalls(app.ID); o != 2 || n != 0 {
 		t.Fatalf("organic→unknown: organic %d non-organic %d; want 2/0", o, n)
 	}
-	// unknown -> real attribution carries the analytics labels
 	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d3", ClickID: "c3", Attribution: AttributionUnknown}); err != nil {
 		t.Fatalf("RecordInstall unknown: %v", err)
 	}
@@ -405,7 +394,6 @@ func TestOpenMigratesLegacyInstallUniqueness(t *testing.T) {
 	if err != nil || got.AppID != "app-b" || got.ID == "legacy" {
 		t.Fatalf("cross-app install after migration = %+v, %v; want a separate app-b row", got, err)
 	}
-	// rebuild runs before addMissingColumns: analytics columns survive it
 	if !columnExists(s.db, "installs", "link_id") || !columnExists(s.db, "installs", "platform") {
 		t.Fatal("installs.link_id/platform missing after legacy rebuild")
 	}
@@ -441,7 +429,6 @@ func TestUpdateAppMatchSettings(t *testing.T) {
 	}
 }
 
-// legacyMatchDB: pre-upgrade database (apps without match columns, instance-wide settings table) with one app.
 func legacyMatchDB(t *testing.T, threshold, window string) string {
 	t.Helper()
 	path := t.TempDir() + "/legacy.db"
@@ -472,8 +459,8 @@ func TestOpenSeedsAppMatchFromLegacySettings(t *testing.T) {
 		wantT, wantW      int
 	}{
 		{"950", "30", 950, 30},
-		{"9999", "30", 850, 30}, // out of range: default stays
-		{"abc", "1", 850, 15},   // garbage + out of range: defaults stay
+		{"9999", "30", 850, 30},
+		{"abc", "1", 850, 15},
 	} {
 		s, err := Open(legacyMatchDB(t, tc.threshold, tc.window))
 		if err != nil {
@@ -487,7 +474,6 @@ func TestOpenSeedsAppMatchFromLegacySettings(t *testing.T) {
 	}
 }
 
-// TestGetLinkByKeyGlobal: cross-app duplicates rejected, never resolved to an arbitrary app.
 func TestGetLinkByKeyGlobal(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -526,7 +512,6 @@ func TestGetLinkByKeyGlobalAmbiguousFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateApp: %v", err)
 	}
-	// CreateLink blocks cross-app duplicates now; simulate a historic one.
 	if _, err := s.db.Exec(`INSERT INTO links (id, app_id, key, url) VALUES ('dup', ?, 'abc', 'https://second.example/')`, app2.ID); err != nil {
 		t.Fatalf("insert duplicate: %v", err)
 	}
@@ -535,8 +520,6 @@ func TestGetLinkByKeyGlobalAmbiguousFailsClosed(t *testing.T) {
 	}
 }
 
-// pre-v0.2 DB gains expires_at, expired_url, os_version on Open; re-Open is a no-op
-// Pre-fraud database: Open adds every later column, legacy rows read with zero facts, new facts and labels round trip.
 func TestOpenAddsMissingColumns(t *testing.T) {
 	path := t.TempDir() + "/legacy.db"
 	db, err := sql.Open("sqlite", path)
@@ -581,7 +564,6 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 			t.Errorf("%s.%s missing after Open", c[0], c[1])
 		}
 	}
-	// legacy row: zero facts, first_seen_at falls back to created_at
 	if lc, err := s.GetClick("legacy-click"); err != nil || lc.UASuspect || lc.IPHosting || lc.HitsIP != 0 || lc.HitsLink != 0 || lc.Kind != "" || !lc.FirstSeenAt.Equal(lc.CreatedAt) {
 		t.Errorf("legacy click = %+v, %v; want zero facts, first_seen = created", lc, err)
 	}
@@ -605,7 +587,6 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 	if gc, err := s.GetClick(c.ID); err != nil || gc.Fingerprint.OSVersion != "14.0.0" {
 		t.Errorf("GetClick OSVersion = %q, %v; want 14.0.0", gc.Fingerprint.OSVersion, err)
 	}
-	// fraud facts + labels round trip on upgraded tables
 	fc, err := s.RecordClick(Click{AppID: "legacy-app", LinkID: "legacy-link", Destination: "x", Kind: KindApp, IPHosting: true,
 		Fingerprint: Fingerprint{IP: "3.5.140.1", UserAgent: "ua"}}, 24)
 	if err != nil {
@@ -614,7 +595,6 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 	if gc, err := s.GetClick(fc.ID); err != nil || gc.Kind != KindApp || !gc.IPHosting || gc.HitsIP != 1 || gc.HitsLink != 2 {
 		t.Errorf("GetClick = kind %q hosting %v hits %d/%d, %v; want app, true, 1/2", gc.Kind, gc.IPHosting, gc.HitsIP, gc.HitsLink, err)
 	}
-	// in-app source round trips + rolls up on upgraded db
 	sc, err := s.RecordClick(Click{AppID: "legacy-app", LinkID: "legacy-link", Destination: "x", Kind: KindApp, Source: "zalo",
 		Fingerprint: Fingerprint{IP: "198.51.100.77", UserAgent: "ua-zalo"}}, 24)
 	if err != nil {
@@ -623,14 +603,14 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 	if gc, _ := s.GetClick(sc.ID); gc.Source != "zalo" {
 		t.Errorf("GetClick Source = %q; want zalo", gc.Source)
 	}
-	if a, err := s.Analytics("legacy-app", 1, "", time.Now()); err != nil || len(a.Sources) != 1 || a.Sources[0].Source != "zalo" {
+	if a, err := s.AnalyticsRange("legacy-app", time.Now(), time.Now(), "", ""); err != nil || len(a.Sources) != 1 || a.Sources[0].Source != "zalo" {
 		t.Errorf("legacy Analytics Sources = %+v, %v; want zalo 1", a.Sources, err)
 	}
 	if _, err := s.RecordInstall(Install{AppID: "legacy-app", DeviceHash: "d1", Attribution: AttributionOrganic, Method: MethodOrganic,
 		Fraud: "velocity,install_ip", FraudAction: FraudActionExcluded, FraudLinkID: "legacy-link"}); err != nil {
 		t.Fatalf("RecordInstall with fraud labels: %v", err)
 	}
-	f, err := s.Fraud("legacy-app", 7, time.Now())
+	f, err := s.FraudRange("legacy-app", time.Now().AddDate(0, 0, -6), time.Now())
 	if err != nil || len(f.Installs) != 1 || f.Installs[0].DeviceHash != "d1" || f.Installs[0].FraudAction != FraudActionExcluded ||
 		f.Installs[0].FraudLinkID != "legacy-link" || f.Signals[fraud.SignalInstallIP] != 1 || f.Signals[fraud.SignalVelocity] != 1 {
 		t.Errorf("Fraud after upgrade = %+v, %v; want the d1 install, excluded, velocity + install_ip counted", f, err)
@@ -643,7 +623,6 @@ INSERT INTO installs (id, app_id, device_hash, click_id, attribution) VALUES ('l
 	s2.Close()
 }
 
-// dedup window edges: 59m hit, 61m miss, other link miss, NULL IP hit, empty signal keeps old value
 func TestRecordClickDedupBoundaries(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -697,7 +676,6 @@ func TestRecordClickDedupBoundaries(t *testing.T) {
 	}
 }
 
-// purge drops expired click, keeps live click and recent event
 func TestPurgeExpiredKeepsLive(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -729,7 +707,6 @@ func TestPurgeExpiredKeepsLive(t *testing.T) {
 	}
 }
 
-// Past retention: scrubbed, click_id lives ClickIDHours, matched deleted.
 func TestClickIDOutlivesRetention(t *testing.T) {
 	s := newTestStore(t)
 	s.ClickIDHours = 30 * 24
@@ -859,7 +836,6 @@ func TestDeleteAppRemovesAppData(t *testing.T) {
 	}
 }
 
-// Analytics: rollups count new clicks once per kind/platform, outlive the retention purge, fill empty days, and leave with the app.
 func TestAnalytics(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -869,7 +845,7 @@ func TestAnalytics(t *testing.T) {
 	appUA := Fingerprint{IP: "203.0.113.9", UserAgent: "MyApp/1 CFNetwork/1490 Darwin/23.5.0"}
 	for _, c := range []Click{
 		{Fingerprint: iphone, Platform: "ios", Kind: KindApp},
-		{Fingerprint: iphone, Platform: "ios", Kind: KindApp}, // dedup: same click
+		{Fingerprint: iphone, Platform: "ios", Kind: KindApp},
 		{Fingerprint: desktop, Platform: "desktop", Kind: KindWeb},
 		{Fingerprint: appUA, Platform: "ios", Kind: KindOpen},
 	} {
@@ -898,11 +874,10 @@ func TestAnalytics(t *testing.T) {
 	if day(now) != day(start) {
 		t.Skip("crossed UTC midnight while recording; rollup day assertions would be off by one")
 	}
-	// raw clicks/events purged; rollups stay
 	if _, err := s.PurgeExpired(now.Add(48*time.Hour), 24); err != nil {
 		t.Fatalf("PurgeExpired: %v", err)
 	}
-	a, err := s.Analytics(app.ID, 7, "", now)
+	a, err := s.AnalyticsRange(app.ID, now.AddDate(0, 0, -6), now, "", "")
 	if err != nil {
 		t.Fatalf("Analytics: %v", err)
 	}
@@ -920,7 +895,7 @@ func TestAnalytics(t *testing.T) {
 		t.Errorf("events = %+v; want purchase 2, signup 1, long name cut to 64", a.Events)
 	}
 
-	ios, err := s.Analytics(app.ID, 7, "ios", now)
+	ios, err := s.AnalyticsRange(app.ID, now.AddDate(0, 0, -6), now, "ios", "")
 	if err != nil {
 		t.Fatalf("Analytics ios: %v", err)
 	}
@@ -939,7 +914,6 @@ func TestAnalytics(t *testing.T) {
 	}
 }
 
-// hits counts raw taps per IP and link (KTD2): dedup merges rows, not hits; first_seen_at stays at the first tap.
 func TestRecordClickHitCounter(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -976,22 +950,18 @@ func TestRecordClickHitCounter(t *testing.T) {
 	if n, _ := s.CountClicks(app.ID); n != 1 {
 		t.Errorf("clicks = %d; want 1", n)
 	}
-	// second IP on the same link: link counts all, IP counts its own
 	other := rec(Fingerprint{IP: "198.51.100.9", UserAgent: fp.UserAgent})
 	if other.HitsIP != 1 || other.HitsLink != 4 {
 		t.Errorf("other IP hits = %d/%d; want 1/4", other.HitsIP, other.HitsLink)
 	}
-	// IPv4-mapped form of the first IP: same counter
 	if mapped := rec(Fingerprint{IP: "::ffff:203.0.113.7", UserAgent: "ua-mapped"}); mapped.HitsIP != 4 {
 		t.Errorf("IPv4-mapped hits_ip = %d; want 4 (shares 203.0.113.7's counter)", mapped.HitsIP)
 	}
-	// IPv6 sharing a /64: one key
 	a := rec(Fingerprint{IP: "2001:db8:1:2::1", UserAgent: "ua-a"})
 	b := rec(Fingerprint{IP: "2001:db8:1:2:ffff::9", UserAgent: "ua-b"})
 	if a.HitsIP != 1 || b.HitsIP != 2 {
 		t.Errorf("v6 /64 hits = %d, %d; want 1, 2", a.HitsIP, b.HitsIP)
 	}
-	// private and empty IPs never count (KTD8)
 	for _, ip := range []string{"10.0.0.1", "127.0.0.1", ""} {
 		c := rec(Fingerprint{IP: ip, UserAgent: "ua-" + ip})
 		if c.HitsIP != 0 {
@@ -1008,7 +978,6 @@ func TestRecordClickHitCounter(t *testing.T) {
 	}
 }
 
-// UA-suspect clicks are stored but stay out of click_days (R3, AE1).
 func TestRecordClickUASuspectSkipsRollup(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1035,7 +1004,6 @@ func TestRecordClickUASuspectSkipsRollup(t *testing.T) {
 	}
 }
 
-// Fraud settings: no row reads as Defaults, upsert round trips, a second upsert replaces every field, unknown app is ErrNotFound.
 func TestFraudSettings(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -1065,7 +1033,6 @@ func TestFraudSettings(t *testing.T) {
 	}
 }
 
-// velocity window follows the app's setting: a bucket outside it stops counting.
 func TestRecordClickHitWindow(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1084,7 +1051,6 @@ func TestRecordClickHitWindow(t *testing.T) {
 	}
 }
 
-// Unknown install upgraded by a real attribution takes its fraud labels; purge leaves install labels alone.
 func TestInstallFraudLabelsSurviveUpgradeAndPurge(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1110,7 +1076,6 @@ func TestInstallFraudLabelsSurviveUpgradeAndPurge(t *testing.T) {
 	check("after purge")
 }
 
-// Purge drops hit buckets past the 24 h max window, keeps younger ones.
 func TestPurgeExpiredClickHits(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1136,7 +1101,6 @@ func TestPurgeExpiredClickHits(t *testing.T) {
 	}
 }
 
-// DeleteLink drops that link's counter only; DeleteApp drops the app's counters and settings, other apps untouched.
 func TestDeleteRemovesFraudRows(t *testing.T) {
 	s := newTestStore(t)
 	a, la := setupApp(t, s)
@@ -1181,7 +1145,6 @@ func TestDeleteRemovesFraudRows(t *testing.T) {
 	}
 }
 
-// Fingerprint count: probabilistic installs only, same hash and same link.
 func TestCountFingerprintInstalls(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1202,7 +1165,6 @@ func TestCountFingerprintInstalls(t *testing.T) {
 	}
 }
 
-// Fraud report: per-signal counts over the range (every key present, ip and install_ip apart), latest 100 flagged installs newest first.
 func TestFraudAnalytics(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1220,15 +1182,13 @@ func TestFraudAnalytics(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// clean install and an out-of-range flagged one: not counted
 	s.RecordInstall(Install{AppID: app.ID, DeviceHash: "clean", Attribution: AttributionOrganic})
 	s.RecordInstall(Install{AppID: app.ID, DeviceHash: "old", Attribution: AttributionOrganic, Fraud: "timing"})
 	s.rawExec(`UPDATE installs SET created_at = ? WHERE device_hash = 'old'`, rfc3339(now.AddDate(0, 0, -30)))
-	// install-IP label: counted on its own, never as ip (",ip," is not a substring of ",install_ip,"); oldest, so outside the 100 listed
 	s.RecordInstall(Install{AppID: app.ID, DeviceHash: "hosted", Attribution: AttributionOrganic, Fraud: "install_ip"})
 	s.rawExec(`UPDATE installs SET created_at = ? WHERE device_hash = 'hosted'`, rfc3339(now.Add(-time.Hour)))
 
-	f, err := s.Fraud(app.ID, 7, now)
+	f, err := s.FraudRange(app.ID, now.AddDate(0, 0, -6), now)
 	if err != nil {
 		t.Fatalf("Fraud: %v", err)
 	}
@@ -1244,7 +1204,6 @@ func TestFraudAnalytics(t *testing.T) {
 	}
 }
 
-// Fraud settings table gone: read returns the error and Defaults (callers fail open on it), write returns an error that is not ErrNotFound.
 func TestFraudSettingsBackendError(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -1264,7 +1223,6 @@ func TestFraudSettingsBackendError(t *testing.T) {
 	}
 }
 
-// Installs table gone: fingerprint count, fraud report and signal counts all return errors.
 func TestFraudInstallQueriesBackendError(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1274,15 +1232,14 @@ func TestFraudInstallQueriesBackendError(t *testing.T) {
 	if n, err := s.CountFingerprintInstalls(app.ID, "h", link.ID, time.Now().Add(-time.Hour)); err == nil || n != 0 {
 		t.Errorf("CountFingerprintInstalls = %d, %v; want 0 and an error", n, err)
 	}
-	if _, err := s.Fraud(app.ID, 7, time.Now()); err == nil {
+	if _, err := s.FraudRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now()); err == nil {
 		t.Error("Fraud: want an error")
 	}
-	if m, err := s.FraudSignals(app.ID, 7, time.Now()); err == nil || m != nil {
+	if m, err := s.FraudSignalsRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now()); err == nil || m != nil {
 		t.Errorf("FraudSignals = %v, %v; want nil and an error", m, err)
 	}
 }
 
-// Fraud report list fails after the counts succeed: a column only the list reads is gone, then a corrupt row (NULL id) fails the scan.
 func TestFraudListBackendError(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -1292,24 +1249,23 @@ func TestFraudListBackendError(t *testing.T) {
 	if _, err := s.rawExec(`UPDATE installs SET id = NULL`); err != nil {
 		t.Fatal(err)
 	}
-	if m, err := s.FraudSignals(app.ID, 7, time.Now()); err != nil || m[fraud.SignalVelocity] != 1 {
+	if m, err := s.FraudSignalsRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now()); err != nil || m[fraud.SignalVelocity] != 1 {
 		t.Fatalf("FraudSignals = %v, %v; want velocity 1", m, err)
 	}
-	if _, err := s.Fraud(app.ID, 7, time.Now()); err == nil {
+	if _, err := s.FraudRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now()); err == nil {
 		t.Error("Fraud with a NULL-id row: want a scan error")
 	}
 	if _, err := s.rawExec(`ALTER TABLE installs DROP COLUMN fraud_link_id`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.FraudSignals(app.ID, 7, time.Now()); err != nil {
+	if _, err := s.FraudSignalsRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now()); err != nil {
 		t.Fatalf("FraudSignals after column drop: %v", err)
 	}
-	if _, err := s.Fraud(app.ID, 7, time.Now()); err == nil {
+	if _, err := s.FraudRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now()); err == nil {
 		t.Error("Fraud without fraud_link_id: want a query error")
 	}
 }
 
-// Range edge: a 7-day report starts at 00:00 UTC six days back; an install a millisecond earlier is out, in both counts and list.
 func TestFraudRangeEdge(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -1323,7 +1279,7 @@ func TestFraudRangeEdge(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	f, err := s.Fraud(app.ID, 7, now)
+	f, err := s.FraudRange(app.ID, now.AddDate(0, 0, -6), now)
 	if err != nil {
 		t.Fatalf("Fraud: %v", err)
 	}
@@ -1332,8 +1288,6 @@ func TestFraudRangeEdge(t *testing.T) {
 	}
 }
 
-// Hit counter write fails for one key type (trigger aborts IP or link bucket insert): RecordClick errors, leaves
-// no click or rollup behind.
 func TestRecordClickHitsBackendError(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1355,7 +1309,6 @@ func TestRecordClickHitsBackendError(t *testing.T) {
 	}
 }
 
-// Hit counter table gone: DeleteApp and DeleteLink fail and roll back (app, link, clicks kept); PurgeExpired returns the error.
 func TestFraudCleanupBackendError(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1385,8 +1338,6 @@ func TestFraudCleanupBackendError(t *testing.T) {
 	}
 }
 
-// Refresh keeps hit maxima: 50 taps counted, buckets age out (deleted), next tap's fresh sums = 1, but stored
-// counts stay at peak.
 func TestRecordClickRefreshKeepsHitMax(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1411,7 +1362,6 @@ func TestRecordClickRefreshKeepsHitMax(t *testing.T) {
 	}
 }
 
-// In-app reopen merge: real-browser reload of an in-app click, same link + IP, within window = same click, keeps destination; second in-app browsers, other platforms, IPs, links and SDK opens stay separate.
 func TestRecordClickInAppReopenMerge(t *testing.T) {
 	const webview, chrome, okhttp = "Mozilla/5.0 (Linux; Android 14; wv) [FB_IAB/MESSENGER;]", "Mozilla/5.0 (Linux; Android 14) Chrome/125.0", "okhttp/4.12.0"
 	ip := "203.0.113.7"
@@ -1471,14 +1421,13 @@ func TestRecordClickInAppReopenMerge(t *testing.T) {
 				t.Fatalf("clicks = %d; want %d", n, tc.wantRows)
 			}
 			if tc.wantRows == 1 {
-				// in-app click had no paste: the browser's copy is the one the app reads, so it is taken
 				if second.Destination != link.URL || second.Fingerprint.PastedLink != "https://evil.example/paste" {
 					t.Errorf("reopen: destination %q (want kept), pasted link %q (want browser's)", second.Destination, second.Fingerprint.PastedLink)
 				}
 				if second.ID != first.ID || second.Source != "messenger" {
 					t.Errorf("merged click = %s source %q; want %s source messenger", second.ID, second.Source, first.ID)
 				}
-				a, err := s.Analytics(app.ID, 1, "", time.Now())
+				a, err := s.AnalyticsRange(app.ID, time.Now(), time.Now(), "", "")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -1490,7 +1439,6 @@ func TestRecordClickInAppReopenMerge(t *testing.T) {
 	}
 }
 
-// Sources: per-source rollup of new in-app clicks for the range; none without in-app traffic; removed with the app and link.
 func TestAnalyticsSources(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1500,7 +1448,7 @@ func TestAnalyticsSources(t *testing.T) {
 			t.Fatalf("RecordClick: %v", err)
 		}
 	}
-	a, err := s.Analytics(app.ID, 7, "", time.Now())
+	a, err := s.AnalyticsRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now(), "", "")
 	if err != nil {
 		t.Fatalf("Analytics: %v", err)
 	}
@@ -1509,13 +1457,13 @@ func TestAnalyticsSources(t *testing.T) {
 		t.Errorf("Sources = %+v; want %+v", a.Sources, want)
 	}
 	other, _ := s.CreateApp("quiet", "quiet-key-1")
-	if q, _ := s.Analytics(other.ID, 7, "", time.Now()); q.Sources == nil || len(q.Sources) != 0 {
+	if q, _ := s.AnalyticsRange(other.ID, time.Now().AddDate(0, 0, -6), time.Now(), "", ""); q.Sources == nil || len(q.Sources) != 0 {
 		t.Errorf("quiet app Sources = %#v; want empty slice", q.Sources)
 	}
 	if err := s.DeleteLink(link.ID); err != nil {
 		t.Fatal(err)
 	}
-	if a, _ := s.Analytics(app.ID, 7, "", time.Now()); len(a.Sources) != 0 {
+	if a, _ := s.AnalyticsRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now(), "", ""); len(a.Sources) != 0 {
 		t.Errorf("Sources after DeleteLink = %+v; want none", a.Sources)
 	}
 	l2, _ := s.CreateLink(Link{AppID: app.ID, Key: "again", URL: "https://example.com/a"})
@@ -1532,7 +1480,6 @@ func TestAnalyticsSources(t *testing.T) {
 	}
 }
 
-// Reopen picks the newest in-app click on the visitor's platform, even when a newer one from the other platform shares the IP.
 func TestRecordClickReopenSkipsOtherPlatform(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1556,7 +1503,6 @@ func TestRecordClickReopenSkipsOtherPlatform(t *testing.T) {
 	}
 }
 
-// Same-device retry that lost the claim race (install not written yet) gets the click; another device doesn't (M3, M4).
 func TestMarkClickMatchedSameDevice(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1581,7 +1527,6 @@ func TestMarkClickMatchedSameDevice(t *testing.T) {
 	}
 }
 
-// Device hash = setup, not device: past RetryWindow an identical phone is a new install, never a prior match or a merged organic row.
 func TestRetryWindowBoundsDeviceHash(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1589,7 +1534,7 @@ func TestRetryWindowBoundsDeviceHash(t *testing.T) {
 	if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "d1", ClickID: c.ID, Attribution: AttributionNonOrganic}); err != nil {
 		t.Fatal(err)
 	}
-	for range 2 { // retry inside window: one row
+	for range 2 {
 		if _, err := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "o1", Attribution: AttributionOrganic}); err != nil {
 			t.Fatal(err)
 		}
@@ -1616,7 +1561,6 @@ func TestRetryWindowBoundsDeviceHash(t *testing.T) {
 	}
 }
 
-// Purge loop runs past one batch: purgeBatch+1 matched expired clicks all go, one call.
 func TestPurgeExpiredMultiBatch(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1637,7 +1581,6 @@ func TestPurgeExpiredMultiBatch(t *testing.T) {
 	}
 }
 
-// Click-ID purge seeks created_at, not every expired retained click.
 func TestPurgeClickIDDeleteUsesCreatedIndex(t *testing.T) {
 	s := newTestStore(t)
 	var id, parent, notused int
@@ -1651,7 +1594,6 @@ func TestPurgeClickIDDeleteUsesCreatedIndex(t *testing.T) {
 	}
 }
 
-// Legacy organic rows carry click_id ” (pre-NULL): a retry inside RetryWindow still dedupes onto them.
 func TestOrganicRetryDedupesOntoLegacyEmptyClickID(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -1665,7 +1607,6 @@ func TestOrganicRetryDedupesOntoLegacyEmptyClickID(t *testing.T) {
 	}
 }
 
-// db without apps.page_html: Open adds the column, page round-trips, "" clears.
 func TestOpenAddsPageHTML(t *testing.T) {
 	path := t.TempDir() + "/legacy.db"
 	s, err := Open(path)
@@ -1690,5 +1631,80 @@ func TestOpenAddsPageHTML(t *testing.T) {
 	}
 	if err := s.UpdateAppPage("nope", "x"); err != ErrNotFound {
 		t.Errorf("unknown app = %v; want ErrNotFound", err)
+	}
+}
+
+func (s *Store) rawExec(q string, args ...any) (sql.Result, error) {
+	return s.db.Exec(q, args...)
+}
+
+func TestDeleteAppClearsEveryAppIDTable(t *testing.T) {
+	s := newTestStore(t)
+	app, _ := setupApp(t, s)
+	if _, _, err := s.CreateToken("t", []string{app.ID}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.db.Query(`SELECT m.name FROM sqlite_master m WHERE m.type = 'table' AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) WHERE name = 'app_id')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tables []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, n)
+	}
+	rows.Close()
+	if len(tables) < 10 {
+		t.Fatalf("tables with app_id = %v; enumeration looks broken", tables)
+	}
+	count := func(table string) int {
+		var n int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE app_id = ?`, app.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	for _, table := range tables {
+		if count(table) == 0 {
+			var cols, marks []string
+			var args []any
+			ci, err := s.db.Query(`SELECT name, type FROM pragma_table_info(?) WHERE (("notnull" = 1 AND dflt_value IS NULL) OR pk > 0)`, table)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for ci.Next() {
+				var name, typ string
+				if err := ci.Scan(&name, &typ); err != nil {
+					t.Fatal(err)
+				}
+				cols, marks = append(cols, `"`+name+`"`), append(marks, "?")
+				switch {
+				case name == "app_id":
+					args = append(args, app.ID)
+				case typ == "INTEGER":
+					args = append(args, 1)
+				default:
+					args = append(args, "x")
+				}
+			}
+			ci.Close()
+			if _, err := s.db.Exec(`INSERT INTO `+table+` (`+strings.Join(cols, ",")+`) VALUES (`+strings.Join(marks, ",")+`)`, args...); err != nil {
+				t.Fatalf("populate %s: %v", table, err)
+			}
+		}
+		if count(table) == 0 {
+			t.Fatalf("%s not populated", table)
+		}
+	}
+	if err := s.DeleteApp(app.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range tables {
+		if n := count(table); n != 0 {
+			t.Errorf("%s keeps %d rows after DeleteApp", table, n)
+		}
 	}
 }

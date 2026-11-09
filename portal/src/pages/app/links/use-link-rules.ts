@@ -3,11 +3,10 @@ import { api } from '../../../lib/api';
 import type { LinkRule } from '../../../lib/types';
 import { useLatest } from '../../../lib/use-latest';
 
-// Rules for one link: load, local edits (dirty until saved), save.
 export function useLinkRules(appId: string, linkId: string, setErr: (msg: string) => void) {
   const [rules, setRules] = useState<LinkRule[]>([]);
   const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false); // a failed load leaves rules=[]; block edits so Save can't PUT an empty list
+  const [loaded, setLoaded] = useState(false);
   const [dirty, setDirty] = useState(false);
   const latest = useLatest();
 

@@ -1,6 +1,5 @@
 import { Button } from 'kinu';
 
-// 1.5px outline icon paths (24px grid); decorative, the button label carries the name
 export const ICONS = {
   copy: 'M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1zM16 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3',
   check: 'M20 6 9 17l-5-5',
@@ -12,6 +11,8 @@ export const ICONS = {
   close: 'M18 6 6 18M6 6l12 12',
   plus: 'M12 5v14M5 12h14',
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
+  refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
+  analytics: 'M3 3v18h18M18 17V9M13 17V5M8 17v-3',
 };
 
 export const Icon = ({ d, spin, size = 16 }: { d: string; spin?: boolean; size?: number }) => (
@@ -31,7 +32,6 @@ export const Icon = ({ d, spin, size = 16 }: { d: string; spin?: boolean; size?:
   </svg>
 );
 
-// square ghost button, icon only: label -> aria-label + hover tooltip
 export function IconButton({
   icon,
   label,

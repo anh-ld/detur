@@ -1,36 +1,36 @@
 /* kinu first: Bun dev orders separate CSS imports unpredictably, so theme overrides lost to kinu. */
 @import 'kinu/style.css';
 
-/* Seline-style tokens: neutral zinc, one blue accent. */
 :root {
-  /* fill under white text: #2563eb = 5.2:1 */
   --k-primary: 221 83% 53%;
-  --k-primary-hover: 224 76% 48%; /* #1d4ed8 */
+  --k-primary-hover: 224 76% 48%;
   --k-primary-foreground: 0 0% 100%;
-  --k-ring: 217 91% 60%; /* #3b82f6, non-text */
-  --k-accent: 214 95% 93%; /* wash #dbeafe */
-  --k-accent-foreground: 224 76% 40%; /* text on the wash, 4.5:1+ */
-  --chart-1: 217 91% 60%; /* #3b82f6 */
-  --chart-2: 226 71% 40%; /* #1e40af */
-  --chart-3: 199 89% 48%; /* #0ea5e9 */
-  --chart-wash: 213 97% 87%; /* #bfdbfe */
-  /* crisp neutral zinc: warm stone read muddy next to blue */
-  --k-foreground: 240 10% 4%; /* #09090b */
+  --k-ring: 217 91% 60%;
+  --k-accent: 214 95% 93%;
+  --k-accent-foreground: 224 76% 40%;
+  --chart-1: 217 91% 60%;
+  --chart-2: 226 71% 40%;
+  --chart-3: 199 89% 48%;
+  --chart-wash: 213 97% 87%;
+  --k-foreground: 240 10% 4%;
   --k-card-foreground: 240 10% 4%;
   --k-popover-foreground: 240 10% 4%;
   --k-secondary-foreground: 240 10% 4%;
-  --k-muted-foreground: 240 4% 46%; /* #71717a */
-  --k-border: 240 6% 92%; /* #e9e9ec */
-  --k-input: 240 6% 86%; /* #d9d9de */
-  --k-muted: 240 5% 96%; /* #f4f4f5 */
-  --k-muted-hover: 240 5% 92%; /* button hover on muted */
+  --k-muted-foreground: 240 4% 46%;
+  --k-border: 240 6% 92%;
+  --k-input: 240 6% 86%;
+  --k-muted: 240 5% 96%;
+  --k-muted-hover: 240 5% 92%;
   --k-secondary: 240 5% 96%;
-  --k-background: 0 0% 98.5%; /* canvas #fbfbfb */
+  --k-background: 0 0% 98.5%;
   --k-card: 0 0% 100%;
   --k-popover: 0 0% 100%;
   --k-destructive: 0 72% 51%;
   --k-destructive-foreground: 0 0% 100%;
   --k-radius: 10px;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --chart-muted: 240 4% 62%;
+  --k-success: 152 60% 32%;
   --shadow-md: rgba(0, 0, 0, 0.05) 0px 4px 16px 0px;
 }
 
@@ -53,7 +53,6 @@ body {
   min-height: 100dvh;
 }
 
-/* Headings */
 h1,
 h2,
 h3 {
@@ -76,7 +75,6 @@ main h3 {
   font-size: 18px;
 }
 
-/* Shell: sidebar on canvas + content */
 .shell {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
@@ -192,7 +190,6 @@ button.nav-link {
   cursor: pointer;
 }
 
-/* Checkbox rows: whole row clickable */
 .check-option {
   display: flex;
   align-items: flex-start;
@@ -219,7 +216,6 @@ button.nav-link {
   color: hsl(var(--k-muted-foreground));
 }
 
-/* webhook URL: ellipsis on desktop (full URL in title), wraps on phones */
 .wh-url {
   max-width: 260px;
   overflow: hidden;
@@ -232,7 +228,6 @@ button.nav-link {
   background: hsl(var(--k-border));
 }
 
-/* Badges */
 [k='badge'] {
   border-radius: 9999px;
   font-weight: 500;
@@ -243,7 +238,6 @@ button.nav-link {
   color: hsl(var(--k-accent-foreground));
 }
 
-/* Buttons */
 [k='button'],
 [k='button'][size] {
   border-radius: 9999px;
@@ -265,7 +259,6 @@ button.nav-link {
   transform: scale(0.97);
 }
 
-/* Neutral actions (outline, ghost, secondary, icon-only): light grey fill, black text. No transparent buttons. */
 [k='button'][variant='ghost'],
 [k='button'][variant='outline'],
 [k='button'][variant='secondary'],
@@ -284,7 +277,6 @@ button.nav-link {
   color: hsl(var(--k-foreground));
 }
 
-/* Destructive (delete, trash, remove, revoke): solid red, white text, everywhere */
 [k='button'][variant='destructive'],
 [k='button'].icon-btn.danger {
   background: hsl(var(--k-destructive));
@@ -305,7 +297,6 @@ button.nav-link {
   outline-offset: 2px;
 }
 
-/* Inputs */
 [k='input'],
 [k='textarea'] {
   background-color: hsl(var(--k-card));
@@ -337,12 +328,10 @@ button.nav-link {
   color: hsl(var(--k-muted-foreground));
 }
 
-/* Cards */
 [k='card'] {
   border-radius: 10px;
 }
 
-/* Stat strip: one card, stats inline */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -376,7 +365,6 @@ button.nav-link {
   font-variant-numeric: tabular-nums;
 }
 
-/* Chart + list cards: title left, big total right */
 .duo {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -419,7 +407,6 @@ button.nav-link {
   font-size: 13px !important;
 }
 
-/* Bar list: ranked rows, tinted bar = share of top */
 .bar-list {
   list-style: none;
   margin: 0;
@@ -462,8 +449,6 @@ button.nav-link {
   color: hsl(var(--k-muted-foreground));
 }
 
-/* Empty states */
-/* one look everywhere: white, dashed hairline, title + muted line */
 [k='card']:has(> [k='empty']:only-child) {
   border: 1px dashed hsl(var(--k-input));
   background: hsl(var(--k-card));
@@ -483,7 +468,6 @@ button.nav-link {
   color: hsl(var(--k-foreground));
 }
 
-/* Table */
 [k='table'] {
   border-collapse: separate;
   border-spacing: 0;
@@ -537,7 +521,6 @@ button.nav-link {
   font-variant-numeric: tabular-nums;
 }
 
-/* Charts: per-day hover column */
 .chart-hover {
   fill: transparent;
 }
@@ -546,7 +529,6 @@ button.nav-link {
   fill: hsl(var(--k-foreground) / 0.03);
 }
 
-/* Chart hover card */
 .chart-tip {
   position: absolute;
   z-index: 1;
@@ -586,7 +568,6 @@ button.nav-link {
   color: hsl(var(--k-foreground));
 }
 
-/* Health status */
 .health {
   display: inline-flex;
   align-items: center;
@@ -615,7 +596,6 @@ button.nav-link {
   color: hsl(var(--k-destructive));
 }
 
-/* Score histogram: matched over organic */
 .score-bars {
   display: flex;
   align-items: flex-end;
@@ -666,8 +646,8 @@ button.nav-link {
   }
 }
 
-/* Fraud signals: row per signal, text left, mode switch right */
-.signal-list {
+.signal-list,
+.rule-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -705,7 +685,6 @@ button.nav-link {
   line-height: 2.4;
 }
 
-/* inline number fields in a sentence */
 .inline-num {
   display: inline-block;
   width: 84px;
@@ -728,8 +707,6 @@ button.nav-link {
   flex: none;
 }
 
-/* tagged = calm default: pressed but neutral; only active gets the accent.
-   Unpressed muted so the pressed side is always obvious. */
 .mode-toggle [aria-pressed='false'] {
   color: hsl(var(--k-muted-foreground));
 }
@@ -742,7 +719,6 @@ button.nav-link {
   box-shadow: none;
 }
 
-/* per-signal flagged counts: plain numbers above table, no card */
 .signal-counts {
   display: flex;
   flex-wrap: wrap;
@@ -768,12 +744,10 @@ button.nav-link {
   }
 }
 
-/* Apps list: whole row opens app */
 .row-link {
   cursor: pointer;
 }
 
-/* Dialogs: desktop right drawer */
 [k='dialog-content'] {
   position: fixed;
   top: 0;
@@ -819,7 +793,6 @@ button.nav-link {
   width: min(760px, 100vw);
 }
 
-/* Narrow: sidebar -> sticky top bar, nav scrolls sideways */
 @media (max-width: 860px) {
   .shell {
     display: block;
@@ -885,7 +858,6 @@ button.nav-link {
   }
 }
 
-/* Phones: table rows stack as cards, tighter gutters */
 @media (max-width: 640px) {
   main {
     padding-inline: 16px;
@@ -910,7 +882,7 @@ button.nav-link {
   [k='table'] td {
     display: block;
     width: 100%;
-    box-sizing: border-box; /* padding inside the 100%, not added */
+    box-sizing: border-box;
   }
 
   [k='table'] thead {
@@ -957,7 +929,6 @@ button.nav-link {
     padding-top: 0.5rem;
   }
 
-  /* Dialogs -> bottom sheets */
   [k='dialog-content'] {
     position: fixed;
     top: auto;
@@ -994,7 +965,6 @@ button.nav-link {
     }
   }
 
-  /* grab handle */
   [k='dialog-content']::before {
     content: '';
     flex: none;
@@ -1006,7 +976,6 @@ button.nav-link {
     background: hsl(var(--k-input));
   }
 
-  /* signal rows: switch drops below text so sentences keep width */
   .signal-row {
     flex-direction: column;
     gap: 12px;
@@ -1025,13 +994,11 @@ button.nav-link {
   }
 }
 
-/* disabled buttons read as disabled (ghost arrows looked live) */
 button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-/* Icon-only buttons: 32px square */
 [k='button'].icon-btn {
   display: inline-grid;
   place-items: center;
@@ -1045,13 +1012,11 @@ button:disabled {
   margin-bottom: 24px;
 }
 
-/* Header icon actions match the normal button box */
 .page-actions [k='button'].icon-btn {
   width: 2.5rem;
   height: 2.5rem;
 }
 
-/* Short link: host muted, key strong, actions tight */
 .short-link {
   display: inline-flex;
   align-items: center;
@@ -1060,7 +1025,7 @@ button:disabled {
 }
 
 .short-link-text {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   margin-right: 4px;
   overflow: hidden;
@@ -1105,24 +1070,12 @@ button:disabled {
   color: hsl(var(--k-muted-foreground));
 }
 
-/* Edit dialog: read-only short link on a quiet well */
-.short-link-box {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 8px 8px 14px;
-  background: hsl(var(--k-muted));
-  border-radius: 8px;
-}
-
-/* Prefix inputs (short-link host): match the 6px input radius */
 .prefix-group {
   border-radius: 6px !important; /* focus ring follows the joined corners, not kinu's 10px */
 }
 
 .prefix-group > legend {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   height: 2.5rem;
   box-sizing: border-box;
@@ -1137,7 +1090,6 @@ button:disabled {
   border-radius: 6px !important;
 }
 
-/* Tag input: chips + combobox in one bordered box */
 .tag-box {
   position: relative;
   display: flex;
@@ -1167,7 +1119,7 @@ button:disabled {
 }
 
 .tag-box [k='combobox-input']:focus-visible {
-  outline: none; /* the box owns the focus ring */
+  outline: none;
   box-shadow: none;
 }
 
@@ -1183,7 +1135,6 @@ button:disabled {
   }
 }
 
-/* Tag filter: select-like summary, checkbox panel drops under it */
 .tag-filter-panel {
   display: grid;
   padding: 12px;
@@ -1199,7 +1150,6 @@ button:disabled {
   padding-inline: 4px;
 }
 
-/* Form sections + optional disclosures */
 .form-section {
   display: grid;
   gap: 8px;
@@ -1220,7 +1170,6 @@ button:disabled {
   gap: 12px;
 }
 
-/* Selects inside forms look like inputs (the filled pill style is for page filters) */
 [k='field'] [k='select'] {
   height: 2.5rem;
   border: 1px solid hsl(var(--k-input));
@@ -1233,7 +1182,6 @@ button:disabled {
   border-color: hsl(var(--k-muted-foreground) / 0.5);
 }
 
-/* Social preview card, like a chat unfurl */
 .og-card {
   display: grid;
   overflow: hidden;
@@ -1298,7 +1246,6 @@ button:disabled {
   border-top: 1px solid hsl(var(--k-border));
 }
 
-/* Segmented control (rule action) */
 .seg {
   padding: 3px;
   gap: 2px !important;
@@ -1323,19 +1270,9 @@ button:disabled {
   box-shadow: rgba(0, 0, 0, 0.08) 0 1px 3px;
 }
 
-/* Rules list: numbered steps, If / Then lines, final Else */
 .rule-editor {
   display: grid;
   gap: 20px;
-}
-
-.rule-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid hsl(var(--k-border));
-  border-radius: var(--k-radius);
-  background: hsl(var(--k-card));
 }
 
 .rule-row {
@@ -1400,7 +1337,7 @@ button:disabled {
 }
 
 code.target {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -1421,7 +1358,6 @@ code.target {
   color: hsl(var(--k-muted-foreground));
 }
 
-/* Split: stacked weight bar + legend */
 .split {
   display: grid;
   gap: 8px;
@@ -1485,7 +1421,7 @@ code.target {
 }
 
 .weight-ok {
-  color: hsl(152 60% 32%);
+  color: hsl(var(--k-success));
 }
 
 .weight-bad {
@@ -1518,7 +1454,6 @@ code.target {
   margin-bottom: 4px;
 }
 
-/* number input with a trailing unit */
 .suffix-input {
   position: relative;
 }
@@ -1573,12 +1508,10 @@ code.target {
   height: 28px;
 }
 
-/* rule targets: placeholder = inherited link value, fainter than a typed value */
 .inherit-fields [k='input']::placeholder {
   color: hsl(var(--k-muted-foreground) / 0.55);
 }
 
-/* inline code in prose */
 main p code,
 [k='alert'] code,
 [k='dialog-content'] p code {
@@ -1588,7 +1521,6 @@ main p code,
   font-size: 0.92em;
 }
 
-/* copyable one-line snippet */
 .code-snippet {
   display: flex;
   align-items: center;
@@ -1602,13 +1534,12 @@ main p code,
 }
 
 .code-snippet code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   overflow-x: auto;
   white-space: nowrap;
 }
 
-/* get-app page editor: HTML 2 cols, preview 1 col; stacked on narrow screens */
 .page-editor {
   display: grid;
   grid-template-columns: 2fr 1fr;
@@ -1638,11 +1569,10 @@ main p code,
   }
 }
 
-/* page editor code field: transparent textarea over highlighted pre, identical box + font metrics */
 .code-editor {
   position: relative;
   overflow: hidden;
-  background: #fff;
+  background: hsl(var(--k-card));
 }
 .code-editor pre,
 .code-editor textarea {
@@ -1652,11 +1582,7 @@ main p code,
   padding: 12px;
   border: 0;
   box-sizing: border-box;
-  font:
-    13px/1.5 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+  font: 13px/1.5 var(--font-mono);
   letter-spacing: 0;
   white-space: pre;
   tab-size: 2;
@@ -1714,7 +1640,6 @@ main p code,
   border-radius: 3px;
 }
 
-/* preset row: one bordered block per preset, remove sits in its corner */
 .preset-item {
   position: relative;
   padding: 16px 52px 16px 16px;
@@ -1729,7 +1654,6 @@ main p code,
   right: 8px;
 }
 
-/* build version under the sidebar links */
 .version {
   display: flex;
   align-items: center;
@@ -1743,7 +1667,6 @@ main p code,
   gap: 4px;
 }
 
-/* admin session chip: quiet white pill (no hover tint: it is a status, not a button), time muted, exit a small round button */
 .admin-chip,
 .admin-chip:hover {
   gap: 8px;

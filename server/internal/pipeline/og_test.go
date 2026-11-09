@@ -8,7 +8,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// Crawler + preview set: 200 OG page, escaped, still pointing on to the 302 target.
 func TestOGPageForCrawlers(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -31,7 +30,6 @@ func TestOGPageForCrawlers(t *testing.T) {
 	}
 }
 
-// No preview set -> crawler keeps the 302; people never see the OG page.
 func TestOGPageOnlyWhenSet(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -47,7 +45,6 @@ func TestOGPageOnlyWhenSet(t *testing.T) {
 	}
 }
 
-// OG page for a route destination: preview only, no Continue/redirect to a relative path.
 func TestOGPageRouteDestination(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)

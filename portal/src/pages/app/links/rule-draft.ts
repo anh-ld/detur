@@ -13,7 +13,6 @@ const cleanTargets = (t?: RuleTargets): RuleTargets => ({
   fallback_url: t?.fallback_url?.trim() || undefined,
 });
 
-// Validate and trim a rule draft; empty conditions are dropped.
 function cleanRule(draft: LinkRule, kind: ActionKind): { rule: LinkRule } | { error: string } {
   const name = draft.name.trim();
   if (!name) return { error: 'Rule name is required' };
@@ -51,7 +50,6 @@ function cleanRule(draft: LinkRule, kind: ActionKind): { rule: LinkRule } | { er
   return { rule };
 }
 
-// Put the draft at `index` (-1 appends). Variant stats key on label, so rule and variant names stay unique per link.
 export function commitRule(rules: LinkRule[], index: number, draft: LinkRule, kind: ActionKind): { rules: LinkRule[] } | { error: string } {
   const cleaned = cleanRule(draft, kind);
   if ('error' in cleaned) return cleaned;

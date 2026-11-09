@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// storeStub: tap-page icon lookups to the real stores get a 404; everything else (httptest servers) passes through.
 type storeStub struct{ next http.RoundTripper }
 
 func (s storeStub) RoundTrip(r *http.Request) (*http.Response, error) {

@@ -57,7 +57,6 @@ func exact(want string) func(*testing.T, string) {
 	}
 }
 
-// clickPlatform/clickKind: follow redirectTarget platform split; store target = "app", else web fallback.
 func TestClickLabels(t *testing.T) {
 	for _, tc := range []struct{ agent, platform string }{
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)", "ios"},
@@ -80,7 +79,6 @@ func TestClickLabels(t *testing.T) {
 	}
 }
 
-// redirectTarget: own store target wins; else fallback; else link.URL (app page). Desktop never gets a store page.
 func TestRedirectTargetMatrix(t *testing.T) {
 	const ios, android, fb, route = "https://apps.apple.com/app/id1", "https://play.google.com/store/apps/details?id=x", "https://example.com/web", "/p"
 	iphone := "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
@@ -100,7 +98,7 @@ func TestRedirectTargetMatrix(t *testing.T) {
 		{"desktop no fallback", store.Link{URL: route, IOS: ios, Android: android}, desktop, route},
 	}
 	for _, tc := range tests {
-		if got := redirectTarget(tc.link, tc.agent, "", url.Values{}); got != tc.out {
+		if got := redirectTarget(tc.link, ua.ClickPlatform(tc.agent), "", url.Values{}); got != tc.out {
 			t.Errorf("%s: redirectTarget = %q; want %q", tc.name, got, tc.out)
 		}
 	}

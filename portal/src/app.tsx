@@ -10,16 +10,13 @@ import { AppPage } from './pages/app';
 import { AppTab, parseHash, Route, switchTab, tabHref, TABS } from './lib/route';
 import type { App as AppT } from './lib/types';
 
-// top-bar "Admin · until HH:MM"; local clock, server enforces expiry
 const fmtUntil = (iso: string) => {
   const d = new Date(iso);
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-// SPA shell: hash routing (survives refresh), no auth. Gateway gates entry, admin gates management.
 export function App() {
   const [route, setRoute] = useState<Route>(parseHash);
-  // server LOGOUT_URL; '' (unset/fetch failed) hides Log out
   const [logoutUrl, setLogoutUrl] = useState('');
   const [version, setVersion] = useState('');
   const ui = useAdmin();
@@ -35,7 +32,6 @@ export function App() {
     );
     refreshAdminSession();
   }, []);
-  // chip = local estimate: clear at session expiry; mid-use 403 clears earlier (refreshAdminSession)
   useEffect(() => {
     if (!ui.admin || !ui.until) return;
     const ms = new Date(ui.until).getTime() - Date.now();
@@ -55,7 +51,6 @@ export function App() {
     return () => removeEventListener('hashchange', on);
   }, []);
 
-  // single-key tab shortcuts (sidebar <kbd>); ignored while typing or in a dialog
   useEffect(() => {
     if (route.name !== 'app') return;
     const on = (e: KeyboardEvent) => {
@@ -72,7 +67,7 @@ export function App() {
   const exitAdmin = async () => {
     try {
       await api.exitAdminMode();
-      setElevated(false); // DELETE response already says admin:false
+      setElevated(false);
     } catch {
       await refreshAdminSession();
     }
@@ -196,7 +191,6 @@ export function App() {
   );
 }
 
-// sidebar app switcher: native select of apps (same tab), All apps last
 function AppSwitch({ id, tab, name }: { id: string; tab: AppTab; name: string }) {
   const [apps, setApps] = useState<AppT[]>([]);
   useEffect(() => {

@@ -1,25 +1,25 @@
 import { useState } from 'preact/hooks';
 import { Alert, Table } from 'kinu';
 import { api } from '../../../lib/api';
-import { adminCall, AdminGateAborted } from '../../../lib/admin';
+import { adminCall } from '../../../lib/admin';
+import { actionErrors } from '../../../components/action-errors';
 import { ConfirmDelete } from '../../../components/confirm-delete';
 import { CopyButton } from '../../../components/copy-button';
-import { mono, muted, row } from '../../../lib/styles';
+import { mono, muted, row, end } from '../../../lib/styles';
 import { App } from '../../../lib/types';
 import { RotateKeyDialog } from './rotate-key';
 
-const end = { ...row, justifyContent: 'flex-end' };
 
 export function ApiKeyTable({ app, onReload }: { app: App; onReload: () => void }) {
   const [error, setError] = useState('');
+  const errors = actionErrors(setError);
   const revoke = async () => {
     setError('');
     try {
       await adminCall(() => api.revokeKey(app.id));
       onReload();
     } catch (e) {
-      if (e instanceof AdminGateAborted) return;
-      setError(String(e));
+      errors.fail(e);
     }
   };
 

@@ -1,14 +1,12 @@
 import { JSX } from 'preact';
 import { useState } from 'preact/hooks';
 import { Alert } from 'kinu';
-import { AdminGateAborted } from '../../../lib/admin';
+import { actionErrors } from '../../../components/action-errors';
 
-export const formGrid = { display: 'grid', gap: 16 };
-
-// fn returns an error message to show, or nothing on success. A closed admin gate stays silent.
 export function useSave(fn: () => Promise<string | void>) {
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const errors = actionErrors(setError);
   const onSubmit = async (e: JSX.TargetedEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
@@ -18,8 +16,7 @@ export function useSave(fn: () => Promise<string | void>) {
       if (problem) setError(problem);
       else setSaved(true);
     } catch (err) {
-      if (err instanceof AdminGateAborted) return;
-      setError(String(err));
+      errors.fail(err);
     }
   };
   const status = (

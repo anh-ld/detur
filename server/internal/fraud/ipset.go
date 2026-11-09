@@ -7,7 +7,6 @@ import (
 	"sort"
 )
 
-// hosting4/hosting6: sorted, non-overlapping hosting intervals as big-endian lo,hi pairs (gen/main.go); searched in place, nothing to parse.
 var (
 	//go:embed data/hosting4.bin
 	hosting4 []byte
@@ -15,7 +14,6 @@ var (
 	hosting6 []byte
 )
 
-// Routable: parsed public address (IPv4-in-IPv6 unmapped); false for empty, unparsable, private, loopback, link-local, unspecified. Misconfigured proxy -> every client looks private, so IP signals skip those (KTD8).
 func Routable(ip string) (netip.Addr, bool) {
 	a, err := netip.ParseAddr(ip)
 	if err != nil {
@@ -25,7 +23,6 @@ func Routable(ip string) (netip.Addr, bool) {
 	return a, !(a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsUnspecified())
 }
 
-// Hosting: ip in bundled datacenter/proxy range. Private, loopback, empty, unparsable = never hosting (KTD8).
 func Hosting(ip string) bool {
 	a, ok := Routable(ip)
 	if !ok {
@@ -37,7 +34,7 @@ func Hosting(ip string) bool {
 	}
 	key := a.AsSlice()
 	rec := 2 * n
-	i := sort.Search(len(tab)/rec, func(i int) bool { // first interval whose hi >= ip
+	i := sort.Search(len(tab)/rec, func(i int) bool {
 		return bytes.Compare(tab[i*rec+n:(i+1)*rec], key) >= 0
 	})
 	return i < len(tab)/rec && bytes.Compare(tab[i*rec:i*rec+n], key) <= 0

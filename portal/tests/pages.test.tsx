@@ -6,8 +6,6 @@ import { join } from 'node:path';
 import { api, setApiBase } from '../src/lib/api';
 import { gone, startServer, stopServer, uniq, waitForServer } from './_integration';
 
-// short-link page scripts (safety-net timer, copy page, tap page) from the real Go binary, run in a
-// stubbed browser w/ fake timers. Go tests only see the HTML; these run the code.
 const PORT = 8094;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SDK = 'http://127.0.0.1:8080';
@@ -44,7 +42,6 @@ beforeAll(async () => {
     android: 'https://play.google.com/store/apps/details?id=com.example',
     fallbackUrl: '',
   });
-  // own app: iOS scheme set -> tap page opens myapp://<route> first
   const schemeApp = await api.createApp(uniq('pages-scheme'));
   await api.updateApp(schemeApp.id, {
     iosAppId: '',
@@ -66,14 +63,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// page scripts (nonce'd on the get-app pages) in order
 async function scripts(query: string, ua: string, k = key): Promise<string[]> {
   const res = await fetch(`${SDK}/${k}${query}`, { headers: { 'User-Agent': ua }, redirect: 'manual' });
   expect(res.status).toBe(200);
   return [...(await res.text()).matchAll(/<script(?: nonce="[0-9a-f]+")?>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 }
 
-// fake browser: records navigations, replaceState, fetches; tests fire page events + pick copy success
 function browser(search = '', copyWorks = true) {
   const handlers: Record<string, (() => void)[]> = {};
   const on = (t: string, f: () => void) => (handlers[t] ??= []).push(f);
@@ -200,12 +195,11 @@ describe('iOS copy page', () => {
       vi.useFakeTimers();
       const b = browser('', copyWorks);
       b.run(src);
-      expect(b.replaced).toHaveLength(0); // waits for the tap
+      expect(b.replaced).toHaveLength(0);
       let prevented = false;
       b.button.click!({ preventDefault: () => (prevented = true) });
-      expect(prevented).toBe(true); // href = no-JS fallback; script reloads itself
+      expect(prevented).toBe(true);
       expect(b.replaced).toHaveLength(1);
-      // copied link carries the paste token (server-minted, 16 chars)
       const pasted = params(b.replaced[0]).get('pasted_link');
       if (copyWorks) expect(pasted).toMatch(new RegExp(`^https://links\\.example/${key}\\?_dc=[0-9A-Za-z]{16}$`));
       else gone(pasted);

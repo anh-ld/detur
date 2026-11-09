@@ -7,20 +7,18 @@ import { AdminButton, AdminRequired } from '../../../components/admin';
 import { openDialog } from '../../../lib/dialog';
 import { Loading } from '../../../components/page';
 import { actionErrors } from '../../../components/action-errors';
-import { AddWebhookDialog } from './add-webhook-dialog';
-import { CreatedSecretDialog } from './created-secret-dialog';
-import { ReplayDialog } from './replay-dialog';
-import { RotateDialog } from './rotate-dialog';
+import { AddWebhookDialog, ADD_WEBHOOK_DIALOG } from './add-webhook-dialog';
+import { CreatedSecretDialog, CREATED_SECRET_DIALOG } from './created-secret-dialog';
+import { ReplayDialog, REPLAY_DIALOG } from './replay-dialog';
+import { RotateDialog, ROTATE_SECRET_DIALOG } from './rotate-dialog';
 import { WebhookRow } from './webhook-row';
 
-// Header trigger: opens the dialog WebhooksPanel renders on the same tab.
 export function AddWebhookButton() {
   const { adminSet } = useAdmin();
   if (!adminSet) return null;
-  return <AdminButton onClick={() => openDialog('dlg-add-webhook')}>Add webhook</AdminButton>;
+  return <AdminButton onClick={() => openDialog(ADD_WEBHOOK_DIALOG)}>Add webhook</AdminButton>;
 }
 
-// tick: page Refresh counter; bump reloads list
 export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
   const [actionError, setError] = useState('');
   const errors = actionErrors(setError);
@@ -39,7 +37,6 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
     empty: [],
   });
   const error = actionError || loadError;
-  // stale action errors don't outlive Refresh or an app switch
   useEffect(() => setError(''), [app.id, tick]);
 
   const [replayTarget, setReplayTarget] = useState<Webhook | null>(null);
@@ -68,13 +65,12 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
 
   return (
     <div>
-      {/* mounted while loading too: the header's Add button opens it */}
       <AddWebhookDialog
         appId={app.id}
         onCreated={(wh) => {
           setWebhooks((prev) => [...(prev ?? []), wh]);
           setCreatedSecret(wh.secret);
-          openDialog('dlg-created-secret');
+          openDialog(CREATED_SECRET_DIALOG);
         }}
       />
       {loading ? (
@@ -124,11 +120,11 @@ export function WebhooksPanel({ app, tick }: { app: App; tick: number }) {
                     onToggle={() => toggleEnabled(wh)}
                     onReplay={() => {
                       setReplayTarget(wh);
-                      openDialog('dlg-replay-webhook');
+                      openDialog(REPLAY_DIALOG);
                     }}
                     onRotate={() => {
                       setRotateOpen({ wh });
-                      openDialog('dlg-rotate-secret');
+                      openDialog(ROTATE_SECRET_DIALOG);
                     }}
                     onDelete={() => remove(wh.id)}
                   />

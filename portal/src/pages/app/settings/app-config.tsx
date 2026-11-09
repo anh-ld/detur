@@ -3,9 +3,9 @@ import { useState } from 'preact/hooks';
 import { Button, Input, Label, Table } from 'kinu';
 import { api } from '../../../lib/api';
 import { adminCall } from '../../../lib/admin';
-import { mono, muted, row } from '../../../lib/styles';
+import { mono, muted, stack, end } from '../../../lib/styles';
 import { App } from '../../../lib/types';
-import { formGrid, useSave } from './save';
+import { useSave } from './save';
 
 const pick = (a: App) => ({
   iosAppId: a.iosAppId,
@@ -18,7 +18,6 @@ export function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) =
   const [draft, setDraft] = useState(() => pick(app));
   const { onSubmit, status } = useSave(async () => {
     const a = await adminCall(() => api.updateApp(app.id, draft));
-    // server trims + strips "://" from the scheme: show what was stored
     setDraft(pick(a));
     onSaved(a);
   });
@@ -39,7 +38,7 @@ export function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) =
   );
 
   return (
-    <form style={formGrid} onSubmit={onSubmit}>
+    <form style={stack} onSubmit={onSubmit}>
       <Table>
         <thead>
           <tr>
@@ -56,7 +55,7 @@ export function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) =
         </tbody>
       </Table>
       {status}
-      <div style={{ ...row, justifyContent: 'flex-end' }}>
+      <div style={end}>
         <Button type="submit">Save</Button>
       </div>
     </form>

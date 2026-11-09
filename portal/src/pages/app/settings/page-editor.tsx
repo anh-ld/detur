@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Alert, Button, Label, Toggle, ToggleGroup, toast } from 'kinu';
 import { api } from '../../../lib/api';
-import { adminCall, AdminGateAborted, useGatedLoad } from '../../../lib/admin';
+import { adminCall, useGatedLoad } from '../../../lib/admin';
+import { actionErrors } from '../../../components/action-errors';
 import { AdminRequired } from '../../../components/admin';
 import { CodeEditor } from '../../../components/code-editor';
 import { Loading } from '../../../components/page';
 import { fmt } from '../../../lib/format';
-import { muted, row } from '../../../lib/styles';
+import { muted, row, stack } from '../../../lib/styles';
 import { App, AppPage, PagePreview } from '../../../lib/types';
 import { useLatest } from '../../../lib/use-latest';
 
@@ -18,17 +19,14 @@ const PREVIEWS: { label: string; p: Pick<PagePreview, 'page' | 'platform'> }[] =
   { label: 'Android in-app', p: { page: 'tap', platform: 'android' } },
 ];
 
-// placeholder help: `backticks` -> <code>
 const codeSpans = (s: string) => s.split('`').map((t, i) => (i % 2 ? <code key={i}>{t}</code> : t));
 
-// Loads on mount (admin-gated GET, 50 KB kept out of the app list) and never prompts: a viewer sees the
-// unlock notice and the load reruns on elevation. Text equal to the default saves as "" so the app
-// stays on the built-in page and picks up its future changes.
 export function PageEditor({ app }: { app: App }) {
   const [text, setText] = useState('');
   const [view, setView] = useState(0);
   const [preview, setPreview] = useState('');
   const [error, setError] = useState('');
+  const errors = actionErrors(setError);
   const previewLoad = useLatest();
   const {
     data,
@@ -41,8 +39,8 @@ export function PageEditor({ app }: { app: App }) {
     onLoaded: (d) => setText(d.html || d.defaultHtml),
   });
 
+  const bytes = useMemo(() => new TextEncoder().encode(text).length, [text]);
   const html = !data || text === data.defaultHtml ? '' : text;
-  // debounced: real renderer on the server
   useEffect(() => {
     if (!data) return;
     const live = previewLoad.begin();
@@ -64,8 +62,7 @@ export function PageEditor({ app }: { app: App }) {
       await adminCall(() => api.savePage(app.id, html));
       toast.show(html ? 'Custom page saved' : 'Default page saved');
     } catch (e) {
-      if (e instanceof AdminGateAborted) return;
-      setError(String(e));
+      errors.fail(e);
     }
   };
 
@@ -73,9 +70,8 @@ export function PageEditor({ app }: { app: App }) {
     if (locked) return <AdminRequired>Enter your admin password to edit the page.</AdminRequired>;
     return error || loadError ? <Alert variant="destructive">{error || loadError}</Alert> : <Loading />;
   }
-  const bytes = new TextEncoder().encode(text).length;
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div style={stack}>
       <div style={{ ...row, justifyContent: 'flex-end', gap: 12 }}>
         <Button variant="outline" disabled={!html} onClick={() => setText(data.defaultHtml)}>
           Reset to default
@@ -83,7 +79,6 @@ export function PageEditor({ app }: { app: App }) {
         <Button onClick={save}>Save</Button>
       </div>
       {error && <Alert variant="destructive">{error}</Alert>}
-      {/* HTML 2 cols, preview 1 col; stacks below ~720px. Twin boxes share header bar + body height */}
       <div class="page-editor">
         <div class="page-box">
           <div class="page-box-head" style={{ justifyContent: 'space-between' }}>

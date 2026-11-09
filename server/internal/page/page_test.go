@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// Single pass: app name "{{cta}}" stays text, markup in names is escaped, no icon -> data-URI glyph.
 func TestRenderSinglePass(t *testing.T) {
 	out := Preview("<p>{{app_name}}</p><img src=\"{{icon_url}}\">{{cta}}", "tap", "ios", "{{cta}} <b>x</b>")
 	if !strings.Contains(out, "<p>{{cta}} &lt;b&gt;x&lt;/b&gt;</p>") || strings.Count(out, `id="detur-cta"`) != 1 {

@@ -4,7 +4,7 @@ import { Analytics } from '../../../lib/types';
 import { fmt } from '../../../lib/format';
 import { mono, muted } from '../../../lib/styles';
 import { Skeleton } from '../../../components/page';
-import { ICONS, LINES, Metric } from './constants';
+import { LINES, METRIC_ICONS, Metric } from './constants';
 import { sum } from './helpers';
 
 export function Stat({ data, metric, hint, extra }: { data: Analytics | null; metric: Metric; hint: string; extra?: ComponentChildren }) {
@@ -24,7 +24,7 @@ export function Stat({ data, metric, hint, extra }: { data: Analytics | null; me
             stroke-linejoin="round"
             aria-hidden="true"
           >
-            <path d={ICONS[metric]} />
+            <path d={METRIC_ICONS[metric]} />
           </svg>
         </span>
         {s.label}
@@ -80,7 +80,6 @@ export function ChartEmpty({ h, empty }: { h: number; empty: [string, string] })
   );
 }
 
-// ranked rows, tinted bar behind each = share of top row
 export function BarList({
   label,
   items,

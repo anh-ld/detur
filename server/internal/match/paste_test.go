@@ -10,7 +10,6 @@ import (
 
 const pasteTok = "PPPPPPPPPPPPPPPP"
 
-// tokenClick: iOS click whose copy page put pasteTok on the clipboard.
 func tokenClick(link store.Link) store.Click {
 	c := iosClick(link)
 	c.Fingerprint.PastedLink = "https://lnk.example/abc?_dc=" + pasteTok
@@ -18,14 +17,12 @@ func tokenClick(link store.Link) store.Click {
 	return c
 }
 
-// tokenFP: install that pasted pasteTok, on another network (no IP signal).
 func tokenFP() *Fingerprint {
 	f := iosFP()
 	f.PastedLink = "https://lnk.example/abc?_dc=" + pasteTok
 	return &f
 }
 
-// Token: exact match an hour after the click, far outside the 15 min window.
 func TestPasteTokenBeyondWindow(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -37,13 +34,11 @@ func TestPasteTokenBeyondWindow(t *testing.T) {
 	if !res.Matched || res.Method != store.MethodPasteboard || res.Click.ID != c.ID {
 		t.Errorf("token match = %+v; want pasteboard on %s", res, c.ID)
 	}
-	// another device with the same clipboard: claimed click is gone, nothing in window -> organic
 	if res, _ := Match(s, app.ID, Request{IP: otherIP, DeviceHash: "devB", Fingerprint: tokenFP()}); res.Matched {
 		t.Errorf("second device matched: %+v", res)
 	}
 }
 
-// Unknown token (stale clipboard, forged): falls through to scoring, not organic.
 func TestPasteTokenUnknownFallsThrough(t *testing.T) {
 	s, _ := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -57,7 +52,6 @@ func TestPasteTokenUnknownFallsThrough(t *testing.T) {
 	}
 }
 
-// Token on another link of the same app never claims this link's click.
 func TestPasteTokenBoundToLink(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -69,7 +63,6 @@ func TestPasteTokenBoundToLink(t *testing.T) {
 	}
 }
 
-// Flagged token click under an active signal: organic, excluded (F3).
 func TestPasteTokenFlagged(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -86,7 +79,6 @@ func TestPasteTokenFlagged(t *testing.T) {
 	}
 }
 
-// Token miss (click kept another copy's token): pasteboard still scores like the bare link did.
 func TestPasteboardIgnoresTokenDifference(t *testing.T) {
 	link := testLink()
 	c := iosClick(link)

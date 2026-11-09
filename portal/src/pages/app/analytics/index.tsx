@@ -2,7 +2,7 @@ import { Badge, Card } from 'kinu';
 import { Analytics, VariantStat } from '../../../lib/types';
 import { DateRangeFilter } from '../../../lib/range';
 import { fmt } from '../../../lib/format';
-import { muted } from '../../../lib/styles';
+import { muted, stack } from '../../../lib/styles';
 import { BARS, LINES, SOURCE_NAMES } from './constants';
 import { sum } from './helpers';
 import { ChartOr } from './chart';
@@ -20,9 +20,9 @@ export function AnalyticsView({
   range?: DateRangeFilter;
   linkId?: string;
 }) {
-  const windowed = Boolean(range?.window); // sub-day: no daily cohorts, no per-link events
+  const windowed = Boolean(range?.window);
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div style={stack}>
       <Stats data={data} />
       {variants && !windowed && <VariantsSection variants={variants} />}
       <Charts data={data} />
@@ -85,7 +85,7 @@ function Charts({ data }: { data: Analytics | null }) {
 }
 
 function Breakdowns({ data, windowed, linkId }: { data: Analytics | null; windowed: boolean; linkId?: string }) {
-  const sources = data?.sources ?? []; // older servers / fixtures omit it
+  const sources = data?.sources ?? [];
   return (
     <div className="duo">
       <ChartCard title="Top events" sub={data ? `${fmt(data.events.length)} event names from the SDK` : 'Events from the SDK'}>

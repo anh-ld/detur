@@ -16,8 +16,6 @@ const hostOf = (input: unknown): string => {
   return url.host;
 };
 
-// inject a cookie (tampered/expired session) or clear the jar.
-// injecting locks the jar: late Set-Cookie can't clobber it.
 let jarLocked = false;
 export function setJarCookie(host: string, name: string, value: string) {
   jarLocked = true;

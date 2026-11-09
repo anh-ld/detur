@@ -1,7 +1,6 @@
-// Portal URLs: one module reads and writes the app hash, and owns the tab list and the filter carry-over rule.
 import { isWindow } from './range';
 import type { DateRangeFilter } from './range';
-import type { Platform } from './types';
+import { PLATFORMS, type Platform } from './types';
 
 // sidebar nav: label, single-key shortcut, Lucide icon path (ISC)
 export const TABS = [
@@ -33,7 +32,6 @@ export const TABS = [
 ] as const;
 export type AppTab = (typeof TABS)[number]['tab'];
 
-// tab segment of an app hash: every tab but Links (the bare app hash)
 const APP_HASH = new RegExp(`^#/apps/([^/?#]+)(?:/(${TABS.filter((t) => t.tab !== 'links').map((t) => t.tab).join('|')}))?(?:\\?(.*))?`);
 
 export type Route =
@@ -63,7 +61,7 @@ export function parseHash(h: string = location.hash): Route {
         linkId = q.get('link') ?? undefined;
 
         const p = (q.get('platform') ?? '').toLowerCase();
-        if (p === 'ios' || p === 'android' || p === 'desktop') {
+        if (PLATFORMS.some((x) => x.id === p)) {
           platform = p as Platform;
         }
 
@@ -85,7 +83,6 @@ export function parseHash(h: string = location.hash): Route {
       }
       return { name: 'app', id, tab, linkId, platform, range };
     } catch {
-      // bad %-encoding: unknown route
     }
   }
   return { name: 'apps' };
@@ -127,10 +124,8 @@ export function buildAppHash(
 type AppRoute = Extract<Route, { name: 'app' }>;
 type Filters = { platform?: Platform; range?: DateRangeFilter; linkId?: string };
 
-// Platform and range ride on Links and Analytics; the link filter only on Analytics. Takes inputs as given: no defaults.
-const filtered = (tab: AppTab) => tab === 'links' || tab === 'analytics';
+export const filtered = (tab: AppTab) => tab === 'links' || tab === 'analytics';
 export const filteredHash = (id: string, tab: AppTab, f: Filters) =>
   filtered(tab) ? buildAppHash(id, tab, { platform: f.platform, range: f.range, linkId: tab === 'analytics' ? f.linkId : undefined }) : tabHref(id, tab);
 
-// sidebar link / shortcut: filters survive only between Links and Analytics
 export const switchTab = (r: AppRoute, tab: AppTab) => (filtered(r.tab) ? filteredHash(r.id, tab, r) : tabHref(r.id, tab));

@@ -2,7 +2,7 @@ import { ComponentChildren } from 'preact';
 import { Button, Dialog } from 'kinu';
 import { useAdmin } from '../lib/admin';
 import { closeDialog, openDialog } from '../lib/dialog';
-import { muted, row } from '../lib/styles';
+import { muted, stack, end } from '../lib/styles';
 import { AdminButton, lockedProps } from './admin';
 import { ICONS, IconButton } from './icons';
 
@@ -44,10 +44,10 @@ export function ConfirmDelete({
         </Button>
       )}
       <Dialog.Content>
-        <div style={{ display: 'grid', gap: 16 }}>
+        <div style={stack}>
           <h2 style={{ margin: 0 }}>{title}</h2>
           <p style={muted}>{body}</p>
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
+          <div style={end}>
             <Button variant="outline" onClick={() => closeDialog(id)}>
               Cancel
             </Button>

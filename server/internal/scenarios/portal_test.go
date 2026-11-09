@@ -1,8 +1,5 @@
 package scenarios
 
-// Portal + webhooks: how an operator drives the portal API (same calls as portal/src/api.ts)
-// and what a webhook receiver sees.
-
 import (
 	"context"
 	"crypto/hmac"
@@ -26,7 +23,6 @@ import (
 
 const portalAdminPW = "correct-horse-battery-staple-42"
 
-// portalAdminEnv: deploy with ADMIN_PASSWORD set; returns env + headers carrying an elevated session cookie.
 func portalAdminEnv(t *testing.T) (*env, map[string]string) {
 	t.Helper()
 	e := newEnvWith(t, envOpts{AdminPassword: portalAdminPW, TrustProxy: true})
@@ -48,7 +44,6 @@ func portalElevate(t *testing.T, e *env) map[string]string {
 
 func portalCookies(r resp) []*http.Cookie { return (&http.Response{Header: r.H}).Cookies() }
 
-// portalCreateApp: Apps page "New app"; returns id + show-once key.
 func portalCreateApp(t *testing.T, e *env, name string, hdr map[string]string) (id, key string) {
 	t.Helper()
 	r := e.portal("POST", "/api/apps", `{"name":"`+name+`"}`, hdr)
@@ -58,7 +53,6 @@ func portalCreateApp(t *testing.T, e *env, name string, hdr map[string]string) (
 	return out.ID, out.APIKey
 }
 
-// portalSDK: SDK call with an explicit key (key rotation / revocation scenarios).
 func portalSDK(e *env, appID, key, path, body string) resp {
 	e.t.Helper()
 	return do(e.t, "POST", e.Pub.URL+path, body, map[string]string{
@@ -67,7 +61,6 @@ func portalSDK(e *env, appID, key, path, body string) resp {
 	})
 }
 
-// portalLinkBody: link editor save payload (detail.tsx: every field sent, "" = unset).
 func portalLinkBody(key, url, fallback string) string {
 	b, _ := json.Marshal(map[string]string{
 		"key": key, "url": url,
@@ -78,7 +71,6 @@ func portalLinkBody(key, url, fallback string) string {
 	return string(b)
 }
 
-// linkScalars: link response fields as strings; non-scalars (tags array) are skipped.
 func linkScalars(t *testing.T, r resp) map[string]string {
 	t.Helper()
 	var raw map[string]json.RawMessage
@@ -100,7 +92,6 @@ func portalCreateLink(t *testing.T, e *env, appID, body string) map[string]strin
 	return linkScalars(t, r)
 }
 
-// portalInstall: Android user taps /key in Chrome, installs, app opens (SDK match-link).
 func portalInstall(t *testing.T, e *env, a store.App, key string) {
 	t.Helper()
 	r := e.mobileTap("/"+key, uaAndroidChrome)
@@ -114,7 +105,6 @@ type portalHit struct {
 	Body []byte
 }
 
-// portalReceiver: webhook endpoint. status(body) picks the reply code.
 type portalReceiver struct {
 	*httptest.Server
 	mu   sync.Mutex
@@ -173,12 +163,10 @@ func portalWebhooks(t *testing.T, e *env, adm map[string]string, appID string) [
 	return ws
 }
 
-// portalDeliver: one worker cycle with the production (SSRF-safe) client.
 func portalDeliver(e *env) { webhook.NewWorker(e.St, time.Hour).ProcessOnce(context.Background()) }
 
 var sigRe = regexp.MustCompile(`^t=(\d+),v1=([0-9a-f]{64})$`)
 
-// portalVerify: what a receiver does per W3: HMAC-SHA256(secret, "t.<unix>.<raw body>"), constant-time, 5 min tolerance.
 func portalVerify(h http.Header, body []byte, secret string) bool {
 	m := sigRe.FindStringSubmatch(h.Get("Detur-Signature"))
 	if m == nil {
@@ -194,9 +182,6 @@ func portalVerify(h http.Header, body []byte, secret string) bool {
 	return hmac.Equal([]byte(hex.EncodeToString(mac.Sum(nil))), []byte(m[2]))
 }
 
-// ---------- Onboarding ----------
-
-// Real world: operator creates an app in the portal and copies the API key into the app config. Expect: 201 with a dk_ key shown once, the key works on SDK endpoints, and no later read (list, get) ever returns it.
 func TestS_PORTAL_01_CreateAppKeyShownOnce(t *testing.T) {
 	e := newEnv(t)
 	id, key := portalCreateApp(t, e, "Shop", nil)
@@ -210,7 +195,6 @@ func TestS_PORTAL_01_CreateAppKeyShownOnce(t *testing.T) {
 	must(t, r.Code != 401, "fresh key rejected by SDK: %d", r.Code)
 }
 
-// Real world: operator pastes iOS App ID, Android package and SHA-256 cert in Settings. Expect: AASA and assetlinks.json on the link domain publish exactly those values.
 func TestS_PORTAL_02_AppDetailsPublishWellKnown(t *testing.T) {
 	e := newEnv(t)
 	id, _ := portalCreateApp(t, e, "Shop", nil)
@@ -224,7 +208,6 @@ func TestS_PORTAL_02_AppDetailsPublishWellKnown(t *testing.T) {
 	must(t, al.Code == 200 && strings.Contains(al.Body, "com.shop.app") && strings.Contains(al.Body, fp), "assetlinks = %d %s", al.Code, al.Body)
 }
 
-// Real world: operator types "myapp://" as the iOS URL scheme, or mistakenly "https". Expect: "myapp://" saved as "myapp"; web/script schemes rejected with 400.
 func TestS_PORTAL_03_IOSSchemeNormalizedUnsafeRejected(t *testing.T) {
 	e := newEnv(t)
 	id, _ := portalCreateApp(t, e, "Shop", nil)
@@ -242,7 +225,6 @@ func TestS_PORTAL_03_IOSSchemeNormalizedUnsafeRejected(t *testing.T) {
 	}
 }
 
-// Real world: a key leaked in a public repo; operator presses Rotate key. Expect: old key 401 on SDK endpoints at once, new key accepted.
 func TestS_PORTAL_04_RotateKeyKillsOldKeyNow(t *testing.T) {
 	e := newEnv(t)
 	id, oldKey := portalCreateApp(t, e, "Shop", nil)
@@ -256,7 +238,6 @@ func TestS_PORTAL_04_RotateKeyKillsOldKeyNow(t *testing.T) {
 	must(t, portalSDK(e, id, out.APIKey, "/api/link/resolve-short", body).Code != 401, "new key rejected")
 }
 
-// Real world: operator revokes the key of an app being retired. Expect: every SDK endpoint answers 401 for that key.
 func TestS_PORTAL_05_RevokeKeyStopsSDK(t *testing.T) {
 	e := newEnv(t)
 	id, key := portalCreateApp(t, e, "Shop", nil)
@@ -268,7 +249,6 @@ func TestS_PORTAL_05_RevokeKeyStopsSDK(t *testing.T) {
 	}
 }
 
-// Real world: operator deletes an app. Expect: its short links stop resolving (404), its key stops working, the app is gone from the portal.
 func TestS_PORTAL_06_DeleteAppStopsLinks(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -281,16 +261,12 @@ func TestS_PORTAL_06_DeleteAppStopsLinks(t *testing.T) {
 	must(t, e.portal("GET", "/api/apps/"+a.ID, "", nil).Code == 404, "deleted app still readable")
 }
 
-// Real world: a stale browser tab (app deleted in another tab) saves a new link. Expect: 404 not found, not a 500 internal error.
 func TestS_PORTAL_07_CreateLinkOnDeletedApp404(t *testing.T) {
 	e := newEnv(t)
 	r := e.portal("POST", "/api/apps/no-such-app/links", portalLinkBody("promo", "/p", ""), nil)
 	must(t, r.Code == 404, "create link on missing app = %d %s", r.Code, r.Body)
 }
 
-// ---------- Links ----------
-
-// Real world: operator creates a link in the link editor and an Android user taps it. Expect: 201 with every field echoed, link listed, tap goes to Play.
 func TestS_PORTAL_08_CreateLinkRoundTrip(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -302,7 +278,6 @@ func TestS_PORTAL_08_CreateLinkRoundTrip(t *testing.T) {
 	must(t, tap.Code == 302 && strings.HasPrefix(tap.Loc(), "https://play.google.com/"), "tap = %d %q", tap.Code, tap.Loc())
 }
 
-// Real world: operator pastes a full web URL or app scheme as the destination. Expect: 400, destination must be an app route (R10).
 func TestS_PORTAL_09_DestinationMustBeAppRoute(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -312,7 +287,6 @@ func TestS_PORTAL_09_DestinationMustBeAppRoute(t *testing.T) {
 	}
 }
 
-// Real world: a script-kiddie colleague (or typo) puts javascript:/data: or a scheme-less URL in a store/fallback field. Expect: 400 for each.
 func TestS_PORTAL_10_UnsafeOrRelativeTargetsRejected(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -335,7 +309,6 @@ func TestS_PORTAL_10_UnsafeOrRelativeTargetsRejected(t *testing.T) {
 	must(t, r.Code == 400, "host-less https fallback = %d", r.Code)
 }
 
-// Real world: operator picks a key that collides with a real path on the link domain. Expect: 400 for api, health, .well-known, favicon.ico, robots.txt, _-prefixed, multi-segment, >64 chars; real routes keep working.
 func TestS_PORTAL_11_ReservedAndMalformedKeysRejected(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -346,7 +319,6 @@ func TestS_PORTAL_11_ReservedAndMalformedKeysRejected(t *testing.T) {
 	must(t, do(t, "GET", e.Pub.URL+"/health", "", nil).Body == "ok", "/health broken")
 }
 
-// Real world: two apps on one link domain both want /promo, or the same operator retypes "Promo". Expect: 409 conflict; first link keeps resolving.
 func TestS_PORTAL_12_DuplicateKeyConflicts(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -359,7 +331,6 @@ func TestS_PORTAL_12_DuplicateKeyConflicts(t *testing.T) {
 	must(t, e.tap("/promo", uaDesktopChrome).Loc() == "https://example.com/a", "first link hijacked")
 }
 
-// Real world: campaign landing page moved; operator edits only the fallback URL. Expect: next desktop click goes to the new URL, other fields unchanged.
 func TestS_PORTAL_13_EditLinkChangesRedirect(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -372,7 +343,6 @@ func TestS_PORTAL_13_EditLinkChangesRedirect(t *testing.T) {
 	must(t, tap.Code == 302 && tap.Loc() == "https://example.com/new", "tap = %d %q", tap.Code, tap.Loc())
 }
 
-// Real world: flash sale ended; operator sets an expiry in the past with an "offer over" page, later clears it. Expect: clicks go to expiredUrl while expired, 410 without one, normal again after clearing.
 func TestS_PORTAL_14_ExpiryAndExpiredURL(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -389,7 +359,6 @@ func TestS_PORTAL_14_ExpiryAndExpiredURL(t *testing.T) {
 	must(t, tap.Code == 302 && tap.Loc() == "https://example.com/sale", "cleared expiry tap = %d %q", tap.Code, tap.Loc())
 }
 
-// Real world: marketer fills social preview fields. Expect: http image and over-long title rejected; valid fields shown to Slack's link unfurler.
 func TestS_PORTAL_15_OGFieldsValidatedAndServed(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -406,7 +375,6 @@ func TestS_PORTAL_15_OGFieldsValidatedAndServed(t *testing.T) {
 	must(t, r.Code == 200 && strings.Contains(r.Body, "Summer Sale 50%") && strings.Contains(r.Body, "https://cdn.example/s.png"), "bot = %d %s", r.Code, r.Body)
 }
 
-// Real world: operator deletes a link and later reuses its key for a new campaign. Expect: deleted link 404s, key is free again.
 func TestS_PORTAL_16_DeleteLinkFreesKey(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -417,9 +385,6 @@ func TestS_PORTAL_16_DeleteLinkFreesKey(t *testing.T) {
 	must(t, e.tap("/promo", uaDesktopChrome).Loc() == "https://example.com/new", "reused key wrong target")
 }
 
-// ---------- Rules & A/B ----------
-
-// Real world: operator opens the rules drawer on a new link, adds a rule, saves. Expect: GET [] first (not null), then the saved rule with id + position.
 func TestS_PORTAL_17_RulesRoundTrip(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -438,7 +403,6 @@ func TestS_PORTAL_17_RulesRoundTrip(t *testing.T) {
 	must(t, len(rules) == 1 && rules[0].ID != "" && rules[0].Name == "German", "rules %+v", rules)
 }
 
-// Real world: operator routes desktop visitors to a web landing page via a rule, then removes it. Expect: desktop clicks follow the rule, Android unaffected; after PUT [] desktop is back to base fallback.
 func TestS_PORTAL_18_SavedRuleChangesClick(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -455,7 +419,6 @@ func TestS_PORTAL_18_SavedRuleChangesClick(t *testing.T) {
 	must(t, tap.Loc() == "https://example.com/download", "after clear desktop = %d %q", tap.Code, tap.Loc())
 }
 
-// Real world: operator types a full URL / unsafe scheme into a rule target. Expect: 400 like the link editor.
 func TestS_PORTAL_19_RuleTargetsValidated(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -467,7 +430,6 @@ func TestS_PORTAL_19_RuleTargetsValidated(t *testing.T) {
 	}
 }
 
-// Real world: operator sets up an A/B split with bad weights or one variant or duplicate names. Expect: 400 each, nothing saved.
 func TestS_PORTAL_20_SplitValidated(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -485,7 +447,6 @@ func TestS_PORTAL_20_SplitValidated(t *testing.T) {
 	must(t, strings.TrimSpace(e.portal("GET", base, "", nil).Body) == "[]", "invalid rules saved")
 }
 
-// Real world: operator runs a 50/50 landing-page test and checks the drawer stats after traffic. Expect: click lands on one variant's URL and that variant shows 1 click.
 func TestS_PORTAL_21_SplitClicksShowInVariants(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -508,9 +469,6 @@ func TestS_PORTAL_21_SplitClicksShowInVariants(t *testing.T) {
 	must(t, len(stats) == 1 && stats[0].Variant == want && stats[0].Clicks == 1, "stats %+v want %s=1", stats, want)
 }
 
-// ---------- Analytics ----------
-
-// Real world: after launch day the operator opens Analytics and Settings. Expect: 1 click, 1 install via link, the custom event, per-link clicks/matches, and match-quality shows the method.
 func TestS_PORTAL_22_AnalyticsAfterRealTraffic(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -544,7 +502,6 @@ func TestS_PORTAL_22_AnalyticsAfterRealTraffic(t *testing.T) {
 	must(t, mq.Methods["probabilistic"] == 1, "match-quality %+v", mq.Methods)
 }
 
-// Real world: operator opens the Fraud tab of a brand-new app (the UI reads data.signals[key] and data.installs.length). Expect: signals is an object and installs an array, never null.
 func TestS_PORTAL_23_FraudPageEmptyAppShape(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -558,7 +515,6 @@ func TestS_PORTAL_23_FraudPageEmptyAppShape(t *testing.T) {
 	must(t, f.Signals != nil && f.Installs != nil, "null field in %s", r.Body)
 }
 
-// Real world: operator switches velocity to Active and tunes thresholds, then fat-fingers a mode. Expect: saved values echo back and persist; partial body or unknown mode = 400.
 func TestS_PORTAL_24_FraudSettingsRoundTrip(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -581,7 +537,6 @@ func TestS_PORTAL_24_FraudSettingsRoundTrip(t *testing.T) {
 	must(t, e.portal("PATCH", p, string(b), nil).Code == 400, "unknown mode accepted")
 }
 
-// Real world: operator follows the Health tab during setup. Expect: SDK check fails before any SDK call and turns ok after; a malformed iOS App ID is flagged fail.
 func TestS_PORTAL_25_HealthReflectsSetup(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -603,7 +558,6 @@ func TestS_PORTAL_25_HealthReflectsSetup(t *testing.T) {
 	must(t, status()["iOS app ID"] == "fail", "bad iOS ID: %v", status())
 }
 
-// Real world: operator tunes matching threshold/window in Settings, one value out of range. Expect: in-range values saved; out-of-range (650, window 0) = 400.
 func TestS_PORTAL_26_MatchingSettingsValidated(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -618,9 +572,6 @@ func TestS_PORTAL_26_MatchingSettingsValidated(t *testing.T) {
 	}
 }
 
-// ---------- Admin password ----------
-
-// Real world: a teammate without the admin password browses the portal. Expect: reads open (apps, links, rules, analytics), rules writable, every app-management write 403 and nothing changes.
 func TestS_PORTAL_27_ViewerReadsOpenWritesGated(t *testing.T) {
 	e := newEnvWith(t, envOpts{AdminPassword: portalAdminPW, TrustProxy: true})
 	a := e.app()
@@ -645,13 +596,11 @@ func TestS_PORTAL_27_ViewerReadsOpenWritesGated(t *testing.T) {
 		r := e.portal(w[0], w[1], w[2], nil)
 		must(t, r.Code == 403, "viewer %s %s = %d", w[0], w[1], r.Code)
 	}
-	// rules: marketing action like link edits, open to viewers (DECISIONS P1, LR5)
 	r := e.portal("PUT", "/api/apps/"+a.ID+"/links/"+l.ID+"/rules", `[]`, nil)
 	must(t, r.Code == 200, "viewer PUT rules = %d %s", r.Code, r.Body)
 	must(t, e.sdk(a, "/api/link/resolve-short", `{"url":"https://lnk.example/promo"}`).Code == 200, "app/key changed by viewer")
 }
 
-// Real world: operator enters the admin password. Expect: HttpOnly session cookie, status admin with expiry ~12h ahead, and gated writes now succeed.
 func TestS_PORTAL_28_ElevateUnlocksAdmin(t *testing.T) {
 	e := newEnvWith(t, envOpts{AdminPassword: portalAdminPW, TrustProxy: true})
 	r := e.portal("POST", "/api/admin/session", `{"password":"`+portalAdminPW+`"}`, nil)
@@ -668,7 +617,6 @@ func TestS_PORTAL_28_ElevateUnlocksAdmin(t *testing.T) {
 	portalCreateApp(t, e, "Shop", adm)
 }
 
-// Real world: someone types the wrong admin password. Expect: 401 after a ~1s delay, no cookie, still not admin.
 func TestS_PORTAL_29_WrongPasswordDelayed401(t *testing.T) {
 	e := newEnvWith(t, envOpts{AdminPassword: portalAdminPW, TrustProxy: true})
 	start := time.Now()
@@ -678,7 +626,6 @@ func TestS_PORTAL_29_WrongPasswordDelayed401(t *testing.T) {
 	must(t, len(portalCookies(r)) == 0, "cookie set on wrong pw")
 }
 
-// Real world: an attacker fires parallel password guesses over separate connections. Expect: guesses from one peer are serialized, so 3 parallel wrong tries take ≥ ~3s.
 func TestS_PORTAL_30_ParallelGuessesSerialized(t *testing.T) {
 	e := newEnvWith(t, envOpts{AdminPassword: portalAdminPW, TrustProxy: true})
 	start := time.Now()
@@ -689,7 +636,7 @@ func TestS_PORTAL_30_ParallelGuessesSerialized(t *testing.T) {
 			defer wg.Done()
 			req, _ := http.NewRequest("POST", e.Portal.URL+"/api/admin/session", strings.NewReader(`{"password":"guess`+strconv.Itoa(i)+`"}`))
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Forwarded-For", "198.51.100."+strconv.Itoa(i+1)) // spoofed: must not split the lock
+			req.Header.Set("X-Forwarded-For", "198.51.100."+strconv.Itoa(i+1))
 			c := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 			if res, err := c.Do(req); err == nil {
 				res.Body.Close()
@@ -700,7 +647,6 @@ func TestS_PORTAL_30_ParallelGuessesSerialized(t *testing.T) {
 	must(t, time.Since(start) >= 2800*time.Millisecond, "3 parallel guesses took %v", time.Since(start))
 }
 
-// Real world: operator clicks Exit admin. Expect: response clears the cookie (Max-Age=0) and a browser that drops it is back to viewer.
 func TestS_PORTAL_31_ExitAdminClearsCookie(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	r := e.portal("DELETE", "/api/admin/session", "", adm)
@@ -713,7 +659,6 @@ func TestS_PORTAL_31_ExitAdminClearsCookie(t *testing.T) {
 	must(t, e.portal("POST", "/api/apps", `{"name":"x"}`, nil).Code == 403, "write allowed after exit")
 }
 
-// Real world: a viewer edits the cookie to push its expiry a year out, or the operator rotates ADMIN_PASSWORD. Expect: tampered or old-password cookies get 403.
 func TestS_PORTAL_32_TamperedOrStaleCookieRejected(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	val := strings.TrimPrefix(adm["Cookie"], "detur_admin=")
@@ -726,9 +671,6 @@ func TestS_PORTAL_32_TamperedOrStaleCookieRejected(t *testing.T) {
 	must(t, r.Code == 403, "old-password session accepted after rotation: %d", r.Code)
 }
 
-// ---------- Host / Origin guard ----------
-
-// Real world: DNS-rebinding page (attacker.example -> 127.0.0.1) reads the portal from a victim's browser. Expect: 403 on API and UI for a foreign Host.
 func TestS_PORTAL_33_ForeignHostRejected(t *testing.T) {
 	e := newEnv(t)
 	e.app()
@@ -739,7 +681,6 @@ func TestS_PORTAL_33_ForeignHostRejected(t *testing.T) {
 	must(t, e.portal("GET", "/api/apps", "", map[string]string{"Host": "localhost:8081"}).Code == 200, "loopback Host rejected")
 }
 
-// Real world: operator visits evil.example (or a dev server on localhost:3000) that POSTs to the portal (CSRF). Expect: 403 and no app created; the portal's own Origin still works.
 func TestS_PORTAL_34_CrossOriginWriteRejected(t *testing.T) {
 	e := newEnv(t)
 	for _, o := range []string{"https://evil.example", "http://localhost:3000", "null"} {
@@ -751,9 +692,6 @@ func TestS_PORTAL_34_CrossOriginWriteRejected(t *testing.T) {
 	must(t, r.Code == 201, "same-origin POST = %d", r.Code)
 }
 
-// ---------- Static UI ----------
-
-// Real world: operator opens the portal; a scanner probes path traversal. Expect: / serves the SPA shell; ../ tricks never leak files outside the static dir.
 func TestS_PORTAL_35_SPAShellAndTraversal(t *testing.T) {
 	e := newEnv(t)
 	r := e.portal("GET", "/", "", nil)
@@ -764,9 +702,6 @@ func TestS_PORTAL_35_SPAShellAndTraversal(t *testing.T) {
 	}
 }
 
-// ---------- Webhooks ----------
-
-// Real world: operator without ADMIN_PASSWORD opens the Webhooks tab. Expect: every webhook route 403 (W6), even though app management is open.
 func TestS_PORTAL_36_WebhooksNeedAdminPassword(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -777,7 +712,6 @@ func TestS_PORTAL_36_WebhooksNeedAdminPassword(t *testing.T) {
 	must(t, e2.portal("GET", "/api/apps/"+a2.ID+"/webhooks", "", nil).Code == 403, "viewer can list webhooks (secrets)")
 }
 
-// Real world: operator adds a webhook, edits types, pauses it, then deletes it. Expect: secret issued, types normalized, enable toggles, delete removes it.
 func TestS_PORTAL_37_WebhookCRUD(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -795,7 +729,6 @@ func TestS_PORTAL_37_WebhookCRUD(t *testing.T) {
 	must(t, e.portal("DELETE", "/api/webhooks/"+w.ID, "", adm).Code == 404, "second delete not 404")
 }
 
-// Real world: someone points a webhook at cloud metadata or the internal network (SSRF). Expect: 400 on create and on edit for private, link-local, CGNAT, metadata, IPv4-embedding IPv6 and plain-http non-loopback URLs.
 func TestS_PORTAL_38_WebhookSSRFRejected(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -813,7 +746,6 @@ func TestS_PORTAL_38_WebhookSSRFRejected(t *testing.T) {
 	must(t, r.Code == 400, "edit to metadata = %d", r.Code)
 }
 
-// Real world: backend team receives install webhooks and verifies them like Stripe's. Expect: one signed POST per batch; signature verifies with the portal-shown secret; install payload carries link key + attribution, no device hash or IP.
 func TestS_PORTAL_39_WebhookDeliversSignedInstall(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -838,7 +770,6 @@ func TestS_PORTAL_39_WebhookDeliversSignedInstall(t *testing.T) {
 	must(t, len(rc.Hits()) == 1, "redelivered after 2xx")
 }
 
-// Real world: growth team streams clicks and custom events into their warehouse. Expect: click payload has link key + platform but no IP/User-Agent; event payload has the event name.
 func TestS_PORTAL_40_WebhookClicksAndEvents(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -866,7 +797,6 @@ func TestS_PORTAL_40_WebhookClicksAndEvents(t *testing.T) {
 	must(t, event != nil && event["event"] == "purchase", "event %v", event)
 }
 
-// Real world: a secret leaked; operator rotates it. Expect: response returns the new secret; the next delivery verifies with the new secret, not the old.
 func TestS_PORTAL_41_WebhookRotateSecret(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -885,7 +815,6 @@ func TestS_PORTAL_41_WebhookRotateSecret(t *testing.T) {
 	must(t, !portalVerify(hits[0].H, hits[0].Body, w.Secret), "old secret still verifies")
 }
 
-// Real world: receiver is down (HTTP 500) during a deploy. Expect: failure recorded with a backoff, cursor not advanced, no hammering on the next cycle.
 func TestS_PORTAL_42_WebhookReceiverDownBacksOff(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -903,7 +832,6 @@ func TestS_PORTAL_42_WebhookReceiverDownBacksOff(t *testing.T) {
 	must(t, len(rc.Hits()) == 1, "retried during backoff")
 }
 
-// Real world: click-stream receiver rejects clicks but accepts installs on the same endpoint. Expect: installs keep flowing while clicks back off (W5).
 func TestS_PORTAL_43_FailingClicksDontBlockInstalls(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -926,7 +854,6 @@ func TestS_PORTAL_43_FailingClicksDontBlockInstalls(t *testing.T) {
 	must(t, ws[0].FailsClicks == 1 && ws[0].FailsInstalls == 0, "fails %+v", ws[0])
 }
 
-// Real world: receiver lost a day of data; operator replays from an hour ago. Expect: past records resent marked Detur-Replay: true; bad "from" = 400.
 func TestS_PORTAL_44_WebhookReplay(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -947,7 +874,6 @@ func TestS_PORTAL_44_WebhookReplay(t *testing.T) {
 	must(t, string(hits[1].Body) == string(hits[0].Body), "replayed body differs:\n%s\n%s", hits[0].Body, hits[1].Body)
 }
 
-// Real world: operator deletes an app that had a webhook. Expect: the webhook goes with it (404 on edit) and nothing is delivered for that app any more.
 func TestS_PORTAL_45_DeleteAppRemovesWebhooks(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -960,7 +886,6 @@ func TestS_PORTAL_45_DeleteAppRemovesWebhooks(t *testing.T) {
 	must(t, len(rc.Hits()) == 0, "delivered for deleted app")
 }
 
-// Real world: receiver (or a hijacked DNS name) answers 302 to an internal address. Expect: redirect not followed, delivery counted as failed and retried later.
 func TestS_PORTAL_46_WebhookRedirectNotFollowed(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -979,9 +904,6 @@ func TestS_PORTAL_46_WebhookRedirectNotFollowed(t *testing.T) {
 	must(t, strings.Contains(r.Body, `"failsEvents":1`), "3xx not counted as failure: %s", r.Body)
 }
 
-// ---------- More real traffic ----------
-
-// Real world: a click-hijacking SDK on the phone fires the install seconds after the tap; operator checks the Fraud tab (timing tagged by default). Expect: timing signal counted, flagged install listed with its link key, still attributed (tag only).
 func TestS_PORTAL_47_FastInstallOnFraudPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -1001,7 +923,6 @@ func TestS_PORTAL_47_FastInstallOnFraudPage(t *testing.T) {
 	must(t, len(f.Installs) == 1 && f.Installs[0].LinkKey == "promo" && f.Installs[0].Attribution == "non_organic" && f.Installs[0].FraudAction == "", "installs %+v", f.Installs)
 }
 
-// Real world: operator turns timing to Active after seeing hijacks. Expect: the next instant install is not credited (organic 404), Fraud tab shows it excluded with the link it would have taken.
 func TestS_PORTAL_48_ActiveTimingExcludesInstall(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -1025,7 +946,6 @@ func TestS_PORTAL_48_ActiveTimingExcludesInstall(t *testing.T) {
 	must(t, len(f.Installs) == 1 && f.Installs[0].FraudAction == "excluded" && f.Installs[0].FraudLinkKey == "promo", "fraud %+v", f.Installs)
 }
 
-// Real world: operator splits Android traffic between two store listings and later reads conversion per variant. Expect: the variant that got the click also gets the install (conversion 100%).
 func TestS_PORTAL_49_SplitInstallsShowInVariants(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -1045,7 +965,6 @@ func TestS_PORTAL_49_SplitInstallsShowInVariants(t *testing.T) {
 	must(t, len(stats) == 1 && stats[0].Clicks == 1 && stats[0].Installs == 1 && stats[0].ConversionRate == 1, "stats %+v", stats)
 }
 
-// Real world: operator sends Android users to an Android-only onboarding route via a rule. Expect: a deferred install from that click opens the rule's route, not the base one.
 func TestS_PORTAL_50_RuleChangesDeferredDestination(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -1061,7 +980,6 @@ func TestS_PORTAL_50_RuleChangesDeferredDestination(t *testing.T) {
 	must(t, strings.Contains(out.Link, "/onboard/android"), "deferred link %q", out.Link)
 }
 
-// Real world: BI team joins install webhooks with A/B variants. Expect: install payload carries the variant label of the click.
 func TestS_PORTAL_51_WebhookInstallCarriesVariant(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -1076,7 +994,6 @@ func TestS_PORTAL_51_WebhookInstallCarriesVariant(t *testing.T) {
 	must(t, len(hits) == 1 && strings.Contains(string(hits[0].Body), `"variant":"Android direct"`), "payload %v", hits)
 }
 
-// Real world: link shared in Slack (unfurl bot) and clicked on desktop; operator filters analytics by platform. Expect: bot not counted, desktop click counted as web fallback, iOS filter shows 0.
 func TestS_PORTAL_52_AnalyticsBotsFallbacksPlatform(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -1102,7 +1019,6 @@ func TestS_PORTAL_52_AnalyticsBotsFallbacksPlatform(t *testing.T) {
 	must(t, c == 0, "ios clicks %d", c)
 }
 
-// Real world: campaign posted to Messenger; operator checks where clicks came from. Expect: sources lists messenger with 1 click.
 func TestS_PORTAL_53_InAppSourceInAnalytics(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -1118,7 +1034,6 @@ func TestS_PORTAL_53_InAppSourceInAnalytics(t *testing.T) {
 	must(t, len(an.Sources) == 1 && an.Sources[0].Source == "messenger" && an.Sources[0].Count == 1, "sources %+v", an.Sources)
 }
 
-// Real world: operator enables "Tag deferred links", app tags its device from detur_link and logs a purchase. Expect: deferred link carries detur_link=promo; per-link conversions show promo/purchase = 1.
 func TestS_PORTAL_54_TaggedConversions(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -1141,7 +1056,6 @@ func TestS_PORTAL_54_TaggedConversions(t *testing.T) {
 	must(t, len(an.Conversions) == 1 && an.Conversions[0].Key == "promo" && an.Conversions[0].Event == "purchase" && an.Conversions[0].Count == 1, "conversions %+v", an.Conversions)
 }
 
-// Real world: operator adds a webhook to an app with weeks of history. Expect: only new records are sent (no flood of the past); history needs Replay (W1).
 func TestS_PORTAL_55_NewWebhookStartsAtTail(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -1154,7 +1068,6 @@ func TestS_PORTAL_55_NewWebhookStartsAtTail(t *testing.T) {
 	must(t, len(hits) == 1 && strings.Contains(string(hits[0].Body), `"new"`) && !strings.Contains(string(hits[0].Body), `"old"`), "hits %v", hits)
 }
 
-// Real world: a viral push produces 150 events between worker cycles. Expect: delivered in batches of at most 100, every event exactly once, each batch signed.
 func TestS_PORTAL_56_WebhookBatchesOf100(t *testing.T) {
 	e, adm := portalAdminEnv(t)
 	a := e.app()
@@ -1178,7 +1091,6 @@ func TestS_PORTAL_56_WebhookBatchesOf100(t *testing.T) {
 	must(t, len(ids) == 150, "delivered %d of 150", len(ids))
 }
 
-// Real world: operator copies the iOS App ID / package / fingerprint from Apple and Play consoles and the paste carries a trailing newline or spaces. Expect: values saved trimmed, so AASA and assetlinks.json publish exact identifiers.
 func TestS_PORTAL_57_AppDetailsTrimmedOnSave(t *testing.T) {
 	e := newEnv(t)
 	id, _ := portalCreateApp(t, e, "Shop", nil)
@@ -1193,7 +1105,6 @@ func TestS_PORTAL_57_AppDetailsTrimmedOnSave(t *testing.T) {
 	must(t, strings.Contains(aasa.Body, `"TEAM123456.com.shop.app"`), "AASA %s", aasa.Body)
 }
 
-// Real world: portal sits behind an HTTPS gateway (Cloudflare Access / Tailscale serve) that forwards plain HTTP with X-Forwarded-Proto: https. Expect: the admin session cookie (derived from the password) is marked Secure.
 func TestS_PORTAL_58_AdminCookieSecureBehindHTTPS(t *testing.T) {
 	e := newEnvWith(t, envOpts{AdminPassword: portalAdminPW, TrustProxy: true})
 	r := e.portal("POST", "/api/admin/session", `{"password":"`+portalAdminPW+`"}`, map[string]string{"X-Forwarded-Proto": "https"})

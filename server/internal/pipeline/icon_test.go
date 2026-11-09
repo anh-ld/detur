@@ -1,7 +1,5 @@
 package pipeline
 
-// Store icon on the tap page: App Store lookup or Play og:image, generic glyph until one is known.
-
 import (
 	"fmt"
 	"net/http"
@@ -58,7 +56,6 @@ func TestIconKeys(t *testing.T) {
 	}
 }
 
-// waitIcon: icon for keys once the background fetch lands.
 func waitIcon(t *testing.T, keys []string) string {
 	t.Helper()
 	for i := 0; i < 100; i++ {
@@ -83,14 +80,12 @@ func TestIconFetch(t *testing.T) {
 	}
 }
 
-// cachedIcon: cached URL for key, without starting a fetch.
 func cachedIcon(c *iconCache, key string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.m[key].url
 }
 
-// stubCache: cache whose App Store lookup answers with artwork (empty = no result) and counts requests.
 func stubCache(t *testing.T, artwork string) (*iconCache, *atomic.Int32) {
 	t.Helper()
 	hits := &atomic.Int32{}
@@ -106,7 +101,6 @@ func stubCache(t *testing.T, artwork string) (*iconCache, *atomic.Int32) {
 	return newIconCache(ts.URL, ts.URL), hits
 }
 
-// only https artwork reaches <img src>: http and javascript URLs are dropped.
 func TestIconRejectsNonHTTPS(t *testing.T) {
 	for _, art := range []string{"http://is1.example/icon.png", "javascript:alert(1)"} {
 		c, _ := stubCache(t, art)
@@ -117,7 +111,6 @@ func TestIconRejectsNonHTTPS(t *testing.T) {
 	}
 }
 
-// visitors arriving together start one fetch, not one each.
 func TestIconOneFetchPerKey(t *testing.T) {
 	c, hits := stubCache(t, "")
 	for i := 0; i < 5; i++ {
@@ -132,7 +125,6 @@ func TestIconOneFetchPerKey(t *testing.T) {
 	}
 }
 
-// a failed refresh keeps serving the old icon.
 func TestIconFailedRefreshKeepsOld(t *testing.T) {
 	c, _ := stubCache(t, "")
 	c.m["a:us:1"] = iconEntry{url: "https://old.example/icon.png", exp: time.Now().Add(-time.Minute)}
@@ -145,7 +137,6 @@ func TestIconFailedRefreshKeepsOld(t *testing.T) {
 	}
 }
 
-// tap page: fallback glyph before the icon is known, store icon after.
 func TestTapPageIcon(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -164,7 +155,6 @@ func TestTapPageIcon(t *testing.T) {
 	}
 }
 
-// a successful lookup is kept for the long TTL, not the failure one.
 func TestIconSuccessCachedLong(t *testing.T) {
 	c, _ := stubCache(t, "https://is1.example/icon.png")
 	c.fetch("a:us:1")
@@ -176,14 +166,12 @@ func TestIconSuccessCachedLong(t *testing.T) {
 	}
 }
 
-// lookup uses the link's storefront: an app only in the VN store gets its icon.
 func TestIconStorefront(t *testing.T) {
 	if got := waitIcon(t, []string{"a:vn:456"}); got != "https://is1.example/icon512.png" {
 		t.Errorf("VN storefront icon = %q", got)
 	}
 }
 
-// App Store miss -> icon from the app's Android package (link has no Play URL), through the tap page.
 func TestTapPageIconFromAppPackage(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, err := s.CreateApp("pkg app", testAPIKey+"2")

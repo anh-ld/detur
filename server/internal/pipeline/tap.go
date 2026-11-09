@@ -11,20 +11,18 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// hasStoreTarget: platform's own target is a store URL. None -> nothing to escape to; plain redirect.
-func hasStoreTarget(link store.Link, agent string) bool {
-	switch {
-	case ua.IsIOS(agent):
+func hasStoreTarget(link store.Link, platform string) bool {
+	switch platform {
+	case ua.PlatformIOS:
 		return isAppStoreURL(link.IOS)
-	case ua.IsAndroid(agent):
+	case ua.PlatformAndroid:
 		return isPlayStoreURL(link.Android)
 	}
 	return false
 }
 
-// intentURL: Android intent back to short link (App Links open app at link), Play fallback if app missing. Syntax: developer.chrome.com/docs/android/intents.
 func intentURL(host, key string, q url.Values, pkg, fallback string) string {
-	short := httpx.AddParams("https://"+host+"/"+key, q, func(k, v string) bool { return v != "" && !internalParams[k] })
+	short := httpx.AddParams("https://"+host+"/"+key, q, forwardable)
 	return "intent://" + strings.TrimPrefix(short, "https://") +
 		"#Intent;scheme=https;package=" + pkg + ";S.browser_fallback_url=" + url.QueryEscape(fallback) + ";end"
 }
@@ -34,13 +32,11 @@ func schemeURL(scheme, route string) string {
 	return scheme + "://" + strings.TrimPrefix(route, "/")
 }
 
-// inAppMenu: per-app menu label that differs from the generic "Open in browser".
 var inAppMenu = map[string]string{
 	"instagram": "Open in external browser",
 	"threads":   "Open in external browser",
 }
 
-// tapSteps: numbered "Open in browser" steps for source app + platform.
 func tapSteps(source string, ios bool) []string {
 	icon := "⋮"
 	if ios {
@@ -49,7 +45,6 @@ func tapSteps(source string, ios bool) []string {
 	return []string{"Tap " + icon + " in the top corner.", "Choose “" + menuLabel(source) + "”."}
 }
 
-// menuLabel: app's own menu item, else generic "Open in browser" (any platform).
 func menuLabel(source string) string {
 	if l, ok := inAppMenu[source]; ok {
 		return l
@@ -57,20 +52,14 @@ func menuLabel(source string) string {
 	return "Open in browser"
 }
 
-// serveTap: tap page (get-app page, page.go), plain link to tap (in-app browsers block auto store hand-off). iOS copies short link first (pasteboard signal), reports it like copy page; app scheme set -> tries the installed app before the App Store.
 func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link store.Link, dest, source string, q url.Values) {
 	ios := ua.IsIOS(r.UserAgent())
 	in := page.Input{IOS: ios, Href: dest, Steps: tapSteps(source, ios)}
-	app, err := p.st.GetApp(link.AppID)
-	if err != nil {
-		p.log.Printf("tap page app lookup failed (default page, icon from link URLs only): %v", err)
-		app = store.App{}
-	}
+	app := p.appOrDefault(link, "tap page")
 	in.AppName = app.Name
 	in.Icon = appIcons.first(iconKeys(link.IOS, link.Android, app.AndroidPackage))
 	if ios {
-		in.Paste = store.PasteQuery() // reported with pasted_link (pasteToken)
-		// app scheme set -> button opens the installed app at the route first, App Store after a timeout
+		in.Paste = store.PasteQuery()
 		if app.IOSScheme != "" && httpx.IsRoute(link.URL) {
 			in.Open = schemeURL(app.IOSScheme, deepLinkURL(link, q))
 		}
@@ -79,6 +68,15 @@ func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link s
 		in.Play = dest
 	}
 	servePage(w, app.PageHTML, in)
+}
+
+func (p *pipelineServer) appOrDefault(link store.Link, what string) store.App {
+	app, err := p.st.GetApp(link.AppID)
+	if err != nil {
+		p.log.Printf("%s app lookup failed (default page, icon from link URLs only): %v", what, err)
+		return store.App{}
+	}
+	return app
 }
 
 // copyJS: shared by copy + tap pages. true only when execCommand confirms copy synchronously -> pasted_link never reported for a failed copy. Clipboard API = best-effort extra: its promise can't confirm before tap navigates.

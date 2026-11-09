@@ -1,13 +1,12 @@
 import { useState } from 'preact/hooks';
 import { Button, Field, Input, Label, Select, Toggle, ToggleGroup } from 'kinu';
-import type { Link, LinkRule, Platform } from '../../../lib/types';
+import { PLATFORMS, type Link, type LinkRule, type Platform } from '../../../lib/types';
 import { muted, row } from '../../../lib/styles';
 import { fromLocalInput, toLocalInput } from './link-draft';
 import { actionKind, commitRule, type ActionKind } from './rule-draft';
 import { defaultVariants, SplitEditor } from './split-editor';
 import { TargetFields } from './target-fields';
 
-// Edit one rule (index -1 = new). Mounted only while editing, so its draft resets each time.
 export function RuleEditor({
   idp,
   link,
@@ -70,9 +69,11 @@ export function RuleEditor({
                 onChange={(e) => setCond({ platform: (e.currentTarget.value as Platform) || undefined })}
               >
                 <option value="">Any platform</option>
-                <option value="ios">iOS</option>
-                <option value="android">Android</option>
-                <option value="desktop">Desktop</option>
+                {PLATFORMS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
               </Select>
             </Field>
             <Field>

@@ -8,6 +8,7 @@ import (
 
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/ua"
 )
 
 var langRegex = regexp.MustCompile(`^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,4})?$`)
@@ -88,7 +89,7 @@ func (p *portalServer) getLinkVariants(w http.ResponseWriter, r *http.Request) {
 }
 
 func validRuleTargets(t store.RuleTargets) error {
-	if t.Destination != "" { // empty inherits the link's route (LR2)
+	if t.Destination != "" {
 		if err := validDestination("destination", t.Destination); err != nil {
 			return err
 		}
@@ -105,7 +106,6 @@ func validRuleTargets(t store.RuleTargets) error {
 	return nil
 }
 
-// validateLinkRules: variant labels (rule names + split variant names) unique per link: variant_days keys on link + label.
 func validateLinkRules(rules []store.LinkRule) error {
 	labels := map[string]bool{}
 	for i, r := range rules {
@@ -116,7 +116,7 @@ func validateLinkRules(rules []store.LinkRule) error {
 
 		if r.Cond.Platform != "" {
 			plat := strings.ToLower(strings.TrimSpace(r.Cond.Platform))
-			if plat != "ios" && plat != "android" && plat != "desktop" {
+			if !ua.ValidPlatform(plat) {
 				return fmt.Errorf("rule %q: platform must be 'ios', 'android', or 'desktop'", name)
 			}
 		}

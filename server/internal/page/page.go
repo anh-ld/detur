@@ -11,16 +11,13 @@ import (
 	"unicode/utf8"
 )
 
-// MaxHTML: saved page limit (Detour: 50 KB).
 const MaxHTML = 51200
 
-// Placeholder: name + one-line meaning, shown in the portal editor.
 type Placeholder struct {
 	Name string `json:"name"`
 	Desc string `json:"desc"`
 }
 
-// Placeholders: the only {{names}} a page may use. Desc: `backticks` = code (portal renders <code>).
 var Placeholders = []Placeholder{
 	{"cta", "Button `.detur-cta`. Required, unless an element has `id=\"detur-cta\"`"},
 	{"cta_url", "Button link"},
@@ -30,7 +27,6 @@ var Placeholders = []Placeholder{
 	{"steps", "\"Open in browser\" steps `.detur-hint` `.detur-steps`, in-app only"},
 }
 
-// DefaultHTML: centered; store icon, one full-width button, Android Play text link, numbered steps. Light + dark via system colors (Canvas/CanvasText).
 const DefaultHTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -94,13 +90,10 @@ const DefaultHTML = `<!doctype html>
 </html>
 `
 
-// glyphIcon: data-URI stand-in when no store icon is known (never a broken <img>). Translucent grey works on light + dark.
 var glyphIcon = html.EscapeString("data:image/svg+xml," + url.PathEscape(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" fill="#7f7f7f" fill-opacity=".2"/><g fill="#7f7f7f" fill-opacity=".6"><rect x="22" y="22" width="15" height="15" rx="4"/><rect x="43" y="22" width="15" height="15" rx="4"/><rect x="22" y="43" width="15" height="15" rx="4"/><rect x="43" y="43" width="15" height="15" rx="4"/></g></svg>`))
 
-// Vars: placeholder values, already HTML-safe.
 type Vars struct{ CTA, CTAURL, PlayLink, IconURL, AppName, Steps string }
 
-// Render: single pass; values never re-scanned -> app name "{{cta}}" stays text.
 func Render(page string, v Vars) string {
 	return strings.NewReplacer(
 		"{{cta}}", v.CTA, "{{cta_url}}", v.CTAURL, "{{play_link}}", v.PlayLink,
@@ -110,7 +103,6 @@ func Render(page string, v Vars) string {
 
 var rePlaceholder = regexp.MustCompile(`\{\{[^{}]*\}\}`)
 
-// Validate: save-time checks, message goes straight to the portal. "" (default) always ok.
 func Validate(page string) error {
 	lower := strings.ToLower(page)
 	switch {
@@ -141,18 +133,17 @@ func Validate(page string) error {
 	return nil
 }
 
-// Input: one rendered page. Copy: iOS hop 1, CTA = next hop. Tap: in-app hop 2, CTA = store / intent.
 type Input struct {
 	Copy    bool
 	IOS     bool
-	Href    string   // button target
-	Open    string   // tap iOS: app scheme URL tried before Href
-	Play    string   // tap Android: Play URL for the text link
-	Steps   []string // tap
+	Href    string
+	Open    string
+	Play    string
+	Steps   []string
 	Icon    string
 	AppName string
-	Paste   string // iOS: `_dc` query appended to the copied link
-	Delay   int    // copy: safety-net ms
+	Paste   string
+	Delay   int
 }
 
 func (in Input) Vars() Vars {
@@ -184,7 +175,6 @@ func (in Input) Vars() Vars {
 	return v
 }
 
-// Preview: page as the portal frame shows it (sample links, no scripts). kind "copy" | "tap"; platform "ios" | "android".
 func Preview(page, kind, platform, appName string) string {
 	if page == "" {
 		page = DefaultHTML

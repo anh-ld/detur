@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { highlightHtml } from '../src/components/code-editor';
 
-// highlighted output goes in via innerHTML: must be the exact source, escaped, only our spans added
 const text = (h: string) =>
   h
     .replace(/<\/?span[^>]*>/g, '')
@@ -19,11 +18,11 @@ describe('highlightHtml', () => {
     'plain & text < > {{steps}}',
     '',
   ];
-  it('keeps the source exactly', () => {
-    for (const s of samples) expect(text(highlightHtml(s))).toBe(s);
-  });
-  it('never emits a raw tag from the source', () => {
-    for (const s of samples) expect(highlightHtml(s).replace(/<\/?span[^>]*>/g, '')).not.toMatch(/[<>]/);
+  it('keeps the source exactly and never emits a raw tag from it', () => {
+    for (const s of samples) {
+      expect(text(highlightHtml(s))).toBe(s);
+      expect(highlightHtml(s).replace(/<\/?span[^>]*>/g, '')).not.toMatch(/[<>]/);
+    }
   });
   it('marks tags, attributes, CSS and placeholders', () => {
     const h = highlightHtml('<style>a { color: red }</style><img src="{{icon_url}}">{{cta}}');

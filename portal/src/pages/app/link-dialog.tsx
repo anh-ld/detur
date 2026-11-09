@@ -6,6 +6,7 @@ import { api } from '../../lib/api';
 import { closeDialog } from '../../lib/dialog';
 import { LinkDraft, draftError, emptyDraft, linkPayload } from './links/link-draft';
 import { LinkFields } from './links/link-fields';
+import { stack } from '../../lib/styles';
 
 const id = 'dlg-create-link';
 
@@ -54,7 +55,7 @@ export function LinkDialog({
       </Dialog.Trigger>
       <Dialog.Content>
         <form
-          style={{ display: 'grid', gap: 16 }}
+          style={stack}
           onSubmit={(e) => {
             e.preventDefault();
             save();

@@ -3,7 +3,7 @@ import { Badge, Card, Field, Label, Slider } from 'kinu';
 import { api } from '../../../lib/api';
 import { Loading } from '../../../components/page';
 import { THRESHOLD } from '../../../lib/matching';
-import { muted, row } from '../../../lib/styles';
+import { muted, row, stack } from '../../../lib/styles';
 import { App, MatchQuality } from '../../../lib/types';
 
 const METHODS: [string, string][] = [
@@ -18,7 +18,6 @@ const STEP = 50;
 
 type Bucket = MatchQuality['buckets'][number];
 
-// every bucket across the threshold range + seen scores; empty ones as zero (one bucket alone filled the card)
 function fillBuckets(buckets: Bucket[]) {
   const seen = new Map(buckets.map((b) => [b.from, b]));
   const lo = Math.min(THRESHOLD.min, ...buckets.map((b) => b.from));
@@ -55,7 +54,7 @@ export function MatchQualityView({ app }: { app: App }) {
   const lose = q.buckets.filter((b) => b.from < at).reduce((n, b) => n + b.matched, 0);
   const gain = q.buckets.filter((b) => b.from >= at).reduce((n, b) => n + b.organic, 0);
   return (
-    <Card style={{ display: 'grid', gap: 16 }}>
+    <Card style={stack}>
       <div style={{ ...row, flexWrap: 'wrap' }}>
         {METHODS.filter(([k]) => q.methods[k]).map(([k, label]) => (
           <Badge key={k} variant="secondary" style={{ letterSpacing: 'normal' }}>

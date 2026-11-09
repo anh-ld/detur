@@ -18,8 +18,7 @@ var (
 	ErrMissingHost           = errors.New("host is required")
 )
 
-// isLoopbackHost: hostname is local loopback.
-func isLoopbackHost(host string) bool {
+func IsLoopbackHost(host string) bool {
 	h := strings.ToLower(strings.Trim(host, "[]"))
 	return h == "localhost" || h == "127.0.0.1" || h == "::1"
 }
@@ -47,13 +46,13 @@ func isProhibitedIP(ip net.IP, allowLoopback bool) bool {
 	if !ok {
 		return true
 	}
-	addr = addr.Unmap() // ::ffff:192.0.2.1 -> 192.0.2.1
+	addr = addr.Unmap()
 
 	if addr.IsLoopback() {
 		return !allowLoopback
 	}
 	if addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() {
-		return true // RFC 1918, RFC 4193, link-local (169.254.169.254 included)
+		return true
 	}
 	for _, p := range prohibitedPrefixes {
 		if p.Contains(addr) {
@@ -63,7 +62,6 @@ func isProhibitedIP(ip net.IP, allowLoopback bool) bool {
 	return false
 }
 
-// ValidateWebhookURL: allowed scheme, not a prohibited private/metadata IP.
 func ValidateWebhookURL(rawURL string) error {
 	u, err := url.ParseRequestURI(rawURL)
 	if err != nil {
@@ -77,16 +75,15 @@ func ValidateWebhookURL(rawURL string) error {
 	}
 
 	if scheme == "http" {
-		if !isLoopbackHost(hostname) {
+		if !IsLoopbackHost(hostname) {
 			return ErrInvalidScheme
 		}
 	} else if scheme != "https" {
 		return ErrInvalidScheme
 	}
 
-	// IP literal: validate now
 	if ip := net.ParseIP(hostname); ip != nil {
-		if isProhibitedIP(ip, isLoopbackHost(hostname)) {
+		if isProhibitedIP(ip, IsLoopbackHost(hostname)) {
 			return ErrProhibitedDestination
 		}
 	}
@@ -94,10 +91,6 @@ func ValidateWebhookURL(rawURL string) error {
 	return nil
 }
 
-// NewSafeHTTPClient: http.Client with
-// 1. dial-time IP check (SSRF: RFC 1918, RFC 4193, link-local, cloud metadata)
-// 2. no redirect following (SSRF via 3xx to internal)
-// 3. 10s timeout
 func NewSafeHTTPClient() *http.Client {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -106,7 +99,7 @@ func NewSafeHTTPClient() *http.Client {
 				return nil, err
 			}
 
-			allowLoopback := isLoopbackHost(host)
+			allowLoopback := IsLoopbackHost(host)
 
 			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 			if err != nil {
@@ -116,18 +109,17 @@ func NewSafeHTTPClient() *http.Client {
 				return nil, fmt.Errorf("no IP address found for %s", host)
 			}
 
-			// every resolved IP must pass
 			for _, ip := range ips {
 				if isProhibitedIP(ip, allowLoopback) {
 					return nil, fmt.Errorf("%w: %s resolves to prohibited IP %s", ErrProhibitedDestination, host, ip)
 				}
 			}
 
-			// pin to first validated IP: blocks DNS rebinding
 			dialer := &net.Dialer{
 				Timeout:   5 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}
+			// dial the validated IP, not the name: blocks DNS rebinding
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
 		},
 		MaxIdleConns:        100,
@@ -139,7 +131,6 @@ func NewSafeHTTPClient() *http.Client {
 		Timeout:   10 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// no redirects
 			return http.ErrUseLastResponse
 		},
 	}

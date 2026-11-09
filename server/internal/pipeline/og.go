@@ -9,19 +9,18 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// serveOG: social preview for link-preview crawlers. Humans misread as bots (C3 false positive, stray ?bot=) still go on: script redirect + Continue link to the 302 target. Crawlers run no script.
 func serveOG(w http.ResponseWriter, r *http.Request, link store.Link, dest string, q url.Values) {
 	card := "summary"
 	if link.OGImage != "" {
 		card = "summary_large_image"
 	}
-	if httpx.IsRoute(dest) { // app route: nothing a browser can follow -> preview only
+	if httpx.IsRoute(dest) {
 		dest = ""
 	}
 	htmlNoStore(w)
 	_ = ogTmpl.Execute(w, struct {
 		Title, Desc, Card, Short string
-		Image, Href              template.URL // OGImage https-checked at save; dest = saved target (R6 rejects script schemes)
+		Image, Href              template.URL
 		Dest                     string
 	}{link.OGTitle, link.OGDescription, card, shortURL(r, link.Key, q), template.URL(link.OGImage), template.URL(dest), dest})
 }

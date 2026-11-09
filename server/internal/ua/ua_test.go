@@ -1,6 +1,5 @@
 package ua
 
-// Real-world UAs: modern Android (Chrome), reduced UA (Chrome "Android 10; K"), legacy Android, Android WebView, iPhone Safari, Instagram Pixel webview ("Google/google" false positive).
 import (
 	"net/http/httptest"
 	"testing"
@@ -21,7 +20,7 @@ func TestAndroidModelRealUAs(t *testing.T) {
 		want string
 	}{
 		{modernAndroid, "Pixel 7"},
-		{reducedAndroid, ""}, // reduced UA "K" carries no model
+		{reducedAndroid, ""},
 		{legacyAndroid, "GT-I9300"},
 		{webviewAndroid, "Pixel 7"},
 		{iphoneSafari, ""},
@@ -46,11 +45,9 @@ func TestIsBotUADubList(t *testing.T) {
 			t.Errorf("IsBotUA(%q) = false; want true", ua)
 		}
 	}
-	// Dub UA_FALSE_POSITIVES: Instagram Pixel webview appends "Google/google", must not trip "google".
 	if IsBotUA(instagramPixel) {
 		t.Errorf("IsBotUA(instagram Pixel webview) = true; want false (Google/google exception)")
 	}
-	// real browsers never bots; "preview" no longer a marker; Cubot model token is not "bot"
 	cubotFB := "Mozilla/5.0 (Linux; Android 13; CUBOT X30 Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/460.0.0.48.109;]"
 	for _, ua := range []string{modernAndroid, reducedAndroid, iphoneSafari, "SomePreviewApp/1.0 Preview/2", cubotFB} {
 		if IsBotUA(ua) {
@@ -91,7 +88,6 @@ func TestIOSVersion(t *testing.T) {
 	}
 }
 
-// AppPlatform: browser markers first, then native HTTP client markers of in-app SDK requests.
 func TestAppPlatform(t *testing.T) {
 	for _, c := range []struct{ ua, want string }{
 		{iphoneSafari, "ios"},
@@ -108,7 +104,6 @@ func TestAppPlatform(t *testing.T) {
 	}
 }
 
-// In-app UAs: published app tokens on real browser bases, not device captures.
 const (
 	messengerIOS     = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/MessengerForiOS;FBAV/442.0.0.42.110;FBBV/556001370;FBDV/iPhone15,2;FBMD/iPhone;FBSN/iOS;FBSV/17.2;FBSS/3;FBID/phone;FBLC/en_US;FBOP/5]"
 	messengerAndroid = "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 [FB_IAB/MESSENGER;FBAV/450.0.0.42.109;]"
@@ -160,7 +155,7 @@ func TestInApp(t *testing.T) {
 		{modernAndroid, ""},
 		{chromeIOS, ""},
 		{firefoxIOS, ""},
-		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) OnlineShop/1.0 Line/2", ""}, // desktop: never in-app
+		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) OnlineShop/1.0 Line/2", ""},
 		{"Twitterbot/1.0", ""},
 		{"", ""},
 	} {
@@ -170,7 +165,6 @@ func TestInApp(t *testing.T) {
 	}
 }
 
-// In-app UAs with "google" (TikTok Channel/googleplay) = real visitors, not bots.
 func TestIsBotUAInAppFalsePositives(t *testing.T) {
 	for _, ua := range []string{tiktokAndroid, messengerAndroid, zaloAndroid, wechatIOS, lineAndroid} {
 		if IsBotUA(ua) {

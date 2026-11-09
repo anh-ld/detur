@@ -13,6 +13,6 @@ export const copyText = async (v: string) => {
   ta.select();
   const ok = document.execCommand('copy');
   ta.remove();
-  prev?.focus(); // keep keyboard/screen-reader place on the copy button
+  prev?.focus();
   if (!ok) throw new Error('copy failed');
 };

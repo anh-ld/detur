@@ -1,7 +1,5 @@
 package scenarios
 
-// CLICK: people tapping or opening short links (GET /{key}) on the public listener.
-
 import (
 	"html"
 	"net/http"
@@ -23,7 +21,6 @@ const (
 	clickUAInstagramPixel = "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.0.0 Mobile Safari/537.36 Instagram 334.0.0.42.95 Android (34/14; 420dpi; 1080x2400; Google/google; Pixel 7; panther; panther; en_US; 612345678)"
 )
 
-// clickList: recorded (non-bot, unmatched) clicks of the app in the last hour.
 func clickList(e *env, a store.App) []store.Click {
 	e.t.Helper()
 	cs, err := e.St.ClicksSince(a.ID, "", time.Now().Add(-time.Hour))
@@ -33,7 +30,6 @@ func clickList(e *env, a store.App) []store.Click {
 	return cs
 }
 
-// clickOne: exactly one recorded click.
 func clickOne(e *env, a store.App) store.Click {
 	e.t.Helper()
 	cs := clickList(e, a)
@@ -43,7 +39,6 @@ func clickOne(e *env, a store.App) store.Click {
 	return cs[0]
 }
 
-// clickNone: no click recorded.
 func clickNone(e *env, a store.App) {
 	e.t.Helper()
 	if cs := clickList(e, a); len(cs) != 0 {
@@ -51,7 +46,6 @@ func clickNone(e *env, a store.App) {
 	}
 }
 
-// clickQuery: parsed query of a redirect Location.
 func clickQuery(t *testing.T, loc string) url.Values {
 	t.Helper()
 	u, err := url.Parse(loc)
@@ -61,7 +55,6 @@ func clickQuery(t *testing.T, loc string) url.Values {
 	return u.Query()
 }
 
-// clickAttr: unescaped attribute value on the tap page's primary button (id="detur-cta").
 func clickAttr(t *testing.T, body, attr string) string {
 	t.Helper()
 	m := regexp.MustCompile(`<a [^>]*id="detur-cta"[^>]*\s` + attr + `="([^"]*)"`).FindStringSubmatch(body)
@@ -71,7 +64,6 @@ func clickAttr(t *testing.T, body, attr string) string {
 	return html.UnescapeString(m[1])
 }
 
-// clickMobileTapH: the phone's two hops with extra headers (Host etc.).
 func clickMobileTapH(e *env, path, ua string, hdr map[string]string) resp {
 	e.t.Helper()
 	if r := e.tapH(path, ua, hdr); r.Code != http.StatusOK {
@@ -84,7 +76,6 @@ func clickMobileTapH(e *env, path, ua string, hdr map[string]string) resp {
 	return e.tapH(path+sep+"_dt=1&screen=393x852%403&tz=Asia%2FHo_Chi_Minh", ua, hdr)
 }
 
-// clickOGLink: link with a social preview set.
 func clickOGLink(e *env, a store.App, key string) store.Link {
 	e.t.Helper()
 	return e.linkWith(store.Link{AppID: a.ID, Key: key, URL: "/promo/summer",
@@ -92,7 +83,6 @@ func clickOGLink(e *env, a store.App, key string) store.Link {
 		OGTitle: "Summer sale", OGDescription: "50% off everything", OGImage: "https://cdn.example.com/summer.png"})
 }
 
-// clickIsStore: Location is the App Store / Play Store target.
 func clickHasPrefix(t *testing.T, r resp, code int, prefix string) {
 	t.Helper()
 	if r.Code != code || !strings.HasPrefix(r.Loc(), prefix) {
@@ -100,7 +90,6 @@ func clickHasPrefix(t *testing.T, r resp, code int, prefix string) {
 	}
 }
 
-// Real world: an iPhone user taps a campaign link in Safari. Expect: hop 1 tap-to-copy page, hop 2 302 to the App Store, click recorded with screen + timezone.
 func TestS_CLICK_01_IOSSafariCopyPageThenAppStore(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -114,7 +103,6 @@ func TestS_CLICK_01_IOSSafariCopyPageThenAppStore(t *testing.T) {
 	must(t, c.Source == "", "Safari source = %q, want none", c.Source)
 }
 
-// Real world: an iPhone user taps "Open in App Store" on the copy page; the page copies the short link and reloads. Expect: App Store 302 without pasted_link, click keeps the pasted link.
 func TestS_CLICK_02_IOSCopyTapRecordsPastedLink(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -127,7 +115,6 @@ func TestS_CLICK_02_IOSCopyTapRecordsPastedLink(t *testing.T) {
 	must(t, c.Fingerprint.PastedLink != "", "pasted link not recorded")
 }
 
-// Real world: an iPhone user with Chrome as browser taps a link. Expect: App Store 302, not tagged as an in-app browser.
 func TestS_CLICK_03_IOSChromeAppStore(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -136,7 +123,6 @@ func TestS_CLICK_03_IOSChromeAppStore(t *testing.T) {
 	must(t, clickOne(e, a).Source == "", "iOS Chrome tagged as in-app")
 }
 
-// Real world: an iPad user (Safari sends a Mac UA) taps a link; the interstitial sees a touch screen. Expect: App Store, click platform iPad/iOS.
 func TestS_CLICK_04_IPadOSTouchGoesToAppStore(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -149,7 +135,6 @@ func TestS_CLICK_04_IPadOSTouchGoesToAppStore(t *testing.T) {
 	must(t, strings.Contains(c.Fingerprint.UserAgent, "iPad"), "click UA = %q, want rewritten to iPad", c.Fingerprint.UserAgent)
 }
 
-// Real world: a Mac Safari user (no touch screen) opens a link. Expect: one reload, then the web fallback.
 func TestS_CLICK_05_MacSafariGetsWebFallback(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -158,7 +143,6 @@ func TestS_CLICK_05_MacSafariGetsWebFallback(t *testing.T) {
 	clickHasPrefix(t, r, 302, clickFallback)
 }
 
-// Real world: an Android user taps a link in Chrome. Expect: Play Store 302, referrer carries the recorded click's id (deterministic match).
 func TestS_CLICK_06_AndroidChromePlayReferrerClickID(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -171,7 +155,6 @@ func TestS_CLICK_06_AndroidChromePlayReferrerClickID(t *testing.T) {
 	must(t, clickQuery(t, r.Loc()).Get("id") == "com.example.app", "Play id changed: %q", r.Loc())
 }
 
-// Real world: a Galaxy user taps a link in Samsung Internet. Expect: treated as a real Android browser, Play Store 302 with click_id.
 func TestS_CLICK_07_SamsungInternetPlayStore(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -182,7 +165,6 @@ func TestS_CLICK_07_SamsungInternetPlayStore(t *testing.T) {
 	must(t, clickOne(e, a).Source == "", "Samsung Internet tagged in-app")
 }
 
-// Real world: someone opens the link on a Windows laptop in Chrome. Expect: straight 302 to the web fallback (no interstitial), web click recorded.
 func TestS_CLICK_08_DesktopChromeWebFallback(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -192,7 +174,6 @@ func TestS_CLICK_08_DesktopChromeWebFallback(t *testing.T) {
 	must(t, clickOne(e, a).Kind == store.KindWeb, "kind != web")
 }
 
-// Real world: someone taps a link in Messenger on iPhone. Expect: hop 1 reloads without a copy button, hop 2 tap page whose button goes to the App Store, source messenger.
 func TestS_CLICK_09_MessengerIOSTapPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -205,7 +186,6 @@ func TestS_CLICK_09_MessengerIOSTapPage(t *testing.T) {
 	must(t, clickOne(e, a).Source == "messenger", "source != messenger")
 }
 
-// Real world: someone taps a link in the Facebook app on iPhone. Expect: tap page, source facebook.
 func TestS_CLICK_10_FacebookIOSTapPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -215,7 +195,6 @@ func TestS_CLICK_10_FacebookIOSTapPage(t *testing.T) {
 	must(t, clickOne(e, a).Source == "facebook", "source != facebook")
 }
 
-// Real world: an Android user taps a link in Instagram. Expect: tap page with intent:// back to the short link (app package) and Play fallback carrying click_id.
 func TestS_CLICK_11_InstagramAndroidIntentButton(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -231,7 +210,6 @@ func TestS_CLICK_11_InstagramAndroidIntentButton(t *testing.T) {
 	must(t, strings.Contains(r.Body, "Open Play Store") && c.Source == "instagram", "missing Play link or source %q", c.Source)
 }
 
-// Real world: someone taps a TikTok bio link on iPhone. Expect: tap page, source tiktok.
 func TestS_CLICK_12_TikTokIOSTapPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -241,7 +219,6 @@ func TestS_CLICK_12_TikTokIOSTapPage(t *testing.T) {
 	must(t, clickOne(e, a).Source == "tiktok", "source != tiktok")
 }
 
-// Real world: a Vietnamese user taps a link in a Zalo chat on Android. Expect: tap page with intent button, source zalo.
 func TestS_CLICK_13_ZaloAndroidTapPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -251,7 +228,6 @@ func TestS_CLICK_13_ZaloAndroidTapPage(t *testing.T) {
 	must(t, clickOne(e, a).Source == "zalo", "source != zalo")
 }
 
-// Real world: someone taps a link in LINE on iPhone. Expect: tap page, source line.
 func TestS_CLICK_14_LineIOSTapPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -261,7 +237,6 @@ func TestS_CLICK_14_LineIOSTapPage(t *testing.T) {
 	must(t, clickOne(e, a).Source == "line", "source != line")
 }
 
-// Real world: someone taps a link in WeChat on iPhone. Expect: tap page, source wechat.
 func TestS_CLICK_15_WeChatIOSTapPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -271,7 +246,6 @@ func TestS_CLICK_15_WeChatIOSTapPage(t *testing.T) {
 	must(t, clickOne(e, a).Source == "wechat", "source != wechat")
 }
 
-// Real world: a link opens inside some unbranded Android app's webview. Expect: hop 2 302 to Play (handoff may work), click tagged unknown-inapp.
 func TestS_CLICK_16_GenericAndroidWebViewRedirects(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -280,7 +254,6 @@ func TestS_CLICK_16_GenericAndroidWebViewRedirects(t *testing.T) {
 	must(t, clickOne(e, a).Source == "unknown-inapp", "source != unknown-inapp")
 }
 
-// Real world: the webview blocked the Play hand-off, so the safety net reloads with _tap. Expect: tap page, still one click.
 func TestS_CLICK_17_SafetyNetReloadServesTapPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -291,7 +264,6 @@ func TestS_CLICK_17_SafetyNetReloadServesTapPage(t *testing.T) {
 	clickOne(e, a)
 }
 
-// Real world: the app has an iOS URL scheme; an installed-app user taps a link in Messenger. Expect: tap button tries myapp://<route>?<query> first, no internal params.
 func TestS_CLICK_18_TapPageIOSSchemeOpensApp(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -305,7 +277,6 @@ func TestS_CLICK_18_TapPageIOSSchemeOpensApp(t *testing.T) {
 	must(t, strings.HasPrefix(clickAttr(t, r.Body, "href"), clickAppStore), "href must stay App Store")
 }
 
-// Real world: someone shares the link on Facebook; facebookexternalhit fetches it. Expect: OG page with title + canonical short URL, no click.
 func TestS_CLICK_19_FacebookBotGetsOGPage(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -318,7 +289,6 @@ func TestS_CLICK_19_FacebookBotGetsOGPage(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: a tweet with the link; Twitterbot builds the card. Expect: large image card.
 func TestS_CLICK_20_TwitterBotLargeImageCard(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -328,7 +298,6 @@ func TestS_CLICK_20_TwitterBotLargeImageCard(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: the link is pasted into a WhatsApp chat; WhatsApp fetches the preview. Expect: OG page, no click.
 func TestS_CLICK_21_WhatsAppPreviewNoClick(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -338,7 +307,6 @@ func TestS_CLICK_21_WhatsAppPreviewNoClick(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: the link is pasted into Telegram; its bot fetches the preview. Expect: OG page, no click.
 func TestS_CLICK_22_TelegramPreviewNoClick(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -348,7 +316,6 @@ func TestS_CLICK_22_TelegramPreviewNoClick(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: the link is sent in iMessage; Apple's preview fetcher (Mac Safari-like UA) loads it. Expect: OG page, not the iPad interstitial, no click.
 func TestS_CLICK_23_IMessagePreviewOG(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -358,7 +325,6 @@ func TestS_CLICK_23_IMessagePreviewOG(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: a link without a preview is pasted into Slack. Expect: Slackbot follows the 302 to the web fallback, no click.
 func TestS_CLICK_24_SlackWithoutOGFollowsRedirect(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -368,7 +334,6 @@ func TestS_CLICK_24_SlackWithoutOGFollowsRedirect(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: a link is posted in Discord; Discordbot unfurls it. Expect: no interstitial, 302, no click.
 func TestS_CLICK_25_DiscordUnfurlNoClick(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -378,7 +343,6 @@ func TestS_CLICK_25_DiscordUnfurlNoClick(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: Googlebot crawls a short link found on a page. Expect: noindex header, no click.
 func TestS_CLICK_26_GooglebotNoindexNoClick(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -388,7 +352,6 @@ func TestS_CLICK_26_GooglebotNoindexNoClick(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: a developer checks the link with curl. Expect: plain 302 to the fallback, no click.
 func TestS_CLICK_27_CurlRedirectNoClick(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -398,7 +361,6 @@ func TestS_CLICK_27_CurlRedirectNoClick(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: a link checker sends HEAD with a browser UA. Expect: same 302 as GET, no click.
 func TestS_CLICK_28_HeadRequestNoClick(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -408,7 +370,6 @@ func TestS_CLICK_28_HeadRequestNoClick(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: someone opens an app-only link (no web fallback) on a laptop, e.g. from a poster QR shared by email. Expect: QR page with the short link (forwarded params, no internal ones) + store buttons.
 func TestS_CLICK_29_DesktopQRPageForAppOnlyLink(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -420,7 +381,6 @@ func TestS_CLICK_29_DesktopQRPageForAppOnlyLink(t *testing.T) {
 	}
 }
 
-// Real world: someone types a wrong/deleted short link. Expect: 404, no click.
 func TestS_CLICK_30_UnknownKey404(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -432,7 +392,6 @@ func TestS_CLICK_30_UnknownKey404(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: a user retypes a printed link in capitals (PROMO). Expect: same link (keys are unique case-insensitively).
 func TestS_CLICK_31_KeyCaseInsensitive(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -441,7 +400,6 @@ func TestS_CLICK_31_KeyCaseInsensitive(t *testing.T) {
 	must(t, r.Code == 302 && r.Loc() == clickFallback, "got %d %q", r.Code, r.Loc())
 }
 
-// Real world: a chat app or user adds a trailing slash (lnk.example/promo/). Expect: the link still works (resolve or redirect to /promo), not 404.
 func TestS_CLICK_32_TrailingSlashResolves(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -451,7 +409,6 @@ func TestS_CLICK_32_TrailingSlashResolves(t *testing.T) {
 	must(t, ok, "got %d %q, want redirect to fallback or /promo", r.Code, r.Loc())
 }
 
-// Real world: a mail client percent-encodes the path (/%70romo). Expect: same link.
 func TestS_CLICK_33_PercentEncodedKey(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -460,7 +417,6 @@ func TestS_CLICK_33_PercentEncodedKey(t *testing.T) {
 	must(t, r.Code == 302 && r.Loc() == clickFallback, "got %d %q", r.Code, r.Loc())
 }
 
-// Real world: a campaign with spaces, ampersands and Vietnamese in UTM values. Expect: forwarded to the web fallback with values intact.
 func TestS_CLICK_34_PercentEncodedQueryForwarded(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -470,18 +426,16 @@ func TestS_CLICK_34_PercentEncodedQueryForwarded(t *testing.T) {
 	must(t, q.Get("utm_campaign") == "summer sale&more" && q.Get("utm_term") == "ệ", "forwarded = %v", q)
 }
 
-// Real world: an ad network appends a huge tracking blob (long fbclid/gclid). Expect: redirect still works and keeps the blob.
 func TestS_CLICK_35_VeryLongQueryForwarded(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
 	e.link(a, "long", "/p")
-	blob := strings.Repeat("Ab0_-", 800) // 4000 chars
+	blob := strings.Repeat("Ab0_-", 800)
 	r := e.tap("/long?fbclid="+blob, uaDesktopChrome)
 	must(t, r.Code == 302 && clickQuery(t, r.Loc()).Get("fbclid") == blob, "got %d, fbclid lost", r.Code)
 	clickOne(e, a)
 }
 
-// Real world: a misconfigured campaign tool appends utm_source twice. Expect: redirect works, utm_source forwarded once.
 func TestS_CLICK_36_DuplicateQueryKeysForwardOnce(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -491,7 +445,6 @@ func TestS_CLICK_36_DuplicateQueryKeysForwardOnce(t *testing.T) {
 	must(t, r.Code == 302 && len(vs) == 1, "got %d utm_source = %v", r.Code, vs)
 }
 
-// Real world: a user copies the hop-2 URL (with detur's own params) and opens it on a laptop. Expect: none of _dt,_tap,_dc,screen,tz,pasted_link,_touch,detur-no-track reach the fallback; ref does.
 func TestS_CLICK_37_InternalParamsNeverLeakToFallback(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -504,7 +457,6 @@ func TestS_CLICK_37_InternalParamsNeverLeakToFallback(t *testing.T) {
 	}
 }
 
-// Real world: a Messenger Android tap page; the intent:// re-opens the short link in the app. Expect: intent carries ref but none of detur's params.
 func TestS_CLICK_38_InternalParamsNeverLeakIntoIntent(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -518,7 +470,6 @@ func TestS_CLICK_38_InternalParamsNeverLeakIntoIntent(t *testing.T) {
 	}
 }
 
-// Real world: an Apple Search Ads / custom product page campaign link on iPhone. Expect: App Store gets pt/ct/mt/ppid only; utm and malformed ppid dropped.
 func TestS_CLICK_39_AppStoreOnlyGetsStoreParams(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -531,7 +482,6 @@ func TestS_CLICK_39_AppStoreOnlyGetsStoreParams(t *testing.T) {
 	must(t, !clickQuery(t, r.Loc()).Has("ppid"), "bad ppid forwarded: %q", r.Loc())
 }
 
-// Real world: a newsletter link on Android with utm_* plus a hostile ?id=other.app. Expect: utm_* + click_id inside referrer only, id untouched.
 func TestS_CLICK_40_PlayStoreUTMInsideReferrer(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -543,7 +493,6 @@ func TestS_CLICK_40_PlayStoreUTMInsideReferrer(t *testing.T) {
 	must(t, ref.Get("utm_source") == "newsletter" && ref.Get("utm_campaign") == "spring" && ref.Get("click_id") != "", "referrer = %v", ref)
 }
 
-// Real world: the operator's fallback already has utm_source=site; a visitor arrives with utm_source=ads. Expect: operator's value kept, extra params added.
 func TestS_CLICK_41_FallbackKeepsOperatorParams(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -552,7 +501,6 @@ func TestS_CLICK_41_FallbackKeepsOperatorParams(t *testing.T) {
 	must(t, q.Get("utm_source") == "site" && q.Get("utm_medium") == "cpc", "fallback query = %v", q)
 }
 
-// Real world: a developer tests on an iPhone with ?detur-no-track=1. Expect: no interstitial, straight to the App Store, no click.
 func TestS_CLICK_42_NoTrackQuerySkipsEverything(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -562,7 +510,6 @@ func TestS_CLICK_42_NoTrackQuerySkipsEverything(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: a QA script sends the detur-no-track header from a laptop. Expect: redirect, no click, header value never forwarded.
 func TestS_CLICK_43_NoTrackHeader(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -572,7 +519,6 @@ func TestS_CLICK_43_NoTrackHeader(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Real world: an iPhone user taps last month's promo link after it expired. Expect: straight 302 to the expired URL, no interstitial.
 func TestS_CLICK_44_ExpiredLinkRedirectsExpiredURL(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -585,7 +531,6 @@ func TestS_CLICK_44_ExpiredLinkRedirectsExpiredURL(t *testing.T) {
 	must(t, r.Code == 302 && r.Loc() == "https://example.com/promo-ended", "desktop got %d %q", r.Code, r.Loc())
 }
 
-// Real world: an expired link without an expired URL. Expect: 410 Gone.
 func TestS_CLICK_45_ExpiredLinkGone(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -594,7 +539,6 @@ func TestS_CLICK_45_ExpiredLinkGone(t *testing.T) {
 	must(t, e.tap("/gone", uaAndroidChrome).Code == 410, "want 410")
 }
 
-// Real world: an operator routes iOS visitors to a custom App Store product page via a platform rule. Expect: iPhone gets the rule target, click carries the rule name.
 func TestS_CLICK_46_RulePlatformIOS(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -607,7 +551,6 @@ func TestS_CLICK_46_RulePlatformIOS(t *testing.T) {
 	clickHasPrefix(t, e.tap("/rios", uaDesktopChrome), 302, clickFallback)
 }
 
-// Real world: German visitors on desktop get a German landing page via a language rule. Expect: de-DE browser → German fallback.
 func TestS_CLICK_47_RuleLanguageGerman(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -619,7 +562,6 @@ func TestS_CLICK_47_RuleLanguageGerman(t *testing.T) {
 	clickHasPrefix(t, e.tapH("/rde", uaFirefox, map[string]string{"Accept-Language": "en-US"}), 302, clickFallback)
 }
 
-// Real world: a TikTok campaign adds ?ref=tiktok and the operator routes it to a TikTok landing page. Expect: param rule matches.
 func TestS_CLICK_48_RuleQueryParam(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -629,7 +571,6 @@ func TestS_CLICK_48_RuleQueryParam(t *testing.T) {
 	clickHasPrefix(t, e.tap("/rp?ref=tiktok", uaDesktopChrome), 302, "https://example.com/tiktok")
 }
 
-// Real world: a 50/50 A/B test of two landing pages; the same visitor clicks twice. Expect: same variant both times, click records the variant.
 func TestS_CLICK_49_ABSplitSticky(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -644,7 +585,6 @@ func TestS_CLICK_49_ABSplitSticky(t *testing.T) {
 	must(t, (v == "a" || v == "b") && r1.Loc() == "https://example.com/"+v, "variant %q Location %q", v, r1.Loc())
 }
 
-// Real world: an iPad user hits a link with an iOS-only rule. Expect: touch-detected iPad matches the iOS rule.
 func TestS_CLICK_50_IPadMatchesIOSRule(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -655,7 +595,6 @@ func TestS_CLICK_50_IPadMatchesIOSRule(t *testing.T) {
 	clickHasPrefix(t, r, 302, "https://apps.apple.com/app/id555")
 }
 
-// Real world: an Android user taps the same link twice within minutes. Expect: one click, same click_id in both Play referrers.
 func TestS_CLICK_51_DoubleTapDedup(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -668,7 +607,6 @@ func TestS_CLICK_51_DoubleTapDedup(t *testing.T) {
 	clickOne(e, a)
 }
 
-// Real world: two people on different networks tap the same link. Expect: two clicks.
 func TestS_CLICK_52_DifferentVisitorsSeparateClicks(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -678,7 +616,6 @@ func TestS_CLICK_52_DifferentVisitorsSeparateClicks(t *testing.T) {
 	must(t, len(clickList(e, a)) == 2, "clicks = %d, want 2", len(clickList(e, a)))
 }
 
-// Real world: a user taps in Instagram, sees the tap page, chooses "Open in external browser" (Chrome). Expect: one click (instagram source), Chrome's Play referrer reuses its click_id.
 func TestS_CLICK_53_InAppToBrowserMerge(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -691,7 +628,6 @@ func TestS_CLICK_53_InAppToBrowserMerge(t *testing.T) {
 	must(t, ref.Get("click_id") == first.ClickID && c.Source == "instagram", "referrer click_id %q, first %q, source %q", ref.Get("click_id"), first.ClickID, c.Source)
 }
 
-// Real world: on shared Wi-Fi an iPhone user taps in Instagram and an Android user opens the link in Chrome. Expect: no merge across platforms, two clicks.
 func TestS_CLICK_54_NoMergeAcrossPlatforms(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -701,7 +637,6 @@ func TestS_CLICK_54_NoMergeAcrossPlatforms(t *testing.T) {
 	must(t, len(clickList(e, a)) == 2, "clicks = %d, want 2", len(clickList(e, a)))
 }
 
-// Real world: an Android-only app shares a link; an iPhone user taps it in Safari. The link has a web fallback. Expect: the web fallback, not a dead-end app page.
 func TestS_CLICK_55_IPhoneWithoutIOSTargetGetsWebFallback(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -711,7 +646,6 @@ func TestS_CLICK_55_IPhoneWithoutIOSTargetGetsWebFallback(t *testing.T) {
 		r.Code, r.Loc(), clickFallback, strings.Contains(r.Body, "Google Play"))
 }
 
-// Real world: an Android user taps a link with utm params; hop 1 must carry them through the reload. Expect: no-store page, noscript reload keeps utm_source + adds _dt, Accept-CH asked.
 func TestS_CLICK_56_Hop1KeepsQueryThroughReload(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -724,8 +658,6 @@ func TestS_CLICK_56_Hop1KeepsQueryThroughReload(t *testing.T) {
 	clickNone(e, a)
 }
 
-// Abuse: a visitor appends ?detur_link=<other key> and pads headers/query to the 32 KiB cap. Expect: stored destination keeps no visitor detur_link,
-// oversized params fall back to the link URL, UA is clipped (match scans up to 5,000 rows; row width stays bounded).
 func TestS_CLICK_57_VisitorTagDroppedAndRowBounded(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()

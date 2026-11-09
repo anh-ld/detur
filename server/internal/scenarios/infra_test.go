@@ -1,8 +1,5 @@
 package scenarios
 
-// Infra / deployment / platform-integration scenarios: Apple + Google verification files, Host handling,
-// reverse proxies and client IP, health, SQLite robustness, request limits, config from env.
-
 import (
 	"database/sql"
 	"fmt"
@@ -47,7 +44,6 @@ type infraAssetLink struct {
 	} `json:"target"`
 }
 
-// infraWK: well-known fetch the way Apple's CDN / Google's verifier do it (GET, given Host, no redirect follow).
 func infraWK(t *testing.T, e *env, method, path, host string) resp {
 	t.Helper()
 	return do(t, method, e.Pub.URL+path, "", map[string]string{"Host": host, "User-Agent": "AASA-Bot/1.0"})
@@ -62,7 +58,6 @@ func infraAASAOf(t *testing.T, r resp) infraAASA {
 	return a
 }
 
-// infraApp: extra app with its own key and platform identity.
 func infraApp(t *testing.T, e *env, name, iosID, pkg, fp string) store.App {
 	t.Helper()
 	a, err := e.St.CreateApp(name, "dk_"+name+"-0123456789")
@@ -76,7 +71,6 @@ func infraApp(t *testing.T, e *env, name, iosID, pkg, fp string) store.App {
 	return a
 }
 
-// infraDesktopTap: desktop browser tap through the proxy with the given forwarded headers (records a click, 302s to fallback).
 func infraDesktopTap(t *testing.T, e *env, key string, hdr map[string]string) resp {
 	t.Helper()
 	h := map[string]string{"User-Agent": uaDesktopChrome}
@@ -86,7 +80,6 @@ func infraDesktopTap(t *testing.T, e *env, key string, hdr map[string]string) re
 	return do(t, "GET", e.Pub.URL+"/"+key, "", h)
 }
 
-// infraClickIPs: IPs on the app's recorded clicks.
 func infraClickIPs(t *testing.T, e *env, appID string) []string {
 	t.Helper()
 	cs, err := e.St.ClicksSince(appID, "", time.Now().Add(-time.Hour))
@@ -100,7 +93,6 @@ func infraClickIPs(t *testing.T, e *env, appID string) []string {
 	return ips
 }
 
-// infraOneClickIP: the single click's IP.
 func infraOneClickIP(t *testing.T, e *env, appID string) string {
 	t.Helper()
 	ips := infraClickIPs(t, e, appID)
@@ -108,7 +100,6 @@ func infraOneClickIP(t *testing.T, e *env, appID string) string {
 	return ips[0]
 }
 
-// infraServe: public listener wired like cmd/detur on an existing store.
 func infraServe(t *testing.T, st *store.Store) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -120,7 +111,6 @@ func infraServe(t *testing.T, st *store.Store) *httptest.Server {
 	return srv
 }
 
-// infraEnvVars: blank every detur env var, then apply kv (t.Setenv restores).
 func infraEnvVars(t *testing.T, kv map[string]string) {
 	t.Helper()
 	for _, k := range []string{"DOMAIN", "DB_PATH", "RETENTION_HOURS", "CLICK_ID_DAYS", "TRUST_PROXY", "TRUSTED_PROXIES",
@@ -132,10 +122,6 @@ func infraEnvVars(t *testing.T, kv map[string]string) {
 	}
 }
 
-// ---------- Apple / Google verification files ----------
-
-// Real world: Apple's CDN (swcd) fetches https://lnk.example/.well-known/apple-app-site-association for a single-app deploy.
-// Expect: 200, application/json, no redirect, applinks.details with appIDs + components claiming every path, apps = [].
 func TestS_INFRA_01_AASAServedToAppleCDN(t *testing.T) {
 	e := newEnv(t)
 	e.app()
@@ -150,8 +136,6 @@ func TestS_INFRA_01_AASAServedToAppleCDN(t *testing.T) {
 	must(t, len(d.Components) == 1 && d.Components[0]["/"] == "/*", "components = %v", d.Components)
 }
 
-// Real world: CDNs, uptime monitors and some validators probe the AASA with HEAD first.
-// Expect: 200 with application/json, same as GET.
 func TestS_INFRA_02_AASAHeadRequest(t *testing.T) {
 	e := newEnv(t)
 	e.app()
@@ -160,8 +144,6 @@ func TestS_INFRA_02_AASAHeadRequest(t *testing.T) {
 	must(t, strings.HasPrefix(r.H.Get("Content-Type"), "application/json"), "Content-Type = %q", r.H.Get("Content-Type"))
 }
 
-// Real world: a proxy forwards Host with an explicit port and mixed case ("LNK.Example:443").
-// Expect: hostnames are case-insensitive and the port is ignored; AASA and assetlinks still served.
 func TestS_INFRA_03_WellKnownHostPortAndCase(t *testing.T) {
 	e := newEnv(t)
 	e.app()
@@ -171,8 +153,6 @@ func TestS_INFRA_03_WellKnownHostPortAndCase(t *testing.T) {
 	}
 }
 
-// Real world: a client or resolver uses the fully-qualified form "lnk.example." (trailing dot) in Host.
-// Expect: same DNS name as lnk.example, so the association file is served.
 func TestS_INFRA_04_WellKnownHostTrailingDot(t *testing.T) {
 	e := newEnv(t)
 	e.app()
@@ -180,8 +160,6 @@ func TestS_INFRA_04_WellKnownHostTrailingDot(t *testing.T) {
 	must(t, r.Code == 200, "AASA with Host %q = %d", linkDomain+".", r.Code)
 }
 
-// Real world: someone points their own domain at this instance (or scans by IP) and asks for its association files.
-// Expect: 404 for both files: one instance never vouches for another operator's domain.
 func TestS_INFRA_05_WellKnownUnknownHost404(t *testing.T) {
 	e := newEnv(t)
 	e.app()
@@ -193,8 +171,6 @@ func TestS_INFRA_05_WellKnownUnknownHost404(t *testing.T) {
 	}
 }
 
-// Real world: Android-only app, no iOS app ID yet; Apple still fetches the AASA.
-// Expect: valid AASA JSON with details as an empty array (never null, which breaks parsers).
 func TestS_INFRA_06_AASANoIOSApp(t *testing.T) {
 	e := newEnv(t)
 	infraApp(t, e, "droid", "", "com.example.droid", infraFP1)
@@ -204,8 +180,6 @@ func TestS_INFRA_06_AASANoIOSApp(t *testing.T) {
 	must(t, len(a.AppLinks.Details) == 0, "details = %+v", a.AppLinks.Details)
 }
 
-// Real world: two iOS apps share one link domain; iOS opens the first matching details entry.
-// Expect: each entry claims only its own link keys (no "*"), so app B's links don't open app A.
 func TestS_INFRA_07_AASAMultiAppPartitionsPaths(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -227,8 +201,6 @@ func TestS_INFRA_07_AASAMultiAppPartitionsPaths(t *testing.T) {
 	must(t, fmt.Sprint(claims["ZZZZZ99999.com.example.second"]) == "[/promo-b]", "app B claims %v", claims)
 }
 
-// Real world: operator copies the Team ID + bundle ID from the Apple Developer portal with a trailing space/newline and saves it in the portal.
-// Expect: the AASA appID is exactly TEAMID.bundle (trimmed); Apple matches it byte for byte.
 func TestS_INFRA_08_AASAPortalTrimsPastedAppID(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -243,8 +215,6 @@ func TestS_INFRA_08_AASAPortalTrimsPastedAppID(t *testing.T) {
 	must(t, len(links) == 1 && links[0].Target.PackageName == "com.example.app", "assetlinks package = %+v", links)
 }
 
-// Real world: Google's Digital Asset Links verifier fetches https://lnk.example/.well-known/assetlinks.json during App Links verification.
-// Expect: 200, application/json, top-level array with handle_all_urls relation, android_app namespace, package + fingerprint.
 func TestS_INFRA_09_AssetLinksServedToGoogle(t *testing.T) {
 	e := newEnv(t)
 	e.app()
@@ -261,8 +231,6 @@ func TestS_INFRA_09_AssetLinksServedToGoogle(t *testing.T) {
 	must(t, len(l.Target.Fingerprints) == 1 && l.Target.Fingerprints[0] == infraFP1, "fingerprints = %v", l.Target.Fingerprints)
 }
 
-// Real world: app on Play App Signing: operator lists the upload key and the Play signing key, comma-separated with spaces.
-// Expect: both fingerprints in sha256_cert_fingerprints, trimmed, so debug and Play builds both verify.
 func TestS_INFRA_10_AssetLinksMultipleFingerprints(t *testing.T) {
 	e := newEnv(t)
 	infraApp(t, e, "play", "", "com.example.play", infraFP1+" , "+infraFP2+" ,")
@@ -273,11 +241,9 @@ func TestS_INFRA_10_AssetLinksMultipleFingerprints(t *testing.T) {
 	must(t, len(fps) == 2 && fps[0] == infraFP1 && fps[1] == infraFP2, "fingerprints = %q", fps)
 }
 
-// Real world: one instance hosts an Android app, a second Android app, and an iOS-only app.
-// Expect: assetlinks lists both Android apps, skips the iOS-only one; AASA lists only the iOS-capable apps.
 func TestS_INFRA_11_WellKnownMixedApps(t *testing.T) {
 	e := newEnv(t)
-	e.app() // iOS + Android
+	e.app()
 	infraApp(t, e, "droid2", "", "com.example.droid2", infraFP2)
 	ios := infraApp(t, e, "iosonly", "QQQQQ11111.com.example.iosonly", "", "")
 	e.link(ios, "ios-only", "/x")
@@ -294,8 +260,6 @@ func TestS_INFRA_11_WellKnownMixedApps(t *testing.T) {
 	}
 }
 
-// Real world: developer runs `docker compose up` with DOMAIN=localhost and opens http://localhost:8080/.well-known/... to check setup.
-// Expect: localhost (with port) is always served.
 func TestS_INFRA_12_WellKnownLocalhostDev(t *testing.T) {
 	e := newEnv(t)
 	e.app()
@@ -305,10 +269,6 @@ func TestS_INFRA_12_WellKnownLocalhostDev(t *testing.T) {
 	must(t, r.Code == 200, "AASA on localhost:8080 = %d", r.Code)
 }
 
-// ---------- Proxies and client IP ----------
-
-// Real world: Caddy on the same host (loopback peer) appends the visitor's IP to X-Forwarded-For; TRUST_PROXY=1.
-// Expect: the recorded click carries the visitor's public IP, not 127.0.0.1.
 func TestS_INFRA_13_ProxyTrustedLoopbackXFF(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -319,8 +279,6 @@ func TestS_INFRA_13_ProxyTrustedLoopbackXFF(t *testing.T) {
 	must(t, ip == clientIP, "click IP = %q, want %q", ip, clientIP)
 }
 
-// Real world: detur exposed directly on :8080 (TRUST_PROXY=0); an attacker sends a forged X-Forwarded-For to game IP matching.
-// Expect: forwarded headers ignored; click IP = socket peer.
 func TestS_INFRA_14_ProxyOffIgnoresSpoofedXFF(t *testing.T) {
 	e := newEnvWith(t, envOpts{TrustProxy: false})
 	a := e.app()
@@ -330,9 +288,6 @@ func TestS_INFRA_14_ProxyOffIgnoresSpoofedXFF(t *testing.T) {
 	must(t, ip == "127.0.0.1", "click IP = %q, want socket peer 127.0.0.1", ip)
 }
 
-// Real world: Cloudflare -> Zeabur ingress -> detur. TRUSTED_PROXIES lists the ingress range and Cloudflare's ranges.
-// Client-forged leftmost entry, then the real visitor, then the Cloudflare edge.
-// Expect: click IP = the real visitor (rightmost untrusted hop), never the forged entry or the CF edge.
 func TestS_INFRA_15_ProxyCloudflareIngressChain(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -343,8 +298,6 @@ func TestS_INFRA_15_ProxyCloudflareIngressChain(t *testing.T) {
 	must(t, ip == "198.51.100.7", "click IP = %q, want 198.51.100.7", ip)
 }
 
-// Real world: TRUSTED_PROXIES is set to the ingress range only; a request arrives from a peer outside it carrying XFF.
-// Expect: headers ignored (click IP = peer) and the ignore is counted for the Settings Health warning.
 func TestS_INFRA_16_ProxyUntrustedPeerSpoof(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -356,8 +309,6 @@ func TestS_INFRA_16_ProxyUntrustedPeerSpoof(t *testing.T) {
 	must(t, httpx.XFFIgnored() >= 1 && httpx.LastXFFPeer() == "127.0.0.1", "XFFIgnored=%d LastXFFPeer=%q", httpx.XFFIgnored(), httpx.LastXFFPeer())
 }
 
-// Real world: nginx configured with `proxy_set_header X-Real-IP $remote_addr;` and no X-Forwarded-For.
-// Expect: click IP = X-Real-IP.
 func TestS_INFRA_17_ProxyNginxXRealIP(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -367,8 +318,6 @@ func TestS_INFRA_17_ProxyNginxXRealIP(t *testing.T) {
 	must(t, ip == "198.51.100.23", "click IP = %q", ip)
 }
 
-// Real world: visitor on an IPv6 mobile network behind Caddy.
-// Expect: click IP = the IPv6 address.
 func TestS_INFRA_18_ProxyIPv6Client(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -378,8 +327,6 @@ func TestS_INFRA_18_ProxyIPv6Client(t *testing.T) {
 	must(t, ip == "2001:db8:85a3::8a2e:370:7334", "click IP = %q", ip)
 }
 
-// Real world: Azure Application Gateway / App Service append the client as "ip:port" in X-Forwarded-For.
-// Expect: the port is stripped; click IP = bare IP (else tap and SDK call never share an IP).
 func TestS_INFRA_19_ProxyXFFWithPort(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -389,8 +336,6 @@ func TestS_INFRA_19_ProxyXFFWithPort(t *testing.T) {
 	must(t, ip == "203.0.113.7", "click IP = %q, want 203.0.113.7", ip)
 }
 
-// Real world: iPhone on IPv6 taps a link in Safari, installs, opens the app; SDK calls match-link from the same IPv6.
-// Expect: deferred link matched (200 with the link).
 func TestS_INFRA_20_ProxyIPv6EndToEndMatch(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -403,10 +348,6 @@ func TestS_INFRA_20_ProxyIPv6EndToEndMatch(t *testing.T) {
 	must(t, m.Code == 200 && strings.Contains(m.Body, "product/6"), "match-link = %d %s", m.Code, m.Body)
 }
 
-// ---------- Health ----------
-
-// Real world: Docker HEALTHCHECK (wget GET) and uptime monitors (HEAD) probe /health on a working instance.
-// Expect: 200 "ok" for GET, 200 for HEAD.
 func TestS_INFRA_21_HealthOK(t *testing.T) {
 	e := newEnv(t)
 	r := do(t, "GET", e.Pub.URL+"/health", "", nil)
@@ -415,8 +356,6 @@ func TestS_INFRA_21_HealthOK(t *testing.T) {
 	must(t, r.Code == 200, "HEAD /health = %d", r.Code)
 }
 
-// Real world: the SQLite handle is gone (volume unmounted, DB closed); orchestrator must restart the container.
-// Expect: /health = 503.
 func TestS_INFRA_22_HealthDBDown(t *testing.T) {
 	e := newEnv(t)
 	e.St.Close()
@@ -424,10 +363,6 @@ func TestS_INFRA_22_HealthDBDown(t *testing.T) {
 	must(t, r.Code == http.StatusServiceUnavailable, "/health with closed DB = %d", r.Code)
 }
 
-// ---------- Robustness ----------
-
-// Real world: an influencer posts a link; 50 different people tap it within the same second.
-// Expect: every tap redirects, every click is recorded (no SQLITE_BUSY drops).
 func TestS_INFRA_23_ConcurrentClicksOneLink(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -450,8 +385,6 @@ func TestS_INFRA_23_ConcurrentClicksOneLink(t *testing.T) {
 	must(t, got == n, "recorded clicks = %d, want %d", got, n)
 }
 
-// Real world: a user double-taps and the browser prefetches: 20 identical requests from one device hit at once.
-// Expect: all redirect, exactly one click (dedup holds under concurrency).
 func TestS_INFRA_24_ConcurrentSameDeviceDedup(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -473,8 +406,6 @@ func TestS_INFRA_24_ConcurrentSameDeviceDedup(t *testing.T) {
 	must(t, got == 1, "clicks = %d, want 1", got)
 }
 
-// Real world: a release goes out; 30 new installs open the app at once and the SDK calls match-link concurrently.
-// Expect: no 5xx; every device gets an answer and an organic install row.
 func TestS_INFRA_25_ConcurrentMatchLink(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -497,8 +428,6 @@ func TestS_INFRA_25_ConcurrentMatchLink(t *testing.T) {
 	must(t, err == nil && organic == n, "organic installs = %d (%v), want %d", organic, err, n)
 }
 
-// Real world: `docker compose pull && up -d` restarts the container on the same /data volume.
-// Expect: store.Open on the same path keeps apps, links and clicks; links still resolve.
 func TestS_INFRA_26_RestartKeepsData(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -518,8 +447,6 @@ func TestS_INFRA_26_RestartKeepsData(t *testing.T) {
 	must(t, r.Code == 200 && strings.Contains(r.Body, "ABCDE12345.com.example.app"), "AASA after restart = %d %s", r.Code, r.Body)
 }
 
-// Real world: operator upgrades from v0.1 (old tables missing later columns) to the current image on the same DB.
-// Expect: store.Open migrates in place; old app's well-known files, old link and new click recording all work.
 func TestS_INFRA_27_UpgradeFromV01Database(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "detur.db")
 	db, err := sql.Open("sqlite", path)
@@ -558,8 +485,6 @@ INSERT INTO links (id, app_id, key, url, fallback_url) VALUES ('old-link', 'old-
 	must(t, err == nil && n == 1, "clicks on upgraded DB = %d (%v)", n, err)
 }
 
-// Real world: DB_PATH points at a file that isn't SQLite (wrong mount, stray file) or into a missing directory.
-// Expect: store.Open returns an error (container exits with a clear log), never panics or silently starts.
 func TestS_INFRA_28_OpenBadDBPath(t *testing.T) {
 	dir := t.TempDir()
 	junk := filepath.Join(dir, "detur.db")
@@ -574,13 +499,11 @@ func TestS_INFRA_28_OpenBadDBPath(t *testing.T) {
 	}
 }
 
-// Real world: RETENTION_HOURS=24; the hourly purge runs a day later.
-// Expect: the click's fingerprint (IP, UA) is scrubbed, while the app and link are untouched and still redirect.
 func TestS_INFRA_29_RetentionPurgeScrubsClicks(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
 	e.link(a, "ret", "/p")
-	srv := infraServe(t, e.St) // RETENTION_HOURS=24
+	srv := infraServe(t, e.St)
 	tap := func() resp {
 		return do(t, "GET", srv.URL+"/ret", "", map[string]string{"User-Agent": uaDesktopChrome, "X-Forwarded-For": clientIP})
 	}
@@ -599,14 +522,12 @@ func TestS_INFRA_29_RetentionPurgeScrubsClicks(t *testing.T) {
 	must(t, tap().Code == 302, "link after purge")
 }
 
-// Real world: Android user taps, installs 2 days later; Play Install Referrer brings click_id back after the 24h purge scrubbed the fingerprint (CLICK_ID_DAYS=30).
-// Expect: match-link by clickId still returns the link.
 func TestS_INFRA_30_PurgeKeepsLateClickID(t *testing.T) {
 	e := newEnv(t)
 	e.St.ClickIDHours = 30 * 24
 	a := e.app()
 	e.link(a, "late", "/late/1")
-	srv := infraServe(t, e.St) // RETENTION_HOURS=24
+	srv := infraServe(t, e.St)
 	h := map[string]string{"User-Agent": uaAndroidChrome, "X-Forwarded-For": clientIP}
 	must(t, do(t, "GET", srv.URL+"/late", "", h).Code == 200, "hop 1")
 	do(t, "GET", srv.URL+"/late?_dt=1&screen=393x852%403&tz=Asia%2FHo_Chi_Minh", "", h)
@@ -619,8 +540,6 @@ func TestS_INFRA_30_PurgeKeepsLateClickID(t *testing.T) {
 	must(t, r.Code == 200 && strings.Contains(r.Body, "late/1"), "match by late clickId = %d %s", r.Code, r.Body)
 }
 
-// Real world: a hostile client POSTs a 2 MB body to match-link to pin the single SQLite writer.
-// Expect: rejected with 413 (or 400), never 5xx, and the next normal SDK call still works.
 func TestS_INFRA_31_OversizedSDKBody(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -631,8 +550,6 @@ func TestS_INFRA_31_OversizedSDKBody(t *testing.T) {
 	must(t, r.Code == 200 || r.Code == 404, "normal call after oversized = %d", r.Code)
 }
 
-// Real world: scanners hit very long random paths; ad networks append huge click IDs (fbclid/gclid) to a real link.
-// Expect: long unknown key -> 404 (not 5xx); real link with a 6 KB query still redirects and records the click.
 func TestS_INFRA_32_VeryLongURLs(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -644,8 +561,6 @@ func TestS_INFRA_32_VeryLongURLs(t *testing.T) {
 	must(t, len(infraClickIPs(t, e, a.ID)) == 1, "click not recorded for long query")
 }
 
-// Real world: a marketer tries an emoji / Vietnamese key ("🎉sale", "khuyến-mãi"); people also open percent-encoded emoji paths.
-// Expect: portal rejects non path-safe keys with 400; public listener answers 404 for such paths, never 5xx.
 func TestS_INFRA_33_UnicodeKeys(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -659,8 +574,6 @@ func TestS_INFRA_33_UnicodeKeys(t *testing.T) {
 	}
 }
 
-// Real world: an email client or QR generator percent-encodes plain characters in the path ("/ab%63" for "/abc").
-// Expect: RFC 3986 equivalent path -> same link redirects.
 func TestS_INFRA_34_PercentEncodedKey(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -669,8 +582,6 @@ func TestS_INFRA_34_PercentEncodedKey(t *testing.T) {
 	must(t, r.Code == 302, "/ab%%63 = %d", r.Code)
 }
 
-// Real world: a form-submitting crawler POSTs to a short link; a misconfigured client PUTs to an SDK route.
-// Expect: 405 with Allow header; no click recorded.
 func TestS_INFRA_35_MethodNotAllowed(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -682,8 +593,6 @@ func TestS_INFRA_35_MethodNotAllowed(t *testing.T) {
 	must(t, len(infraClickIPs(t, e, a.ID)) == 0, "POST recorded a click")
 }
 
-// Real world: :8080 is public; a scanner probes /api/apps, /api/apps/x/links, /api/admin/session and GETs SDK routes.
-// Expect: public listener never exposes portal API (404) and SDK routes are not read as short-link keys (405 for GET).
 func TestS_INFRA_36_PublicListenerNoPortalAPI(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -697,8 +606,6 @@ func TestS_INFRA_36_PublicListenerNoPortalAPI(t *testing.T) {
 	must(t, r.Code == 405, "GET match-link = %d", r.Code)
 }
 
-// Real world: operator tries to create a link keyed "health" or "API" (would be shadowed by /health and /api routes).
-// Expect: portal refuses reserved keys, case-insensitively.
 func TestS_INFRA_37_ReservedKeysRefused(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -708,8 +615,6 @@ func TestS_INFRA_37_ReservedKeysRefused(t *testing.T) {
 	}
 }
 
-// Real world: an attacker on the portal port requests encoded traversal paths for /etc/passwd or the SQLite file.
-// Expect: never serves files outside the static dir.
 func TestS_INFRA_38_PortalStaticTraversal(t *testing.T) {
 	e := newEnv(t)
 	for _, p := range []string{"/../../../../etc/passwd", "/%2e%2e/%2e%2e/%2e%2e/etc/passwd", "/..%2f..%2f..%2fetc%2fpasswd", "/%2e%2e%2f" + filepath.Base(e.DBPath)} {
@@ -718,8 +623,6 @@ func TestS_INFRA_38_PortalStaticTraversal(t *testing.T) {
 	}
 }
 
-// Real world: email security scanners (Outlook Safe Links, Proofpoint) send HEAD with a browser UA to every link in a message.
-// Expect: HEAD gets the redirect but records no click (no fake clicks in analytics or matching).
 func TestS_INFRA_39_HeadDoesNotRecordClick(t *testing.T) {
 	e := newEnv(t)
 	a := e.app()
@@ -730,10 +633,6 @@ func TestS_INFRA_39_HeadDoesNotRecordClick(t *testing.T) {
 	must(t, n == 0, "HEAD recorded %d click(s)", n)
 }
 
-// ---------- Config ----------
-
-// Real world: `docker run` with no env except what the Dockerfile sets.
-// Expect: documented defaults (DOMAIN=localhost, RETENTION_HOURS=24, CLICK_ID_DAYS=30, TRUST_PROXY off, ADMIN_SESSION_HOURS=12).
 func TestS_INFRA_40_ConfigDefaults(t *testing.T) {
 	infraEnvVars(t, nil)
 	c, err := config.Load()
@@ -743,8 +642,6 @@ func TestS_INFRA_40_ConfigDefaults(t *testing.T) {
 	must(t, fmt.Sprint(config.DomainSet(c)) == "[localhost]", "DomainSet = %v", config.DomainSet(c))
 }
 
-// Real world: typos in numeric env vars (RETENTION_HOURS=24h, =0, =9000, CLICK_ID_DAYS=91, ADMIN_SESSION_HOURS=0).
-// Expect: config.Load fails fast for each instead of silently running with a different value.
 func TestS_INFRA_41_ConfigInvalidNumbersFailFast(t *testing.T) {
 	for _, kv := range [][2]string{{"RETENTION_HOURS", "24h"}, {"RETENTION_HOURS", "0"}, {"RETENTION_HOURS", "9000"},
 		{"CLICK_ID_DAYS", "91"}, {"CLICK_ID_DAYS", "0"}, {"ADMIN_SESSION_HOURS", "0"}, {"ADMIN_SESSION_HOURS", "73"}} {
@@ -754,8 +651,6 @@ func TestS_INFRA_41_ConfigInvalidNumbersFailFast(t *testing.T) {
 	}
 }
 
-// Real world: operator writes TRUST_PROXY=true (docker-compose style boolean) behind Caddy.
-// Expect: either honored as on, or rejected at startup; never silently treated as off (every user would share the proxy IP).
 func TestS_INFRA_42_ConfigTrustProxyTrue(t *testing.T) {
 	for _, v := range []string{"true", "TRUE", "yes"} {
 		infraEnvVars(t, map[string]string{"TRUST_PROXY": v})
@@ -764,8 +659,6 @@ func TestS_INFRA_42_ConfigTrustProxyTrue(t *testing.T) {
 	}
 }
 
-// Real world: operator sets DOMAIN=https://lnk.example/ despite the .env comment.
-// Expect: normalized to lnk.example or rejected at startup; never silently 404 every AASA/assetlinks fetch.
 func TestS_INFRA_43_ConfigDomainWithScheme(t *testing.T) {
 	infraEnvVars(t, map[string]string{"DOMAIN": "https://lnk.example/"})
 	c, err := config.Load()
@@ -776,8 +669,6 @@ func TestS_INFRA_43_ConfigDomainWithScheme(t *testing.T) {
 	must(t, len(ds) > 0 && ds[0] == "lnk.example", "DOMAIN=https://lnk.example/ -> DomainSet %v (well-known would 404 on lnk.example)", ds)
 }
 
-// Real world: TRUSTED_PROXIES lists Cloudflare v4 + v6 ranges with spaces after commas; a typo elsewhere ("cloudflare").
-// Expect: valid list parsed (trimmed, IPv6 ok); invalid entry fails startup.
 func TestS_INFRA_44_ConfigTrustedProxiesList(t *testing.T) {
 	infraEnvVars(t, map[string]string{"TRUST_PROXY": "1", "TRUSTED_PROXIES": "173.245.48.0/20, 103.21.244.0/22 ,2400:cb00::/32,"})
 	c, err := config.Load()
@@ -788,8 +679,6 @@ func TestS_INFRA_44_ConfigTrustedProxiesList(t *testing.T) {
 	must(t, err != nil, "invalid TRUSTED_PROXIES accepted")
 }
 
-// Real world: LOGOUT_URL set to a script URL or protocol-relative host (lands in the portal's href).
-// Expect: rejected at startup; Cloudflare Access path and full https URL accepted.
 func TestS_INFRA_45_ConfigLogoutURL(t *testing.T) {
 	for _, v := range []string{"javascript:alert(1)", "//evil.example/x", "ftp://x.example"} {
 		infraEnvVars(t, map[string]string{"LOGOUT_URL": v})

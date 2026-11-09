@@ -20,7 +20,6 @@ function Section({ title, sub, children }: { title: string; sub: string; childre
   );
 }
 
-// empty in range: same Card + Empty as Links tab
 const EmptySection = ({ title, children }: { title: string; children: ComponentChildren }) => (
   <Card>
     <Empty>
@@ -73,7 +72,7 @@ export function VariantsSection({ variants }: { variants: VariantStat[] }) {
 }
 
 export function RetentionSection({ data }: { data: Analytics | null }) {
-  const retention = data?.retention ?? []; // older servers / fixtures omit it
+  const retention = data?.retention ?? [];
   return (
     <Section title="Retention by link" sub="Tagged devices back on day 1, 7 and 30. All platforms.">
       {!data ? (

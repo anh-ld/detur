@@ -12,18 +12,15 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// isWebURL: http(s) target a desktop browser can open.
 func isWebURL(s string) bool {
 	u, err := url.Parse(s)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https")
 }
 
-// shortURL: the visited short link, forwarded params kept, internal ones dropped.
 func shortURL(r *http.Request, key string, q url.Values) string {
-	return httpx.AddParams(httpx.Origin(r)+"/"+key, q, func(k, v string) bool { return v != "" && !internalParams[k] })
+	return httpx.AddParams(httpx.Origin(r)+"/"+key, q, forwardable)
 }
 
-// serveDesktop: target a browser can't follow (myapp://, app route). Desktop: QR + short link to open on a phone. Phone: just the store buttons. Store buttons when the link has them.
 func (p *pipelineServer) serveDesktop(w http.ResponseWriter, r *http.Request, link store.Link, q url.Values, phone bool) {
 	short := shortURL(r, link.Key, q)
 	data := struct {
@@ -32,8 +29,8 @@ func (p *pipelineServer) serveDesktop(w http.ResponseWriter, r *http.Request, li
 		QR          template.URL
 		IOS, Play   template.URL
 	}{Name: "the app", Short: short, Phone: phone}
-	if app, err := p.st.GetApp(link.AppID); err == nil && app.Name != "" {
-		data.Name = app.Name
+	if name, err := p.st.AppName(link.AppID); err == nil && name != "" {
+		data.Name = name
 	}
 	if code, err := qr.Encode(short, qr.M); err == nil && !phone {
 		code.Scale = 6
@@ -49,7 +46,6 @@ func (p *pipelineServer) serveDesktop(w http.ResponseWriter, r *http.Request, li
 	_ = desktopTmpl.Execute(w, data)
 }
 
-// desktopTmpl: same look as the tap page. QR + selectable link are the minimum; store buttons only when set.
 var desktopTmpl = template.Must(template.New("desktop").Parse(`<!doctype html>
 <meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{if .Phone}}Get {{.Name}}{{else}}Open {{.Name}} on your phone{{end}}</title>

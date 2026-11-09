@@ -68,7 +68,7 @@ export function RuleList({
                 <IconButton icon={ICONS.up} label="Move up" disabled={busy || idx === 0} onClick={() => onMove(idx, -1)} />
                 <IconButton icon={ICONS.down} label="Move down" disabled={busy || idx === rules.length - 1} onClick={() => onMove(idx, 1)} />
                 <IconButton icon={ICONS.edit} label="Edit" disabled={busy} onClick={() => onEdit(idx)} />
-                <IconButton icon={ICONS.trash} label="Delete" class="icon-btn danger" disabled={busy} onClick={() => onDelete(idx)} />
+                <IconButton icon={ICONS.trash} label="Delete" danger disabled={busy} onClick={() => onDelete(idx)} />
               </div>
             </li>
           );

@@ -1,4 +1,3 @@
-// relative URLs: Go binary serves portal + API on one origin
 import type {
   AdminSession,
   Analytics,
@@ -7,37 +6,30 @@ import type {
   AppPage,
   CreatedApp,
   CreatedToken,
-  DayStat,
-  FlaggedInstall,
   Fraud,
   FraudSettings,
   HealthCheck,
   Link,
-  LinkRetention,
   LinkRule,
-  Mark,
   MatchQuality,
   PagePreview,
   Platform,
   RedirectProfile,
-  RuleAction,
-  RuleCond,
-  RuleTargets,
   SocialPreset,
-  SplitVariant,
   VariantStat,
   Webhook,
 } from './types';
 import { dateRangeQuery, type DateRangeFilter } from './range';
 
-// base URL: '' = same origin; integration tests point at live server
 export let apiBase = '';
 export function setApiBase(url: string) {
   apiBase = url;
+  config = null;
 }
 
-// carries status: UI tells 401 (wrong password) from 403 (no/expired admin session) without parsing.
-// message = server's text (user-facing); method + path kept for debugging. String(err) = message only.
+type Config = { logoutUrl: string; adminSet: boolean; linkBase: string; version: string };
+let config: Promise<Config> | null = null;
+
 export class HttpError extends Error {
   status: number;
   request: string;
@@ -68,7 +60,11 @@ export async function req<T>(method: string, path: string, body?: unknown): Prom
 export const api = {
   getMatchQuality: (id: string) => req<MatchQuality>('GET', `/api/apps/${id}/match-quality?days=30`),
   getHealth: (id: string) => req<HealthCheck[]>('GET', `/api/apps/${id}/health`),
-  getConfig: () => req<{ logoutUrl: string; adminSet: boolean; linkBase: string; version: string }>('GET', '/api/config'),
+  getConfig: () =>
+    (config ??= req<Config>('GET', '/api/config').catch((e) => {
+      config = null;
+      throw e;
+    })),
   getAdminSession: () => req<AdminSession>('GET', '/api/admin/session'),
   enterAdminMode: (password: string) => req<{ expiresAt: string }>('POST', '/api/admin/session', { password }),
   exitAdminMode: () => req<AdminSession>('DELETE', '/api/admin/session'),
@@ -91,7 +87,6 @@ export const api = {
   deleteApp: (id: string) => req<void>('DELETE', `/api/apps/${id}`),
   getPage: (id: string) => req<AppPage>('GET', `/api/apps/${id}/page`),
   savePage: (id: string, html: string) => req<void>('PUT', `/api/apps/${id}/page`, { html }),
-  // preview comes back as text/html, not JSON
   previewPage: async (id: string, p: PagePreview) => {
     const res = await fetch(apiBase + `/api/apps/${id}/page/preview`, {
       method: 'POST',

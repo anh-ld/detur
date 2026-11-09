@@ -1,7 +1,5 @@
 package match
 
-// Matching engine scenarios 1-20.
-
 import (
 	"database/sql"
 	"errors"
@@ -10,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite" // SQLite driver: tests backdate click timestamps
+	_ "modernc.org/sqlite"
 
 	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/store"
@@ -21,12 +19,10 @@ const (
 	otherIP = "198.51.100.9"
 )
 
-// testLink: bare link for pure Score tests (no store).
 func testLink() store.Link {
 	return store.Link{ID: "l1", AppID: "a1", URL: "https://example.com/product"}
 }
 
-// androidClick: every Android-scorable signal: IP, model+system version in UA, locale, timezone, screen.
 func androidClick(link store.Link) store.Click {
 	return store.Click{
 		AppID: link.AppID, LinkID: link.ID, Destination: link.URL,
@@ -38,7 +34,6 @@ func androidClick(link store.Link) store.Click {
 	}
 }
 
-// iosClick: every iOS-scorable signal: IP, iOS system version in UA, locale, timezone, screen, pasted link.
 func iosClick(link store.Link) store.Click {
 	return store.Click{
 		AppID: link.AppID, LinkID: link.ID, Destination: link.URL,
@@ -100,7 +95,6 @@ func setupApp(t *testing.T, s *store.Store) (store.App, store.Link) {
 	return app, link
 }
 
-// recordClick: persist click, created_at = now.
 func recordClick(t *testing.T, s *store.Store, c store.Click) store.Click {
 	t.Helper()
 	got, err := s.RecordClick(c, 24)
@@ -110,7 +104,6 @@ func recordClick(t *testing.T, s *store.Store, c store.Click) store.Click {
 	return got
 }
 
-// recordClickBackdated: persist click, rewrite created_at into past. RecordClick always stamps now -> edit row via second connection (WAL allows).
 func recordClickBackdated(t *testing.T, s *store.Store, dbPath string, c store.Click, d time.Duration) store.Click {
 	t.Helper()
 	got := recordClick(t, s, c)
@@ -126,14 +119,12 @@ func recordClickBackdated(t *testing.T, s *store.Store, dbPath string, c store.C
 	return got
 }
 
-// Scenario 1: exact clickId resolves regardless of score.
 func TestDeterministicClickIDWinsRegardlessOfScore(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
 	c := androidClick(link)
 	c.ClickID = "play-click-1"
 	recordClick(t, s, c)
-	// fingerprint scoring 0 (no IP match, all signals mismatched)
 	fp := Fingerprint{Model: "Pixel 9", SystemVersion: "99", Locale: "fr",
 		Timezone: "UTC", UserAgent: "Mozilla/5.0 (X11; Linux x86_64)"}
 	res, err := Match(s, link.AppID, Request{ClickID: "play-click-1", IP: otherIP, Fingerprint: &fp})
@@ -145,13 +136,10 @@ func TestDeterministicClickIDWinsRegardlessOfScore(t *testing.T) {
 	}
 }
 
-// Scenario 2: clickId present but unknown -> no-match, no probabilistic fallback.
 func TestUnknownClickIDNoProbabilisticFallback(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
-	// strong recent click inside window...
 	recordClick(t, s, androidClick(link))
-	// ...but unknown clickId: deterministic path only
 	res, err := Match(s, link.AppID, Request{ClickID: "unknown-click", IP: testIP, Fingerprint: fpPtr(androidFP())})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
@@ -161,7 +149,6 @@ func TestUnknownClickIDNoProbabilisticFallback(t *testing.T) {
 	}
 }
 
-// Scenario 3: score above threshold -> match, click destination.
 func TestScoreAboveThresholdMatches(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -175,7 +162,6 @@ func TestScoreAboveThresholdMatches(t *testing.T) {
 	}
 }
 
-// Scenario 4: below threshold -> no match. Docs' rejection example: timezone+language+screen = 200+100+200 = 500.
 func TestScoreBelowThresholdNoMatch(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -191,7 +177,6 @@ func TestScoreBelowThresholdNoMatch(t *testing.T) {
 	}
 }
 
-// Scenario 5: exactly threshold -> match. Rebalanced: IP (400) + pasteboard token (350) + locale (100) = 850.
 func TestScoreAtThresholdMatches(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -206,7 +191,6 @@ func TestScoreAtThresholdMatches(t *testing.T) {
 	}
 }
 
-// Scenario 6a: window edge, click 14:59 ago inside 15-min window.
 func TestWindowEdgeInsideMatches(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -220,7 +204,6 @@ func TestWindowEdgeInsideMatches(t *testing.T) {
 	}
 }
 
-// Scenario 6b: window edge, click 15:01 ago outside 15-min window.
 func TestWindowEdgeOutsideNoMatch(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -234,7 +217,6 @@ func TestWindowEdgeOutsideNoMatch(t *testing.T) {
 	}
 }
 
-// Scenario 7: stored out-of-range window errors at read; deterministic path never reads settings.
 func TestWindowRangeValidation(t *testing.T) {
 	s, _ := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -252,13 +234,12 @@ func TestWindowRangeValidation(t *testing.T) {
 	}
 }
 
-// Scenario 9: clickId lookup succeeds past window (24h retention floor; deterministic has no window).
 func TestDeterministicClickIDBeyondWindow(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
 	c := androidClick(link)
 	c.ClickID = "play-old-1"
-	recordClickBackdated(t, s, path, c, 30*time.Minute) // past 15-min window
+	recordClickBackdated(t, s, path, c, 30*time.Minute)
 	res, err := Match(s, link.AppID, Request{ClickID: "play-old-1"})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
@@ -268,12 +249,11 @@ func TestDeterministicClickIDBeyondWindow(t *testing.T) {
 	}
 }
 
-// Scenario 10: tie (equal score) -> newer click wins.
 func TestTieBreaksToNewerClick(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
 	old := recordClickBackdated(t, s, path, androidClick(link), 2*time.Minute)
-	rec := recordClick(t, s, androidClick(link)) // identical fingerprint, newer
+	rec := recordClick(t, s, androidClick(link))
 	res, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: fpPtr(androidFP())})
 	if err != nil {
 		t.Fatalf("Match: %v", err)
@@ -284,13 +264,11 @@ func TestTieBreaksToNewerClick(t *testing.T) {
 	}
 }
 
-// Scenario 11: Android model+systemVersion 400; UA device signature NOT added (one-device-signal rule).
 func TestAndroidModelSystemVersionWeight(t *testing.T) {
 	link := testLink()
 	if s := Score(androidClick(link), androidFP(), testIP); s != 1300 {
 		t.Errorf("android full score = %d; want 1300 (400 device signal, no UA double-count, 400 IP)", s)
 	}
-	// model mismatch: 400 branch fails -> 0 device, no UA signature stacked; no device -> tz/lang not counted
 	bad := androidFP()
 	bad.Model = "Pixel 8"
 	if s := Score(androidClick(link), bad, testIP); s != 600 {
@@ -298,7 +276,6 @@ func TestAndroidModelSystemVersionWeight(t *testing.T) {
 	}
 }
 
-// Scenario 12: iOS systemVersion 350; UA signature not double-counted.
 func TestIOSSystemVersionWeight(t *testing.T) {
 	link := testLink()
 	if s := Score(iosClick(link), iosFP(), testIP); s != 1600 {
@@ -311,7 +288,6 @@ func TestIOSSystemVersionWeight(t *testing.T) {
 	}
 }
 
-// Scenario 13: UA device signature 350 only as fallback when platform device signal unavailable (here: Android UA, no derivable OS version).
 func TestUADeviceSignatureFallback(t *testing.T) {
 	link := testLink()
 	c := androidClick(link)
@@ -326,7 +302,6 @@ func TestUADeviceSignatureFallback(t *testing.T) {
 	}
 }
 
-// Scenario 14: pasteboard tiers: 350 token+prefix, 175 prefix-only.
 func TestPasteboardTiers(t *testing.T) {
 	click := store.Click{Fingerprint: store.Fingerprint{PastedLink: "https://lnk.example/abc123"}}
 	if s := Score(click, Fingerprint{PastedLink: "https://lnk.example/abc123"}, ""); s != 350 {
@@ -343,7 +318,6 @@ func TestPasteboardTiers(t *testing.T) {
 	}
 }
 
-// Scenario 15: screen tolerance ±1 width/height, ±0.01 scale.
 func TestScreenTolerance(t *testing.T) {
 	base := androidClick(testLink())
 	fp := Fingerprint{ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
@@ -352,19 +326,19 @@ func TestScreenTolerance(t *testing.T) {
 	if s := Score(c, fp, ""); s != 200 {
 		t.Errorf("within tolerance = %d; want 200", s)
 	}
-	c.Fingerprint.Screen = "393x854@3" // height +2
+	c.Fingerprint.Screen = "393x854@3"
 	if s := Score(c, fp, ""); s != 0 {
 		t.Errorf("height +2 = %d; want 0", s)
 	}
-	c.Fingerprint.Screen = "393x852@3.02" // scale +0.02
+	c.Fingerprint.Screen = "393x852@3.02"
 	if s := Score(c, fp, ""); s != 0 {
 		t.Errorf("scale +0.02 = %d; want 0", s)
 	}
-	c.Fingerprint.Screen = "852x393@3" // rotated: either orientation matches
+	c.Fingerprint.Screen = "852x393@3"
 	if s := Score(c, fp, ""); s != 200 {
 		t.Errorf("rotated = %d; want 200", s)
 	}
-	c.Fingerprint.Screen = "854x393@3" // rotated, height +2
+	c.Fingerprint.Screen = "854x393@3"
 	if s := Score(c, fp, ""); s != 0 {
 		t.Errorf("rotated height +2 = %d; want 0", s)
 	}
@@ -374,7 +348,6 @@ func TestScreenTolerance(t *testing.T) {
 	}
 }
 
-// Scenario 16: IP exact 400.
 func TestIPExactWeight(t *testing.T) {
 	c := store.Click{Fingerprint: store.Fingerprint{IP: testIP}}
 	if s := Score(c, Fingerprint{}, testIP); s != 400 {
@@ -385,7 +358,6 @@ func TestIPExactWeight(t *testing.T) {
 	}
 }
 
-// Scenario 17: timezone exact 200; language (locale prefix) 100; both only on top of pasteboard or device+screen.
 func TestTimezoneAndLanguageWeights(t *testing.T) {
 	const pb = "https://lnk.example/abc123"
 	c := store.Click{Fingerprint: store.Fingerprint{Timezone: "Europe/Warsaw", Locale: "en", PastedLink: pb}}
@@ -403,7 +375,6 @@ func TestTimezoneAndLanguageWeights(t *testing.T) {
 	}
 }
 
-// Scenario 18: missing signals -> partial score, no panic.
 func TestMissingSignalsNoPanic(t *testing.T) {
 	if s := Score(store.Click{Fingerprint: store.Fingerprint{}}, androidFP(), testIP); s != 0 {
 		t.Errorf("empty click = %d; want 0", s)
@@ -411,7 +382,6 @@ func TestMissingSignalsNoPanic(t *testing.T) {
 	if s := Score(androidClick(testLink()), Fingerprint{ScreenWidth: 393, ScreenHeight: 852, Scale: 3, Timezone: "Europe/Warsaw"}, ""); s != 200 {
 		t.Errorf("partial fingerprint = %d; want 200 (screen only, tz not counted)", s)
 	}
-	// nil fingerprint through Match: no panic either
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
 	recordClick(t, s, androidClick(link))
@@ -424,7 +394,6 @@ func TestMissingSignalsNoPanic(t *testing.T) {
 	}
 }
 
-// Scenario 19: documented max with rebalanced IP (400) and Android model (400): iOS 1600, Android 1300 (one-device-signal rule).
 func TestMaxTotalsSanity(t *testing.T) {
 	link := testLink()
 	if s := Score(androidClick(link), androidFP(), testIP); s != 1300 {
@@ -435,7 +404,6 @@ func TestMaxTotalsSanity(t *testing.T) {
 	}
 }
 
-// Scenario 20: settings bounds 700..1200 / 5..180 inclusive; out of range errors.
 func TestValidateSettings(t *testing.T) {
 	for _, tc := range []struct {
 		threshold, window int
@@ -451,7 +419,6 @@ func TestValidateSettings(t *testing.T) {
 	}
 }
 
-// TestAppThresholdApplies: IP 400 + model/version 400 + screen 200 = 1000 (tz/lang differ) passes app threshold 850, fails 1200.
 func TestAppThresholdApplies(t *testing.T) {
 	fp := androidFP()
 	fp.Timezone, fp.Locale = "UTC", "fr-FR"
@@ -475,7 +442,6 @@ func TestAppThresholdApplies(t *testing.T) {
 	}
 }
 
-// TestAppWindowApplies: app window (not default) picks candidates.
 func TestAppWindowApplies(t *testing.T) {
 	for _, tc := range []struct {
 		window int
@@ -521,7 +487,6 @@ func TestSameDeviceRetryStillMatches(t *testing.T) {
 	if err != nil || !first.Matched {
 		t.Fatalf("first Match = %+v, %v; want matched", first, err)
 	}
-	// sdk handler records install after match
 	if _, err := s.RecordInstall(store.Install{AppID: link.AppID, DeviceHash: "d1", ClickID: first.Click.ID, Attribution: store.AttributionNonOrganic}); err != nil {
 		t.Fatalf("RecordInstall: %v", err)
 	}
@@ -531,7 +496,6 @@ func TestSameDeviceRetryStillMatches(t *testing.T) {
 	}
 }
 
-// retry overlapping the first request: click claimed, install row not written yet -> same click, not organic
 func TestSameDeviceRetryBeforeInstallRow(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -566,7 +530,7 @@ func TestNewerUnmatchedClickStillCandidate(t *testing.T) {
 	_, link := setupApp(t, s)
 	old := recordClickBackdated(t, s, path, androidClick(link), 2*time.Minute)
 	newer := androidClick(link)
-	newer.Fingerprint.UserAgent += " v2" // distinct UA, else same-signal clicks dedup into one row
+	newer.Fingerprint.UserAgent += " v2"
 	rec := recordClick(t, s, newer)
 	if rec.ID == old.ID {
 		t.Fatal("clicks deduped into one row")
@@ -583,7 +547,6 @@ func TestNewerUnmatchedClickStillCandidate(t *testing.T) {
 	}
 }
 
-// Window measured from SDK capture time: click 20 min old, window 15.
 func TestWindowFromCaptureTime(t *testing.T) {
 	cases := []struct {
 		name string
@@ -612,7 +575,6 @@ func TestWindowFromCaptureTime(t *testing.T) {
 	}
 }
 
-// iOS 26 Safari freezes OS token at 18_6; Version/ carries real version.
 func TestIOS26SafariScoresDeviceSignal(t *testing.T) {
 	c := iosClick(testLink())
 	c.Fingerprint.UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"
@@ -623,14 +585,12 @@ func TestIOS26SafariScoresDeviceSignal(t *testing.T) {
 	if diff := got - Score(c, fp, testIP); diff != 350 {
 		t.Errorf("device signal diff = %d; want 350", diff)
 	}
-	// Version/ = major.minor; SDK sends patch
 	for v, want := range map[string]bool{"26.0.1": true, "26": true, "26.1": false, "26.1.2": false} {
 		fp.SystemVersion = v
 		if hit := Score(c, fp, testIP) == got; hit != want {
 			t.Errorf("Version/26.0 vs SDK %s: match %v; want %v", v, hit, want)
 		}
 	}
-	// pre-26 OS token carries patch: 17_4 = 17.4.0, never 17.4.1
 	c.Fingerprint.UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
 	fp.SystemVersion = "17.4"
 	exact := Score(c, fp, testIP)
@@ -640,7 +600,6 @@ func TestIOS26SafariScoresDeviceSignal(t *testing.T) {
 	}
 }
 
-// UA device signature fallback is Android-only.
 func TestUADeviceSignatureAndroidOnly(t *testing.T) {
 	ios := store.Click{Fingerprint: store.Fingerprint{Device: "iPhone", UserAgent: "Mozilla/5.0 (iPhone)"}}
 	if s := Score(ios, Fingerprint{Model: "iPhone"}, ""); s != 0 {
@@ -652,12 +611,11 @@ func TestUADeviceSignatureAndroidOnly(t *testing.T) {
 	}
 }
 
-// Receipts: method per path, best + runner-up, near-miss score.
 func TestMatchReceipts(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
 	fp := androidFP()
-	best := androidClick(link) // IP match
+	best := androidClick(link)
 	second := androidClick(link)
 	second.Fingerprint.IP = otherIP
 	third := androidClick(link)
@@ -677,7 +635,6 @@ func TestMatchReceipts(t *testing.T) {
 		t.Errorf("receipt = %s %d/%d; want probabilistic %d/%d", res.Method, res.Score, res.RunnerUp, scores[0], scores[1])
 	}
 
-	// near miss: screen 200 only (no device -> tz/lang not counted) < 850
 	miss := Fingerprint{Timezone: "Europe/Warsaw", Locale: "en-US", ScreenWidth: 393, ScreenHeight: 852, Scale: 3}
 	res, _ = Match(s, link.AppID, Request{IP: "192.0.2.99", Fingerprint: &miss})
 	if res.Matched || res.Method != store.MethodOrganic || res.Score != 200 {
@@ -695,7 +652,6 @@ func TestMatchReceipts(t *testing.T) {
 	}
 }
 
-// execDB: raw statement via second connection (WAL allows it).
 func execDB(t *testing.T, dbPath, q string, args ...any) {
 	t.Helper()
 	db, err := sql.Open("sqlite", dbPath)
@@ -708,16 +664,13 @@ func execDB(t *testing.T, dbPath, q string, args ...any) {
 	}
 }
 
-// setClick: raw click column edit; RecordClick derives hits/first_seen_at itself, can't pass them in.
 func setClick(t *testing.T, dbPath, id, set string, args ...any) {
 	t.Helper()
 	execDB(t, dbPath, `UPDATE clicks SET `+set+` WHERE id = ?`, append(args, id)...)
 }
 
-// ago: stored timestamp d before now.
 func ago(d time.Duration) string { return time.Now().UTC().Add(-d).Format(time.RFC3339Nano) }
 
-// recordAged: click first seen 1 min ago, past 10 s short-timing cutoff.
 func recordAged(t *testing.T, s *store.Store, dbPath string, c store.Click) store.Click {
 	t.Helper()
 	got := recordClick(t, s, c)
@@ -725,7 +678,6 @@ func recordAged(t *testing.T, s *store.Store, dbPath string, c store.Click) stor
 	return got
 }
 
-// setFraud: defaults with mut applied.
 func setFraud(t *testing.T, s *store.Store, appID string, mut func(*fraud.Settings)) {
 	t.Helper()
 	f := fraud.Defaults
@@ -750,7 +702,6 @@ func unconsumed(t *testing.T, s *store.Store, appID, clickID string) bool {
 	return err == nil
 }
 
-// modeOf: settings field holding sig's mode.
 func modeOf(f *fraud.Settings, sig string) *string {
 	switch sig {
 	case fraud.SignalVelocity:
@@ -765,7 +716,6 @@ func modeOf(f *fraud.Settings, sig string) *string {
 	panic("no mode for " + sig)
 }
 
-// flaggedAndClean: best click (IP match, 1300) on link + clean candidate (900) on second link, both first seen 1 min ago.
 func flaggedAndClean(t *testing.T, s *store.Store, path string, link store.Link) (flagged, clean store.Click) {
 	t.Helper()
 	flagged = recordAged(t, s, path, androidClick(link))
@@ -779,8 +729,6 @@ func flaggedAndClean(t *testing.T, s *store.Store, path string, link store.Link)
 	return flagged, clean
 }
 
-// Per signal path: active mode moves credit to clean candidate (reattributed, flagged click unconsumed); tagged mode, every
-// other signal active or default -> flagged click still wins, same receipt, label only (AE1-AE3).
 func TestFraudSignalModes(t *testing.T) {
 	cases := []struct {
 		name, sig, set string
@@ -788,7 +736,7 @@ func TestFraudSignalModes(t *testing.T) {
 	}{
 		{"velocity via ip hits", fraud.SignalVelocity, `hits_ip = ?`, fraud.Defaults.VelocityIPMax},
 		{"velocity via link hits", fraud.SignalVelocity, `hits_link = ?`, fraud.Defaults.VelocityLinkMax},
-		{"timing short", fraud.SignalTiming, `first_seen_at = ?`, func() any { return ago(3 * time.Second) }}, // per subtest: one table-time value goes stale past the 10s threshold on slow runs
+		{"timing short", fraud.SignalTiming, `first_seen_at = ?`, func() any { return ago(3 * time.Second) }},
 		{"user agent", fraud.SignalUserAgent, `ua_suspect = ?`, 1},
 		{"ip hosting", fraud.SignalIP, `ip_hosting = ?`, 1},
 	}
@@ -839,7 +787,6 @@ func TestFraudSignalModes(t *testing.T) {
 	}
 }
 
-// Velocity fires at threshold, not one below, both counters.
 func TestFraudVelocityThresholds(t *testing.T) {
 	for _, tc := range []struct {
 		set  string
@@ -862,7 +809,6 @@ func TestFraudVelocityThresholds(t *testing.T) {
 	}
 }
 
-// Active-flagged clickId -> organic, excluded, click unconsumed; clean clickId under same mode still matches (AE5).
 func TestFraudClickIDExcluded(t *testing.T) {
 	s, _ := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -874,7 +820,6 @@ func TestFraudClickIDExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Match: %v", err)
 	}
-	// fresh click: short timing fires too (tagged)
 	if res.Matched || res.Method != store.MethodOrganic || res.FraudAction != store.FraudActionExcluded || res.FraudLinkID != link.ID ||
 		res.Fraud != "timing,user_agent" {
 		t.Errorf("flagged clickId = %+v; want organic, excluded, timing,user_agent", res)
@@ -891,7 +836,6 @@ func TestFraudClickIDExcluded(t *testing.T) {
 	}
 }
 
-// Velocity active, only flagged click -> organic, excluded, no valid score (AE4).
 func TestFraudActiveOnlyFlaggedOrganic(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -907,8 +851,6 @@ func TestFraudActiveOnlyFlaggedOrganic(t *testing.T) {
 	}
 }
 
-// Short timing: fires just under cutoff, not at it; open clicks exempt; re-tap counts from first tap; fast client clock
-// (capture 50 s ahead) clamped to server now, can't stretch "too soon" away.
 func TestFraudTimingShort(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	capture := now.Add(-time.Second)
@@ -934,7 +876,7 @@ func TestFraudTimingShort(t *testing.T) {
 			got := recordClick(t, s, c)
 			first := tc.firstSeen.Format(time.RFC3339Nano)
 			setClick(t, path, got.ID, `first_seen_at = ?, created_at = ?`, first, first)
-			if tc.retap { // dedup refresh: created_at -> now, first_seen_at kept
+			if tc.retap {
 				if again := recordClick(t, s, c); again.ID != got.ID {
 					t.Fatal("re-tap made a new click")
 				}
@@ -952,7 +894,6 @@ func TestFraudTimingShort(t *testing.T) {
 	}
 }
 
-// Long timing: clickId click first tapped past TimingLongHours fires, under doesn't; never fires on probabilistic path.
 func TestFraudTimingLongClickIDOnly(t *testing.T) {
 	long := time.Duration(fraud.Defaults.TimingLongHours) * time.Hour
 	for _, tc := range []struct {
@@ -967,7 +908,7 @@ func TestFraudTimingLongClickIDOnly(t *testing.T) {
 	} {
 		s, path := newTestStore(t)
 		_, link := setupApp(t, s)
-		c := recordClick(t, s, androidClick(link)) // created now (re-tapped), first tap age ago
+		c := recordClick(t, s, androidClick(link))
 		setClick(t, path, c.ID, `first_seen_at = ?`, ago(tc.age))
 		req := Request{IP: testIP, Fingerprint: fpPtr(androidFP())}
 		if tc.clickID {
@@ -983,7 +924,6 @@ func TestFraudTimingLongClickIDOnly(t *testing.T) {
 	}
 }
 
-// Active IP mode, best clean, flagged one below -> attribution unchanged, no action; runner-up from valid set only.
 func TestFraudActiveCleanBestUnchanged(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -998,7 +938,6 @@ func TestFraudActiveCleanBestUnchanged(t *testing.T) {
 	}
 }
 
-// Flagged best + clean candidate both below threshold -> organic, no action (nothing taken away).
 func TestFraudBelowThresholdNoAction(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1009,7 +948,7 @@ func TestFraudBelowThresholdNoAction(t *testing.T) {
 	clean := androidClick(link)
 	clean.Fingerprint.IP = otherIP
 	recordAged(t, s, path, clean)
-	flagged := recordAged(t, s, path, androidClick(link)) // 1300 on IP match, but request IP matches neither
+	flagged := recordAged(t, s, path, androidClick(link))
 	setClick(t, path, flagged.ID, `hits_ip = 50`)
 	res, _ := Match(s, app.ID, Request{IP: "192.0.2.99", Fingerprint: fpPtr(androidFP())})
 	if res.Matched || res.FraudAction != "" || res.FraudLinkID != "" || res.Fraud != "" || res.Score != 900 {
@@ -1017,8 +956,6 @@ func TestFraudBelowThresholdNoAction(t *testing.T) {
 	}
 }
 
-// Claim race after exclusion: clean winner taken between scan and claim (trigger makes claim UPDATE a no-op, same
-// zero-row result as another device's claim) -> organic, but excluded click still took credit: excluded + its link.
 func TestFraudClaimRaceKeepsExcluded(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1041,8 +978,6 @@ func TestFraudClaimRaceKeepsExcluded(t *testing.T) {
 	}
 }
 
-// Install from hosting range -> own tag-only label install_ip (never ip), never excludes even with IP mode active;
-// hosting click + hosting install -> both labels.
 func TestFraudInstallIPTagOnly(t *testing.T) {
 	const aws = "3.5.140.1"
 	s, path := newTestStore(t)
@@ -1065,8 +1000,6 @@ func TestFraudInstallIPTagOnly(t *testing.T) {
 	}
 }
 
-// Fingerprint concentration, FingerprintMax 5: this install + 4 prior probabilistic installs (same hash, link) labels it, 3 don't;
-// priors older than FingerprintWindowDays don't count. Tag only: still attributed.
 func TestFraudFingerprintConcentration(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -1097,7 +1030,6 @@ func TestFraudFingerprintConcentration(t *testing.T) {
 	}
 }
 
-// Settings read failure (table dropped) -> all signals tagged; flagged clickId still matches (KTD4).
 func TestFraudSettingsErrorClickIDMatches(t *testing.T) {
 	s, path := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -1111,15 +1043,13 @@ func TestFraudSettingsErrorClickIDMatches(t *testing.T) {
 	}
 }
 
-// Backend errors surface as errors, never match or organic: clickId lookup, unknown app, window scan, claim
-// UPDATE on both paths (trigger aborts it).
 func TestMatchBackendErrors(t *testing.T) {
 	const abortClaim = `CREATE TRIGGER no_claim BEFORE UPDATE OF matched_at ON clicks BEGIN SELECT RAISE(ABORT, 'claim failed'); END`
 	for _, tc := range []struct {
 		name  string
 		fault string
 		req   func(store.Click) Request
-		appID string // "" = test app
+		appID string
 	}{
 		{"clickId lookup", `DROP TABLE clicks`, func(c store.Click) Request { return Request{ClickID: c.ClickID, DeviceHash: "h"} }, ""},
 		{"unknown app", "", func(store.Click) Request { return Request{IP: testIP, Fingerprint: fpPtr(androidFP())} }, "missing"},
@@ -1146,8 +1076,6 @@ func TestMatchBackendErrors(t *testing.T) {
 	}
 }
 
-// Fingerprint count failure (installs table gone): match still succeeds, no fingerprint label (R5, R7). Stored max 1
-// (below Validate's floor, written directly): failed count (0) would label if the error were ignored.
 func TestFraudFingerprintCountErrorStillMatches(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1161,8 +1089,6 @@ func TestFraudFingerprintCountErrorStillMatches(t *testing.T) {
 	}
 }
 
-// Threshold inclusive on both sides of an exclusion: valid winner at exactly threshold matches; excluded top click
-// at exactly threshold = credit taken away (organic, excluded + its link).
 func TestFraudThresholdInclusive(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -1181,7 +1107,7 @@ func TestFraudThresholdInclusive(t *testing.T) {
 			setFraud(t, s, app.ID, func(f *fraud.Settings) { f.VelocityMode = fraud.ModeActive })
 			c := recordAged(t, s, path, androidClick(link))
 			setClick(t, path, c.ID, `hits_ip = ?`, tc.hits)
-			res, err := Match(s, app.ID, Request{IP: otherIP, Fingerprint: fpPtr(androidFP())}) // no IP match: 900
+			res, err := Match(s, app.ID, Request{IP: otherIP, Fingerprint: fpPtr(androidFP())})
 			if err != nil {
 				t.Fatalf("Match: %v", err)
 			}
@@ -1198,8 +1124,6 @@ func TestFraudThresholdInclusive(t *testing.T) {
 	}
 }
 
-// Runner-up from valid set in any scan order: newest clean 1300 wins, older active-excluded 900 skipped, oldest
-// clean 700 = runner-up.
 func TestFraudRunnerUpFromValidSet(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1209,7 +1133,7 @@ func TestFraudRunnerUpFromValidSet(t *testing.T) {
 	recordAged(t, s, path, low)
 	flagged := androidClick(link)
 	flagged.Fingerprint.IP, flagged.IPHosting = otherIP, true
-	flagged.Fingerprint.UserAgent += " flagged" // separate device: no dedup into low's row
+	flagged.Fingerprint.UserAgent += " flagged"
 	recordAged(t, s, path, flagged)
 	best := recordAged(t, s, path, androidClick(link))
 	fp := androidFP()
@@ -1222,7 +1146,6 @@ func TestFraudRunnerUpFromValidSet(t *testing.T) {
 	}
 }
 
-// No device hash on request: no fingerprint count -> no label, even when hash-less probabilistic installs on link pass max.
 func TestFraudFingerprintNeedsDeviceHash(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1239,10 +1162,6 @@ func TestFraudFingerprintNeedsDeviceHash(t *testing.T) {
 	}
 }
 
-// AE1: Shared Wi-Fi Isolation (Covers R1, R2). Realistic office: every peer shares IP, timezone, language.
-// User B: same iOS, different screen -> 400 IP + 350 iOS = 750 (tz/lang need device+screen) -> organic, click unconsumed.
-// User D: same screen, different iOS -> 400 IP + 200 screen = 600 -> organic.
-// User A (clicker): iOS + screen + tz + lang -> 1250 -> matched.
 func TestSharedWiFiIsolation(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
@@ -1277,7 +1196,7 @@ func TestSharedWiFiIsolation(t *testing.T) {
 		t.Errorf("click consumed by a peer; want unconsumed")
 	}
 
-	fpA := peer("18.0", 852, 393) // first launch in landscape: rotation must not cost the match
+	fpA := peer("18.0", 852, 393)
 	resA, err := Match(s, link.AppID, Request{IP: testIP, Fingerprint: &fpA})
 	if err != nil {
 		t.Fatalf("Match User A: %v", err)
@@ -1287,13 +1206,10 @@ func TestSharedWiFiIsolation(t *testing.T) {
 	}
 }
 
-// Android Shared Wi-Fi Isolation: peers share IP, timezone, language.
-// User B: other model + screen -> 400 IP = 400 -> organic. User C: same model, other OS -> 400 IP + 200 screen = 600 -> organic.
-// User A (clicker): full match 1300 -> matched.
 func TestAndroidSharedWiFiIsolation(t *testing.T) {
 	s, _ := newTestStore(t)
 	_, link := setupApp(t, s)
-	click := recordClick(t, s, androidClick(link)) // Pixel 7, Android 14, Europe/Warsaw, 393x852@3
+	click := recordClick(t, s, androidClick(link))
 
 	fpB := androidFP()
 	fpB.Model, fpB.SystemVersion = "SM-S911B", "15"
@@ -1327,8 +1243,6 @@ func TestAndroidSharedWiFiIsolation(t *testing.T) {
 	}
 }
 
-// Invariant (R1): every combination of matching signals, both platforms: score >= default 850 only with
-// pasteboard, or device signal AND screen. Pins legit floors: other-network iOS 850, Android 900; same network 1250 / 1300.
 func TestScoreDiscriminatorInvariant(t *testing.T) {
 	const ip, device, pb, tz, scr, lang = 1, 2, 4, 8, 16, 32
 	for _, platform := range []string{"ios", "android"} {
@@ -1336,7 +1250,7 @@ func TestScoreDiscriminatorInvariant(t *testing.T) {
 			click, fp := iosClick(testLink()), iosFP()
 			if platform == "android" {
 				click, fp = androidClick(testLink()), androidFP()
-				click.Fingerprint.PastedLink, fp.PastedLink = "https://lnk.example/abc123", "https://lnk.example/abc123" // what-if: pasteboard on Android too
+				click.Fingerprint.PastedLink, fp.PastedLink = "https://lnk.example/abc123", "https://lnk.example/abc123"
 			}
 			reqIP := testIP
 			if set&ip == 0 {
@@ -1381,9 +1295,6 @@ func TestScoreDiscriminatorInvariant(t *testing.T) {
 	}
 }
 
-// AE2: Minimum Install Timing Defense (Covers R3).
-// Candidate clicked 3-4s ago (< 10s TimingShortSeconds) with active timing mode is excluded as organic install;
-// original click remains unconsumed. Candidate clicked 20s ago matches normally.
 func TestMinimumInstallTimingDefense(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1407,12 +1318,10 @@ func TestMinimumInstallTimingDefense(t *testing.T) {
 		t.Errorf("res = %+v; want FraudAction=excluded, FraudLinkID=%s, Fraud=timing", res, link.ID)
 	}
 
-	// Verify rapid click remains unconsumed
 	if !unconsumed(t, s, app.ID, rapidClick.ClickID) {
 		t.Errorf("rapid click was consumed; want unconsumed")
 	}
 
-	// Now age the click to 20 seconds ago (> 10s)
 	setClick(t, path, rapidClick.ID, `first_seen_at = ?`, ago(20*time.Second))
 	res2, err := Match(s, app.ID, Request{IP: testIP, Fingerprint: &fp})
 	if err != nil {
@@ -1423,7 +1332,6 @@ func TestMinimumInstallTimingDefense(t *testing.T) {
 	}
 }
 
-// Setup hash past RetryWindow is another phone: with a 60-min window it must not re-claim the click an identical phone took 20 min ago.
 func TestSameHashPastRetryWindowNoReclaim(t *testing.T) {
 	s, path := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -1435,7 +1343,7 @@ func TestSameHashPastRetryWindowNoReclaim(t *testing.T) {
 	if res, err := Match(s, app.ID, req); err != nil || !res.Matched || res.Click.ID != c.ID {
 		t.Fatalf("first match = %+v, %v; want click %s", res, err, c.ID)
 	}
-	if res, err := Match(s, app.ID, req); err != nil || !res.Matched { // overlapping retry inside RetryWindow keeps its click (M4)
+	if res, err := Match(s, app.ID, req); err != nil || !res.Matched {
 		t.Fatalf("retry inside window = %+v, %v; want matched", res, err)
 	}
 	setClick(t, path, c.ID, `matched_at = ?`, ago(20*time.Minute))

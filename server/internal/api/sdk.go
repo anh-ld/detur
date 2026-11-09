@@ -21,8 +21,6 @@ import (
 	"detur.dev/server/internal/ua"
 )
 
-// RegisterSDK: 5 SDK endpoints on mux. Auth checks Bearer key + X-App-ID + X-SDK; universal-link-click fails open
-// when auth uncheckable (backend failure never blocks link). retentionHours: click retention floor from config.
 func RegisterSDK(mux *http.ServeMux, st *store.Store, retentionHours int) {
 	s := &sdkServer{st: st, log: log.Default(), retentionHours: retentionHours}
 	mux.HandleFunc("POST /api/link/match-link", s.requireAuth(s.matchLink, false))
@@ -38,7 +36,6 @@ type sdkServer struct {
 	retentionHours int
 }
 
-// requireAuth: Bearer + X-App-ID + X-SDK present, apiKey valid for app. failOpen endpoints (universal-link-click) proceed when store unqueryable.
 func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key, ok := bearerKey(r.Header.Get("Authorization"))
@@ -50,11 +47,10 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 		if err != nil {
 			if failOpen {
 				s.log.Printf("auth check failed, failing open: %v", err)
-				writeAllow(w, store.Nanoid(16)) // app id unverified: answer, never write
+				writeAllow(w, store.Nanoid(16))
 				return
 			}
 			if r.URL.Path == "/api/link/match-link" {
-				// backend error = no-match, never deny. Body unread: no device hash for unknown row.
 				s.log.Printf("match-link auth backend error, returning no-match: %v", err)
 				w.WriteHeader(http.StatusNotFound)
 				return
@@ -68,7 +64,7 @@ func (s *sdkServer) requireAuth(next http.HandlerFunc, failOpen bool) http.Handl
 			return
 		}
 		if err := s.st.NoteSDK(r.Header.Get("X-App-ID"), r.Header.Get("X-SDK"), time.Now()); err != nil {
-			s.log.Printf("note sdk failed: %v", err) // never blocks
+			s.log.Printf("note sdk failed: %v", err)
 		}
 		next(w, r)
 	}
@@ -133,10 +129,9 @@ func (s *sdkServer) matchLink(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	// install write failed: row lost, link still returned (M11)
 	inst := store.Install{AppID: appID, DeviceHash: dh, ClickID: res.Click.ID, Attribution: store.AttributionNonOrganic, LinkID: res.Click.LinkID, Platform: installPlatform(body),
 		Method: res.Method, Score: res.Score, RunnerUp: res.RunnerUp, Fraud: res.Fraud, FraudAction: res.FraudAction, FraudLinkID: res.FraudLinkID, Variant: res.Click.Variant}
-	if inst.Platform == "" { // clickId-only payload: matched click's browser tells the platform
+	if inst.Platform == "" {
 		inst.Platform = ua.Platform(res.Click.Fingerprint.UserAgent)
 	}
 	if _, err := s.st.RecordInstall(inst); err != nil {
@@ -164,10 +159,8 @@ func appDestination(appID, dest string) string {
 	return "/" + url.PathEscape(seg) + dest
 }
 
-// withLinkTag: dest + detur_link=<key> (add-only) when app tags links, so app learns its link key (SDK only hands destination). Key read only then; lookup failure or "" key -> dest unchanged.
 func (s *sdkServer) withLinkTag(appID, dest string, key func() string) string {
-	app, err := s.st.GetApp(appID)
-	if err != nil || !app.TagLinks {
+	if on, err := s.st.AppTagLinks(appID); err != nil || !on {
 		return dest
 	}
 	k := key()
@@ -215,7 +208,6 @@ func (s *sdkServer) resolveShort(w http.ResponseWriter, r *http.Request) {
 		}
 		dest = link.ExpiredURL
 	}
-	// tapped link's query, add-only, internal params dropped: same as a browser click's deferred destination (deepLinkURL)
 	dest = httpx.AddParams(dest, u.Query(), func(k, v string) bool { return v != "" && !store.InternalParams[k] })
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{
 		"link":       s.withLinkTag(appID, appDestination(appID, dest), func() string { return link.Key }),
@@ -244,7 +236,6 @@ func writeAllow(w http.ResponseWriter, clickID string) {
 	})
 }
 
-// recordClickID: record universal-link click (fail-open), return clickId. No bot filter: caller is the app (Dub skips bot checks on deeplink opens). Repeat opens within an hour reuse click (store dedup). Nothing recorded -> fresh id, SDK always gets one.
 func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string {
 	key := linkKey(rawURL)
 	if key == "" {
@@ -262,7 +253,7 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 		AppID: appID, LinkID: link.ID, Destination: link.URL,
 		Fingerprint: store.Fingerprint{IP: ip, UserAgent: r.UserAgent()},
 		Platform:    ua.AppPlatform(r.UserAgent()), Kind: store.KindOpen,
-		IPHosting: fraud.Hosting(ip), // native app UA: no UA screening on opens (KTD3)
+		IPHosting: fraud.Hosting(ip),
 	}, s.retentionHours)
 	if err != nil {
 		s.log.Printf("universal-link-click backend error (click not recorded): %v", err)
@@ -271,7 +262,6 @@ func (s *sdkServer) recordClickID(appID, rawURL string, r *http.Request) string 
 	return rec.ID
 }
 
-// maxEventBytes: stored event metadata cap (SDK events are well under 1 KB).
 const maxEventBytes = 16 << 10
 
 func (s *sdkServer) analyticsEvent(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +289,6 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, rete
 		httpx.WriteJSON(w, http.StatusInternalServerError, errorBody("internal error"))
 		return
 	}
-	// stored verbatim + sent in webhook batches of 100: a public SDK key must not be able to make each batch 100 MB
 	if len(md) > maxEventBytes {
 		httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, errorBody("event too large"))
 		return
@@ -312,7 +301,7 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, rete
 	var data struct {
 		Link string `json:"link"`
 	}
-	_ = json.Unmarshal(body["data"], &data) // absent or non-object data: no tag
+	_ = json.Unmarshal(body["data"], &data)
 	if err := s.st.RecordLinkEvent(store.LinkEvent{
 		AppID: appID, Device: firstString(body, "device_id"), LinkKey: linkKey(data.Link), Event: name, Retention: retention,
 	}, time.Now()); err != nil {
@@ -321,7 +310,6 @@ func (s *sdkServer) recordAnalytics(w http.ResponseWriter, r *http.Request, rete
 	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// backendError: log match-link backend failure, best-effort unknown-attribution row (never surfaced in analytics).
 func (s *sdkServer) backendError(appID, deviceHash string, err error) {
 	s.log.Printf("match-link backend error: %v", err)
 	if _, rerr := s.st.RecordInstall(store.Install{AppID: appID, DeviceHash: deviceHash, Attribution: store.AttributionUnknown, Method: store.MethodUnknown, Score: -1, RunnerUp: -1}); rerr != nil {
@@ -333,14 +321,13 @@ func (s *sdkServer) backendError(appID, deviceHash string, err error) {
 func installPlatform(b matchLinkBody) string {
 	switch {
 	case strings.EqualFold(b.Manufacturer, "apple"):
-		return "ios"
+		return ua.PlatformIOS
 	case b.Manufacturer != "":
-		return "android"
+		return ua.PlatformAndroid
 	}
 	return ua.AppPlatform(b.UserAgent)
 }
 
-// deviceHash: SHA-256 hex of canonical fingerprint fields, fixed order. Timestamp excluded (not a device trait); stable hash keeps duplicate match-link calls idempotent on (device_hash, click_id) within store.RetryWindow (hash = setup, not device). clickId-only payload: hashes clickId.
 func deviceHash(b matchLinkBody) string {
 	if b.ClickID != "" {
 		return store.HashKey("clickId=" + b.ClickID)
@@ -351,7 +338,6 @@ func deviceHash(b matchLinkBody) string {
 	return store.HashKey(canonical)
 }
 
-// bearerKey: token from "Bearer <token>".
 func bearerKey(h string) (string, bool) {
 	if len(h) > 7 && strings.EqualFold(h[:7], "Bearer ") {
 		return strings.TrimSpace(h[7:]), true
@@ -359,7 +345,6 @@ func bearerKey(h string) (string, bool) {
 	return "", false
 }
 
-// linkKey: short-link key from URL path (v1: single segment; multi-segment never matches a stored key).
 func linkKey(u string) string {
 	p, err := url.Parse(u)
 	if err != nil {
@@ -397,7 +382,6 @@ func errorBody(msg string) map[string]any {
 	return map[string]any{"error": map[string]any{"message": msg}}
 }
 
-// decodeJSON: bounded body into v (1MB cap: hostile client can't pin single-writer conn with giant upload).
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {

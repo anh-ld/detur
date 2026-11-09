@@ -19,15 +19,11 @@ import (
 	"detur.dev/server/internal/webhook"
 )
 
-// version: set by the Docker build (-ldflags -X main.version=...).
 var version = "dev"
 
-// main: config -> store -> HTTP listeners. Public: SDK, browser pipeline, well-known. Loopback: portal (API + static UI), origin/host-guarded. Clicks/events purged at startup, then hourly.
-// SIGTERM/SIGINT (docker stop): stop accepting, drain in-flight requests, stop the webhook worker, close the DB.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// Not env: Docker passes 0.0.0.0:8081 to publish it; bare runs keep unauthenticated portal on loopback.
 	portalAddr := flag.String("portal-addr", "127.0.0.1:8081", "portal listen address")
 	flag.Parse()
 	api.Version = version
@@ -35,8 +31,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-	httpx.TrustProxy = cfg.TrustProxy // XFF honored only behind a trusted proxy
-	// empty TRUSTED_PROXIES = loopback + private defaults
+	httpx.TrustProxy = cfg.TrustProxy
 	if err := httpx.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		log.Fatalf("trusted proxies: %v", err)
 	}
@@ -55,7 +50,6 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		// probes store: wedged DB = unhealthy, no silent fail-open
 		if err := st.Ping(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("db unavailable"))
@@ -65,12 +59,10 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	api.RegisterSDK(mux, st, cfg.RetentionHours)
-	api.RegisterData(mux, st, cfg.AdminPassword)   // read-only data API + MCP, bearer tokens
-	pipeline.Register(mux, st, cfg.RetentionHours) // GET /{key}: short links, click recording, store redirects
-	// Well-known: AASA + assetlinks for configured domains; unknown host = 404.
+	api.RegisterData(mux, st, cfg.AdminPassword)
+	pipeline.Register(mux, st, cfg.RetentionHours)
 	pipeline.RegisterWellKnown(mux, st, config.DomainSet(cfg))
 
-	// Portal: own listener; static UI from ./portal/dist (missing = API only).
 	portal := api.RegisterPortal(st, "portal/dist", append([]string{*portalAddr}, cfg.PortalHosts...), cfg.LogoutURL, cfg.AdminPassword, cfg.AdminSessionHours, linkBase(cfg.Domain))
 	if cfg.AdminPassword != "" {
 		log.Printf("portal admin gating: ON")
@@ -90,11 +82,10 @@ func main() {
 
 	select {
 	case err := <-errc:
-		log.Printf("listener: %v", err) // e.g. port in use: still shut down cleanly, then exit 1
+		log.Printf("listener: %v", err)
 	case <-ctx.Done():
 		log.Printf("shutting down")
 	}
-	// under docker stop's 10s grace: in-flight requests finish, no new ones
 	sctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	for _, srv := range servers {
@@ -111,7 +102,6 @@ func main() {
 	}
 }
 
-// server: explicit timeouts so slow clients can't pin the single-writer SQLite conn or listener goroutines.
 func server(addr string, h http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              addr,
@@ -120,11 +110,10 @@ func server(addr string, h http.Handler) *http.Server {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    32 << 10, // UA/hints/query land in click rows: bounds each row, not just the request
+		MaxHeaderBytes:    32 << 10,
 	}
 }
 
-// purgeLoop: startup, then hourly until ctx ends. A panicking purge is logged, never kills the process.
 func purgeLoop(ctx context.Context, st *store.Store, retentionHours int) {
 	purge := func() {
 		defer func() {
@@ -153,7 +142,6 @@ func purgeLoop(ctx context.Context, st *store.Store, retentionHours int) {
 	}()
 }
 
-// linkBase: short-link origin for the portal. Dev (localhost) = public listener.
 func linkBase(domain string) string {
 	if domain == "localhost" {
 		return "http://localhost:8080"

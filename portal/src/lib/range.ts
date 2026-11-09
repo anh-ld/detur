@@ -1,4 +1,3 @@
-// sub-day windows the server accepts (A9)
 export const WINDOWS = ['15m', '1h', '3h', '12h'] as const;
 export type WindowId = (typeof WINDOWS)[number];
 export const isWindow = (v: unknown): v is WindowId => WINDOWS.includes(v as WindowId);

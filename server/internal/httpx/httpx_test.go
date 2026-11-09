@@ -141,7 +141,6 @@ func TestSetTrustedProxies(t *testing.T) {
 
 	TrustProxy = true
 
-	// Custom CIDR allows previously untrusted public IP range
 	err := SetTrustedProxies([]string{"203.0.113.0/24"})
 	if err != nil {
 		t.Fatalf("SetTrustedProxies: %v", err)
@@ -155,7 +154,6 @@ func TestSetTrustedProxies(t *testing.T) {
 		t.Errorf("Custom CIDR: RemoteIP = %q, want 198.51.100.1", got)
 	}
 
-	// CDN -> ingress -> detur: CDN range trusted -> client, not the CDN edge
 	if err := SetTrustedProxies([]string{"10.0.0.0/8", "173.245.48.0/20"}); err != nil {
 		t.Fatalf("SetTrustedProxies: %v", err)
 	}
@@ -166,12 +164,10 @@ func TestSetTrustedProxies(t *testing.T) {
 		t.Errorf("CDN chain: RemoteIP = %q, want 198.51.100.7", got)
 	}
 
-	// Malformed CIDR fails
 	if err := SetTrustedProxies([]string{"invalid-cidr"}); err == nil {
 		t.Errorf("SetTrustedProxies(invalid) want error, got nil")
 	}
 
-	// Reset reverts to defaults: 203.0.113.50 is untrusted again and increments XFFIgnored
 	_ = SetTrustedProxies(nil)
 	if XFFIgnored() != 0 || LastXFFPeer() != "" {
 		t.Errorf("After SetTrustedProxies(nil): XFFIgnored=%d LastXFFPeer=%q; want 0 and empty", XFFIgnored(), LastXFFPeer())

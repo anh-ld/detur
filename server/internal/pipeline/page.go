@@ -1,7 +1,5 @@
 package pipeline
 
-// Get-app page serving: copy page (iOS hop 1) + tap page (in-app hop 2). Content + placeholders: internal/page.
-
 import (
 	"crypto/rand"
 	"encoding/hex"
@@ -13,9 +11,8 @@ import (
 	"detur.dev/server/internal/page"
 )
 
-// scripts: button behavior appended to every page (nonce'd). URLs come from JS vars, not el.href -> `<button id="detur-cta">` works.
 func pageScripts(in page.Input, nonce string) string {
-	js := func(v any) string { b, _ := json.Marshal(v); return string(b) } // escapes < > &
+	js := func(v any) string { b, _ := json.Marshal(v); return string(b) }
 	var b strings.Builder
 	b.WriteString(`<script nonce="` + nonce + `">` + "\n" + `var HREF = ` + js(in.Href) + `, cta = document.getElementById("detur-cta");` + "\n")
 	switch {
@@ -27,7 +24,6 @@ if (cta) cta.addEventListener("click", function (e) {
   go(copy(link) ? link : "");
 });`)
 	default:
-		// drop the safety-net flag from this page's URL: "Open in browser" then reopens the plain link (real browser -> store redirect)
 		b.WriteString(`(function () {
   var q = new URLSearchParams(location.search);
   if (!q.has("_tap")) return;
@@ -39,7 +35,6 @@ if (cta) cta.addEventListener("click", function (e) {
 			b.WriteString(`if (cta && !cta.getAttribute("href")) cta.addEventListener("click", function () { location.href = HREF; });`)
 			break
 		}
-		// copy synchronously inside the tap, report pasted_link before the navigation can unload the page
 		b.WriteString(`var OPEN = ` + js(in.Open) + `, PASTE = ` + js(in.Paste) + ";\n" + copyJS + `
 if (cta) cta.addEventListener("click", function (e) {
   var link = location.origin + location.pathname + PASTE;
@@ -63,13 +58,11 @@ if (cta) cta.addEventListener("click", function (e) {
 	}
 	b.WriteString("\n</script>")
 	if in.Copy {
-		// no-JS visitors still reach hop 2
 		return `<noscript><meta http-equiv="refresh" content="0;url=` + stdhtml.EscapeString(in.Href) + `"></noscript>` + b.String()
 	}
 	return b.String()
 }
 
-// withScripts: add before the last </body>, else at the end.
 func withScripts(doc, add string) string {
 	if i := strings.LastIndex(strings.ToLower(doc), "</body>"); i >= 0 {
 		return doc[:i] + add + doc[i:]
@@ -77,7 +70,6 @@ func withScripts(doc, add string) string {
 	return doc + add
 }
 
-// servePage: render + CSP (nonce per response) + scripts. Custom HTML can't run script, only ours.
 func servePage(w http.ResponseWriter, html string, in page.Input) {
 	n := make([]byte, 16)
 	_, _ = rand.Read(n)

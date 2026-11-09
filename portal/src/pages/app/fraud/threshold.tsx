@@ -2,7 +2,6 @@ import { useEffect, useState } from 'preact/hooks';
 import { Input } from 'kinu';
 import { FRAUD_RANGES, FraudNumKey } from '../../../lib/matching';
 
-// saves on blur/Enter, only if changed
 export function Threshold({ k, label, saved, onSave }: { k: FraudNumKey; label: string; saved: number; onSave: (n: number) => void }) {
   const [v, setV] = useState(String(saved));
   useEffect(() => setV(String(saved)), [saved]);

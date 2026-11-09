@@ -3,10 +3,10 @@ import { useState } from 'preact/hooks';
 import { Button, Field, Input, Label } from 'kinu';
 import { api } from '../../../lib/api';
 import { adminCall } from '../../../lib/admin';
-import { muted, row } from '../../../lib/styles';
+import { muted, row, stack } from '../../../lib/styles';
 import { App } from '../../../lib/types';
 import { ICONS, Icon, IconButton } from '../../../components/icons';
-import { formGrid, useSave } from './save';
+import { useSave } from './save';
 
 const MAX = 10;
 
@@ -28,7 +28,6 @@ export function TextField({ id, label, ...input }: TextFieldProps) {
   );
 }
 
-// Editable list of presets: a link copies one when picked, so edits never touch links already created.
 export function PresetForm<T>({
   app,
   onSaved,
@@ -56,7 +55,7 @@ export function PresetForm<T>({
   });
 
   return (
-    <form style={formGrid} onSubmit={onSubmit}>
+    <form style={stack} onSubmit={onSubmit}>
       <p style={muted}>{intro}</p>
       {items.map((p, i) => (
         <div class="preset-item" key={i}>

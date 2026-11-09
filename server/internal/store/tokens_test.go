@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// Token lifecycle: create, lookup, update, cascade on app delete, revoke, throttled last-used.
 func TestTokens(t *testing.T) {
 	s := newTestStore(t)
 	a, _ := s.CreateApp("A", "k1")
@@ -63,7 +62,6 @@ func TestTokens(t *testing.T) {
 		t.Fatalf("after app delete = %+v, %v", got, err)
 	}
 
-	// touch: 30s later no write, 61s later write
 	t0 := time.Now().UTC().Truncate(time.Millisecond)
 	for _, c := range []struct {
 		at   time.Duration

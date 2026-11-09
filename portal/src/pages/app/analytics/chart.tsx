@@ -11,9 +11,10 @@ type Kind = 'line' | 'bar';
 
 const H = 200;
 const PAD = { l: 32, r: 8, t: 8, b: 24 };
+const GRID_LINES = 4;
+const PX_PER_LABEL = 64;
 const AXIS_TEXT = { 'font-size': 11, fill: 'hsl(var(--k-muted-foreground))' };
 
-// measure container so SVG axis text stays real pixel size
 function useWidth() {
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(640);
@@ -27,7 +28,6 @@ function useWidth() {
   return [ref, w] as const;
 }
 
-// chart | skeleton while loading | message when all 0
 export function ChartOr({ data, series, kind, empty }: { data: Analytics | null; series: Series; kind: Kind; empty: [string, string] }) {
   if (!data) return <Skeleton h={H + 28} />;
   const total = series.reduce((n, s) => n + sum(data.days, s.key), 0);
@@ -38,7 +38,6 @@ export function ChartOr({ data, series, kind, empty }: { data: Analytics | null;
 function Chart({ days, series, kind }: { days: DayStat[]; series: Series; kind: Kind }) {
   const [ref, w] = useWidth();
   const [hoverAt, setHover] = useState<number | null>(null);
-  // range shrank under a resting pointer: index past the new data would throw and blank the page
   const hover = hoverAt !== null && hoverAt < days.length ? hoverAt : null;
   const n = Math.max(days.length, 1);
   const plotW = w - PAD.l - PAD.r;
@@ -47,11 +46,11 @@ function Chart({ days, series, kind }: { days: DayStat[]; series: Series; kind: 
     1,
     ...days.map((d) => (kind === 'bar' ? series.reduce((s, x) => s + d[x.key], 0) : Math.max(...series.map((x) => d[x.key])))),
   );
-  const top = Math.ceil(peak / 4) * 4; // 4 even gridlines
+  const top = Math.ceil(peak / GRID_LINES) * GRID_LINES;
   const slot = plotW / n;
   const x = (i: number) => PAD.l + slot * i + slot / 2;
   const y = (v: number) => PAD.t + plotH - (v / top) * plotH;
-  const every = Math.ceil(n / Math.max(2, Math.floor(plotW / 64))); // ~64px per x label
+  const every = Math.ceil(n / Math.max(2, Math.floor(plotW / PX_PER_LABEL)));
 
   return (
     <div ref={ref} style={{ display: 'grid', gap: 8, minWidth: 0, position: 'relative' }}>
@@ -65,9 +64,9 @@ function Chart({ days, series, kind }: { days: DayStat[]; series: Series; kind: 
       >
         {[0, 1, 2, 3, 4].map((g) => (
           <g key={g}>
-            <line x1={PAD.l} x2={w - PAD.r} y1={y((top * g) / 4)} y2={y((top * g) / 4)} stroke="hsl(var(--k-border))" />
-            <text x={PAD.l - 6} y={y((top * g) / 4) + 4} text-anchor="end" {...AXIS_TEXT}>
-              {fmt((top * g) / 4)}
+            <line x1={PAD.l} x2={w - PAD.r} y1={y((top * g) / GRID_LINES)} y2={y((top * g) / GRID_LINES)} stroke="hsl(var(--k-border))" />
+            <text x={PAD.l - 6} y={y((top * g) / GRID_LINES) + 4} text-anchor="end" {...AXIS_TEXT}>
+              {fmt((top * g) / GRID_LINES)}
             </text>
           </g>
         ))}
@@ -80,7 +79,6 @@ function Chart({ days, series, kind }: { days: DayStat[]; series: Series; kind: 
         )}
         {kind === 'line'
           ? [...series].reverse().map((s) => (
-              // first series drawn last = on top
               <polyline
                 key={s.key}
                 fill="none"
@@ -151,7 +149,6 @@ function Tooltip({ day, series, at, width }: { day: DayStat; series: Series; at:
       role="status"
       style={{
         top: PAD.t,
-        // past middle: flip left, card stays inside chart
         ...(at > width / 2 ? { right: width - at + 10 } : { left: at + 10 }),
       }}
     >

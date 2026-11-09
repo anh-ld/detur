@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// Sign: Detur-Signature header value for a webhook payload.
-// Format: "t=<unix_timestamp>,v1=<hex_hmac>"; digest over "t.<unix_timestamp>.<raw_body>".
 func Sign(payload []byte, secret string, timestamp int64) string {
 	return fmt.Sprintf("t=%d,v1=%s", timestamp, signatureHex(payload, secret, timestamp))
 }
@@ -24,8 +22,6 @@ func signatureHex(payload []byte, secret string, timestamp int64) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// VerifySignature: checks Detur-Signature header vs raw body + secret.
-// tolerance: max skew between signature timestamp and now; 0 disables age check.
 func VerifySignature(payload []byte, secret, header string, tolerance time.Duration) bool {
 	var tStr, sigStr string
 	for _, p := range strings.Split(header, ",") {

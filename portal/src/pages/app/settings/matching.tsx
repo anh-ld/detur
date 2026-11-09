@@ -3,9 +3,9 @@ import { Button, Input, Label, Table } from 'kinu';
 import { api } from '../../../lib/api';
 import { adminCall } from '../../../lib/admin';
 import { inRange, THRESHOLD, WINDOW } from '../../../lib/matching';
-import { muted, row } from '../../../lib/styles';
+import { muted, stack, end } from '../../../lib/styles';
 import { App } from '../../../lib/types';
-import { formGrid, useSave } from './save';
+import { useSave } from './save';
 
 export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) => void }) {
   const [threshold, setThreshold] = useState(String(app.matchThreshold));
@@ -40,7 +40,7 @@ export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) =>
   );
 
   return (
-    <form style={formGrid} onSubmit={onSubmit}>
+    <form style={stack} onSubmit={onSubmit}>
       <Table>
         <thead>
           <tr>
@@ -56,7 +56,7 @@ export function MatchingTable({ app, onSaved }: { app: App; onSaved: (a: App) =>
         </tbody>
       </Table>
       {status}
-      <div style={{ ...row, justifyContent: 'flex-end' }}>
+      <div style={end}>
         <Button type="submit">Save</Button>
       </div>
     </form>

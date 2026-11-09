@@ -6,25 +6,24 @@ import (
 	"testing"
 )
 
-// Hosting: bundled datacenter ranges hit (v4, v6, IPv4-mapped); residential, non-routable, Private Relay egress miss.
 func TestHosting(t *testing.T) {
 	cases := []struct {
 		ip   string
 		want bool
 	}{
-		{"3.5.140.1", true},               // AWS
-		{"34.64.0.1", true},               // GCP
-		{"73.15.1.1", false},              // Comcast residential
-		{"2600:1f18::1", true},            // AWS v6
-		{"::ffff:3.5.140.1", true},        // IPv4-mapped AWS
-		{"10.0.0.1", false},               // private (KTD8)
-		{"127.0.0.1", false},              // loopback
-		{"::1", false},                    // loopback v6
-		{"", false},                       // empty
-		{"not-an-ip", false},              // unparsable
-		{"172.224.226.1", false},          // Private Relay egress (Akamai)
-		{"104.28.28.1", false},            // Private Relay egress (Cloudflare)
-		{"2a02:26f7:b3c0:4000::1", false}, // Private Relay egress v6 (Akamai)
+		{"3.5.140.1", true},
+		{"34.64.0.1", true},
+		{"73.15.1.1", false},
+		{"2600:1f18::1", true},
+		{"::ffff:3.5.140.1", true},
+		{"10.0.0.1", false},
+		{"127.0.0.1", false},
+		{"::1", false},
+		{"", false},
+		{"not-an-ip", false},
+		{"172.224.226.1", false},
+		{"104.28.28.1", false},
+		{"2a02:26f7:b3c0:4000::1", false},
 	}
 	for _, c := range cases {
 		if got := Hosting(c.ip); got != c.want {
@@ -33,7 +32,6 @@ func TestHosting(t *testing.T) {
 	}
 }
 
-// TestHostingBoundaries: first/last address of first/last shipped intervals hit; one below first, one above last miss.
 func TestHostingBoundaries(t *testing.T) {
 	for _, tab := range []struct {
 		data []byte
@@ -42,11 +40,11 @@ func TestHostingBoundaries(t *testing.T) {
 		if len(tab.data) == 0 || len(tab.data)%(2*tab.size) != 0 {
 			t.Fatalf("bad table length %d", len(tab.data))
 		}
-		rec := tab.data[:2*tab.size] // first interval: nothing shipped below it
+		rec := tab.data[:2*tab.size]
 		lo, _ := netip.AddrFromSlice(rec[:tab.size])
 		hi, _ := netip.AddrFromSlice(rec[tab.size:])
 		next, _ := netip.AddrFromSlice(tab.data[2*tab.size : 3*tab.size])
-		last := tab.data[len(tab.data)-2*tab.size:] // last interval: nothing shipped above it
+		last := tab.data[len(tab.data)-2*tab.size:]
 		lastLo, _ := netip.AddrFromSlice(last[:tab.size])
 		lastHi, _ := netip.AddrFromSlice(last[tab.size:])
 		if !lastHi.Next().IsValid() {
@@ -61,7 +59,6 @@ func TestHostingBoundaries(t *testing.T) {
 	}
 }
 
-// SuspectUA: empty/blank or bundled bot substring (case-insensitive, multi-word kept whole); real mobile browsers and in-app UAs pass.
 func TestSuspectUA(t *testing.T) {
 	cases := []struct {
 		ua   string
@@ -71,8 +68,8 @@ func TestSuspectUA(t *testing.T) {
 		{"   ", true},
 		{"python-requests/2.31", true},
 		{"Mozilla/5.0 (compatible; Googlebot/2.1)", true},
-		{"mozilla/5.0 (compatible; GOOGLEBOT/2.1)", true}, // case-insensitive
-		{"Sogou web spider/4.0", true},                    // multi-word pattern kept whole
+		{"mozilla/5.0 (compatible; GOOGLEBOT/2.1)", true},
+		{"Sogou web spider/4.0", true},
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1", false},
 		{"Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/TQ3A.230805.001) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36", false},
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [Pinterest/iOS]", false},
@@ -84,7 +81,6 @@ func TestSuspectUA(t *testing.T) {
 	}
 }
 
-// Validate: defaults + inclusive edges pass; each bad mode / one-past-edge threshold -> its typed error.
 func TestValidate(t *testing.T) {
 	if err := Defaults.Validate(); err != nil {
 		t.Fatalf("defaults: %v", err)
@@ -120,7 +116,6 @@ func TestValidate(t *testing.T) {
 			t.Errorf("%s: Validate() = %v; want %v", c.name, err, c.want)
 		}
 	}
-	// edges accepted
 	s := Defaults
 	s.VelocityMode, s.IPMode = ModeActive, ModeActive
 	s.VelocityIPMax, s.VelocityLinkMax, s.VelocityWindowMinutes = 10000, 2, 1440
@@ -131,11 +126,10 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// Routable: public passes (IPv4-mapped -> v4); empty, unparsable, private, loopback, unspecified fail (KTD8).
 func TestRoutable(t *testing.T) {
 	cases := []struct {
 		ip   string
-		want string // "" = not routable
+		want string
 	}{
 		{"203.0.113.7", "203.0.113.7"},
 		{"::ffff:203.0.113.7", "203.0.113.7"},
@@ -160,7 +154,6 @@ func TestRoutable(t *testing.T) {
 	}
 }
 
-// Active: each mode field drives only its own signal; install_ip, fingerprint have no mode, never active. AnyActive: any one mode.
 func TestSettingsActive(t *testing.T) {
 	all := Defaults
 	all.VelocityMode, all.TimingMode, all.UserAgentMode, all.IPMode = ModeActive, ModeActive, ModeActive, ModeActive

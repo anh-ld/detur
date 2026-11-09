@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// Social preview fields: create, round-trip, limits, https-only image.
 func TestPortalLinkOG(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	_, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"og"}`, nil)

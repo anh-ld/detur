@@ -1,9 +1,5 @@
 package api
 
-// Data API: read-only, bearer-token JSON on the public port. Reuses portal read handlers behind a token gate;
-// app-scoped routes check the token's explicit app list first (not allowed = same 404 as unknown app).
-// Handlers whose portal shape leaks (key hash, per-install rows, server-wide health) get their own.
-
 import (
 	"context"
 	"log"
@@ -17,18 +13,16 @@ import (
 )
 
 type dataServer struct {
-	p   *portalServer
-	st  *store.Store
-	log *log.Logger
-	v1  *http.ServeMux // also served in-process to MCP tool calls
-	// adminPassword "" = every token refused: removing the password must not leave unrevocable credentials live.
+	p             *portalServer
+	st            *store.Store
+	log           *log.Logger
+	v1            *http.ServeMux
 	adminPassword string
-	touched       sync.Map // token id -> last TouchToken: skip the write lock on most requests
+	touched       sync.Map
 }
 
 type allowedKey struct{}
 
-// RegisterData: GET /api/v1/... reads + POST /api/mcp on the public mux.
 func RegisterData(mux *http.ServeMux, st *store.Store, adminPassword string) {
 	d := &dataServer{st: st, log: log.Default(), adminPassword: adminPassword, v1: http.NewServeMux()}
 	d.p = &portalServer{st: st, log: d.log}
@@ -47,11 +41,10 @@ func RegisterData(mux *http.ServeMux, st *store.Store, adminPassword string) {
 	get("/api/v1/apps/{id}/match-quality", d.p.matchQuality, true)
 	get("/api/v1/apps/{id}/fraud", d.fraud, true)
 	get("/api/v1/apps/{id}/health", d.health, true)
-	mux.Handle("/api/v1/", d.v1) // non-GET -> 405 from v1: no write routes exist
+	mux.Handle("/api/v1/", d.v1)
 	mux.HandleFunc("POST /api/mcp", d.auth(d.mcp))
 }
 
-// auth: no browser origins (DNS rebinding), password set, valid bearer token. Allowed app set goes in the context.
 func (d *dataServer) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Origin") != "" {
@@ -59,6 +52,7 @@ func (d *dataServer) auth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		plain, ok := bearerKey(r.Header.Get("Authorization"))
+		// adminPassword "" refuses every token
 		if d.adminPassword == "" || !ok || plain == "" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -77,7 +71,7 @@ func (d *dataServer) auth(next http.HandlerFunc) http.HandlerFunc {
 		if last, ok := d.touched.Load(t.ID); !ok || now.Sub(last.(time.Time)) >= store.TouchEvery {
 			d.touched.Store(t.ID, now)
 			if err := d.st.TouchToken(t.ID, now); err != nil {
-				d.log.Printf("data api touch: %v", err) // never blocks the read
+				d.log.Printf("data api touch: %v", err)
 			}
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), allowedKey{}, t.AppIDs)))
@@ -89,7 +83,6 @@ func allowed(r *http.Request) []string {
 	return ids
 }
 
-// scoped: app in path must be in the token's list, checked before the handler runs.
 func (d *dataServer) scoped(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -104,7 +97,6 @@ func (d *dataServer) scoped(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// dataAppJSON: non-secret app info only (no key hash, cert fingerprint, page HTML).
 type dataAppJSON struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -142,11 +134,9 @@ func (d *dataServer) getApp(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toDataApp(a))
 }
 
-// fraud: per-signal counts only; flagged install rows stay in the portal.
 func (d *dataServer) fraud(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
-	if _, err := d.st.GetApp(appID); err != nil {
-		d.p.storeErr(w, err)
+	if !d.p.requireApp(w, appID) {
 		return
 	}
 	from, to, ok := parseDateRange(w, r, 7)
@@ -161,7 +151,6 @@ func (d *dataServer) fraud(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"signals": sig})
 }
 
-// health: app-scoped checks only; server-wide Proxy / Forwarded headers checks (peer IPs) dropped.
 func (d *dataServer) health(w http.ResponseWriter, r *http.Request) {
 	app, err := d.st.GetApp(r.PathValue("id"))
 	if err != nil {

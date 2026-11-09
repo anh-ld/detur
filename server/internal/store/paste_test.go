@@ -36,7 +36,6 @@ func TestClickByPasteToken(t *testing.T) {
 	if _, err := s.ClickByPasteToken(app.ID, "other", tok, "devA"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("other link key: err = %v; want not found", err)
 	}
-	// re-tap copies again: newest token wins
 	if _, err := s.RecordClick(Click{AppID: app.ID, LinkID: link.ID, Destination: link.URL, Kind: KindApp, Fingerprint: fp, PasteToken: tok2}, 24); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +95,6 @@ func TestReopenMergePasteToken(t *testing.T) {
 	}
 }
 
-// Short keys route case-insensitively: a token copied from /ABC still finds the click on key "abc".
 func TestClickByPasteTokenKeyCase(t *testing.T) {
 	s := newTestStore(t)
 	app, link := setupApp(t, s)
@@ -123,7 +121,6 @@ func TestStripPasteToken(t *testing.T) {
 	}
 }
 
-// DB from before paste_token: Open adds the column and its index (index must not live in schema.sql).
 func TestOpenAddsPasteToken(t *testing.T) {
 	path := t.TempDir() + "/old.db"
 	s, err := Open(path)
@@ -146,7 +143,6 @@ func TestOpenAddsPasteToken(t *testing.T) {
 	}
 }
 
-// Paste token outlives the fingerprint scrub, like click_id (M15).
 func TestPasteTokenSurvivesScrub(t *testing.T) {
 	s := newTestStore(t)
 	s.ClickIDHours = 30 * 24

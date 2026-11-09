@@ -1,28 +1,13 @@
 package api
 
-// Portal admin routes for data API / MCP tokens. Tokens are credentials to data: fail closed without ADMIN_PASSWORD.
-
 import (
 	"net/http"
-	"time"
 	"unicode/utf8"
 
 	"detur.dev/server/internal/httpx"
 	"detur.dev/server/internal/store"
 )
 
-// requireTokenAdmin: 403 if ADMIN_PASSWORD unset (like requireWebhookAdmin), else needs an admin session.
-func (p *portalServer) requireTokenAdmin(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if p.adminPassword == "" {
-			http.Error(w, "API tokens require ADMIN_PASSWORD to be configured", http.StatusForbidden)
-			return
-		}
-		p.requireAdmin(next)(w, r)
-	}
-}
-
-// tokenJSON: token wire shape. Never the hash; plaintext only in the create response.
 type tokenJSON struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
@@ -34,7 +19,7 @@ type tokenJSON struct {
 
 func toTokenJSON(t store.Token) tokenJSON {
 	return tokenJSON{ID: t.ID, Name: t.Name, Prefix: t.Prefix, AppIDs: t.AppIDs,
-		CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339), LastUsedAt: fmtTimePtr(t.LastUsedAt)}
+		CreatedAt: fmtTime(t.CreatedAt), LastUsedAt: fmtTimePtr(t.LastUsedAt)}
 }
 
 func validTokenName(n string) bool {
@@ -79,7 +64,7 @@ func (p *portalServer) createToken(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.WriteJSON(w, http.StatusCreated, struct {
 		tokenJSON
-		Token string `json:"token"` // show-once
+		Token string `json:"token"`
 	}{toTokenJSON(t), plain})
 }
 
@@ -101,7 +86,7 @@ func (p *portalServer) updateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if err := p.st.UpdateToken(id, stringValue(body.Name), body.AppIDs); err != nil {
+	if err := p.st.UpdateToken(id, strOr(body.Name), body.AppIDs); err != nil {
 		p.storeErr(w, err)
 		return
 	}

@@ -3,6 +3,7 @@ package ua
 
 import (
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,7 +15,6 @@ var (
 	reSafariVersion  = regexp.MustCompile(`Version/([\d.]+)`)
 )
 
-// uaBots: Dub's UA_BOTS list (apps/web/lib/middleware/utils/bots-list.ts), matched case-insensitively as substrings.
 var uaBots = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	"bot", "crawler", "spider", "http", "scraper", "fetch", "curl", "wget", "python", "node", "ruby",
 	"chatgpt", "bluesky", "facebookexternalhit", "meta-externalagent", "meta-externalads",
@@ -35,41 +35,54 @@ var uaBots = regexp.MustCompile(`(?i)` + strings.Join([]string{
 // Cubot phones put "CUBOT" (trips "bot") in the model token of every in-app webview UA.
 var uaFalsePositive = regexp.MustCompile(`Google/google\b|Channel/googleplay\b|(?i:\bcubot\b)`)
 
-// IsBotUA: UA matches Dub's bot list.
 func IsBotUA(ua string) bool {
+	if !uaBots.MatchString(ua) {
+		return false
+	}
 	return uaBots.MatchString(uaFalsePositive.ReplaceAllString(ua, ""))
 }
 
-// IsBot: Dub's detectBot for browser clicks: ?bot= param, any HEAD request, or bot UA.
 func IsBot(r *http.Request) bool {
-	return r.URL.Query().Get("bot") != "" || r.Method == http.MethodHead || IsBotUA(r.UserAgent())
+	return IsBotQuery(r, r.URL.Query())
+}
+
+func IsBotQuery(r *http.Request, q url.Values) bool {
+	return q.Get("bot") != "" || r.Method == http.MethodHead || IsBotUA(r.UserAgent())
+}
+
+const (
+	PlatformIOS     = "ios"
+	PlatformAndroid = "android"
+	PlatformDesktop = "desktop"
+)
+
+func ValidPlatform(p string) bool {
+	return p == PlatformIOS || p == PlatformAndroid || p == PlatformDesktop
 }
 
 // Platform: browser UA class for scoring, "android"/"ios"/"". Android check case-sensitive (documented contract); redirect routing uses case-insensitive IsAndroid.
 func Platform(ua string) string {
 	switch {
 	case strings.Contains(ua, "Android"):
-		return "android"
+		return PlatformAndroid
 	case strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") || strings.Contains(ua, "iPod"):
-		return "ios"
+		return PlatformIOS
 	}
 	return ""
 }
 
-// IsAndroid: Android browser UA (case-insensitive; redirect routing).
 func IsAndroid(ua string) bool {
 	return strings.Contains(strings.ToLower(ua), "android")
 }
 
-// ClickPlatform: browser click platform, "ios"/"android"/"desktop" (analytics label; same split as redirect routing).
 func ClickPlatform(agent string) string {
 	switch {
 	case IsIOS(agent):
-		return "ios"
+		return PlatformIOS
 	case IsAndroid(agent):
-		return "android"
+		return PlatformAndroid
 	}
-	return "desktop"
+	return PlatformDesktop
 }
 
 // AppPlatform: in-app (SDK) request platform, "ios"/"android"/"": browser UA markers, then native HTTP client markers (iOS CFNetwork/Darwin, Android okhttp/Dalvik).
@@ -80,14 +93,13 @@ func AppPlatform(ua string) string {
 	l := strings.ToLower(ua)
 	switch {
 	case strings.Contains(l, "cfnetwork") || strings.Contains(l, "darwin"):
-		return "ios"
+		return PlatformIOS
 	case strings.Contains(l, "okhttp") || strings.Contains(l, "dalvik"):
-		return "android"
+		return PlatformAndroid
 	}
 	return ""
 }
 
-// IsIOS: iOS browser UA (iPhone/iPad/iPod, case-insensitive).
 func IsIOS(ua string) bool {
 	ua = strings.ToLower(ua)
 	return strings.Contains(ua, "iphone") || strings.Contains(ua, "ipad") || strings.Contains(ua, "ipod")
@@ -108,7 +120,6 @@ func MaybeIPad(ua string) bool {
 	return true
 }
 
-// AndroidVersion: Android OS version from browser UA.
 func AndroidVersion(ua string) string {
 	m := reAndroidVersion.FindStringSubmatch(ua)
 	if m == nil {
@@ -118,7 +129,6 @@ func AndroidVersion(ua string) string {
 }
 
 // IOSVersion: iOS version from click UA, "17_2" -> "17.2". iOS 26 WebKit freezes OS token at 18_6; Safari Version/ carries real version (Detour reads it too). Version/ wins only when its major > OS token major: on older iOS the OS token is more precise (17_2_1 vs Version/17.2).
-// fromSafari: version from Version/ (major.minor, no patch).
 func IOSVersion(ua string) (v string, fromSafari bool) {
 	if m := reIOSVersion.FindStringSubmatch(ua); m != nil {
 		v = strings.ReplaceAll(m[1], "_", ".")
@@ -129,7 +139,6 @@ func IOSVersion(ua string) (v string, fromSafari bool) {
 	return v, false
 }
 
-// major: integer before first ".", non-numeric = 0.
 func major(v string) int {
 	n, _ := strconv.Atoi(strings.SplitN(v, ".", 2)[0])
 	return n
@@ -170,7 +179,6 @@ func AndroidModel(ua string) string {
 
 var reLocale = regexp.MustCompile(`^[a-z]{2}(?:[-_][a-zA-Z]{2})?$`)
 
-// DeviceLabel: click-time device label (pipeline fingerprint): Android model, else iPhone/iPad/iPod.
 func DeviceLabel(ua string) string {
 	switch {
 	case strings.Contains(ua, "Android"):
@@ -185,7 +193,6 @@ func DeviceLabel(ua string) string {
 	return ""
 }
 
-// SourceUnknownInApp: click source for a generic webview no token names.
 const SourceUnknownInApp = "unknown-inapp"
 
 // inAppTokens: in-app browser UA tokens, first match wins (Messenger before Facebook: both carry FB_IAB; Threads before Instagram). From ua-parser-js v2 token facts + vendor UA samples, not copied (AGPL). Narrow tokens keep crawlers out ("Twitter for", not "Twitter").
@@ -207,7 +214,6 @@ var inAppTokens = []struct {
 	{"wechat", regexp.MustCompile(`MicroMessenger`)},
 }
 
-// reIOSBrowser: real iOS browsers (not webviews), excluded from missing-"Safari/" webview check.
 var reIOSBrowser = regexp.MustCompile(`CriOS|FxiOS|EdgiOS|OPiOS`)
 
 // InApp: in-app browser of mobile UA: app name, SourceUnknownInApp for generic webview (Android "; wv)", iOS without "Safari/"), "" for real browser or non-mobile UA. SFSafariViewController / Custom Tabs send plain browser UA: undetectable.

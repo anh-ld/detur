@@ -93,7 +93,6 @@ func TestWorkerDeliverySuccess(t *testing.T) {
 	if items[0]["type"] != "install" {
 		t.Errorf("expected type 'install', got %v", items[0]["type"])
 	}
-	// PII: deviceHash must NEVER be sent
 	if _, exists := items[0]["deviceHash"]; exists {
 		t.Error("deviceHash MUST NOT be present in webhook payload")
 	}
@@ -134,7 +133,6 @@ func TestWorkerBatchDraining(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// 2 batches in one cycle: 100 + 50
 	if len(batchSizes) != 2 {
 		t.Fatalf("expected 2 drained batches, got %d (%v)", len(batchSizes), batchSizes)
 	}
@@ -157,11 +155,9 @@ func TestWorkerStreamIsolationAndBackoff(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &items)
 		if len(items) > 0 && items[0]["type"] == "click" {
-			// click stream: 500
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		// install stream: 200
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -177,7 +173,6 @@ func TestWorkerStreamIsolationAndBackoff(t *testing.T) {
 
 	whUpdated, _ := st.GetWebhook(wh.ID)
 
-	// installs: advance
 	if whUpdated.CursorInstalls <= wh.CursorInstalls {
 		t.Errorf("installs cursor should have advanced, got %d", whUpdated.CursorInstalls)
 	}
@@ -185,7 +180,6 @@ func TestWorkerStreamIsolationAndBackoff(t *testing.T) {
 		t.Errorf("installs stream should have 0 fails, got %d", whUpdated.FailsInstalls)
 	}
 
-	// clicks: failed -> backoff
 	if whUpdated.CursorClicks != wh.CursorClicks {
 		t.Errorf("clicks cursor should NOT have advanced, was %d now %d", wh.CursorClicks, whUpdated.CursorClicks)
 	}
@@ -229,7 +223,6 @@ func TestWorkerReplayHeader(t *testing.T) {
 	}
 }
 
-// Live rows after replay start must not ride in a replay batch (would lose/steal Detur-Replay).
 func TestWorkerReplayBatchStopsAtReplayUntil(t *testing.T) {
 	st := newTestStore(t)
 	app, _ := st.CreateApp("Replay Bound App", "dk_replaybound")
@@ -269,7 +262,6 @@ func TestWorkerReplayBatchStopsAtReplayUntil(t *testing.T) {
 	}
 }
 
-// Purge empties table -> new rows reuse rowids <= cursor; must still be delivered.
 func TestWorkerDeliversAfterPurgeEmptiesTable(t *testing.T) {
 	st := newTestStore(t)
 	app, _ := st.CreateApp("Purge App", "dk_purge")
@@ -305,7 +297,6 @@ func TestWorkerDeliversAfterPurgeEmptiesTable(t *testing.T) {
 	_ = wh
 }
 
-// Tail deleted + refilled before next tick: no rowid reuse -> each new row delivered once.
 func TestWorkerDeliversRefilledTailOnce(t *testing.T) {
 	st := newTestStore(t)
 	app, _ := st.CreateApp("Refill App", "dk_refill")
@@ -336,7 +327,6 @@ func TestWorkerDeliversRefilledTailOnce(t *testing.T) {
 	}
 }
 
-// Unknown install never sent; its replacement is.
 func TestWorkerSkipsUnknownSendsReplacement(t *testing.T) {
 	st := newTestStore(t)
 	app, _ := st.CreateApp("Unknown App", "dk_unknown")
@@ -366,7 +356,6 @@ func TestWorkerSkipsUnknownSendsReplacement(t *testing.T) {
 	}
 }
 
-// Cursor > rowid high-water mark (restored older backup): rewind, new rows still delivered.
 func TestWorkerRewindsCursorAboveHighWater(t *testing.T) {
 	st := newTestStore(t)
 	app, _ := st.CreateApp("Restore App", "dk_restore")
@@ -391,7 +380,6 @@ func TestWorkerRewindsCursorAboveHighWater(t *testing.T) {
 	}
 }
 
-// Stop mid-delivery cancels the POST: returns promptly, no failure counted, no backoff, cursor unmoved (redelivered next start).
 func TestWorkerStopCancelsInFlightWithoutBackoff(t *testing.T) {
 	st := newTestStore(t)
 	app, _ := st.CreateApp("Stop App", "dk_stop")
@@ -399,7 +387,7 @@ func TestWorkerStopCancelsInFlightWithoutBackoff(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.ReadAll(r.Body) // server notices a client hang-up only once the body is read
 		entered <- struct{}{}
-		<-r.Context().Done() // slow endpoint: holds until the client gives up
+		<-r.Context().Done()
 	}))
 	defer srv.Close()
 	wh, _ := st.CreateWebhook(app.ID, srv.URL, []string{"installs"})
@@ -425,13 +413,12 @@ func TestWorkerStopCancelsInFlightWithoutBackoff(t *testing.T) {
 	}
 }
 
-// Delivery error logs never carry the endpoint URL (Slack-style tokens live in the path).
 func TestWorkerFailureLogOmitsURL(t *testing.T) {
 	st := newTestStore(t)
 	app, _ := st.CreateApp("Log App", "dk_log")
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL + "/services/SECRET123"
-	srv.Close() // connection refused
+	srv.Close()
 	_, _ = st.CreateWebhook(app.ID, url, []string{"installs"})
 	_, _ = st.RecordInstall(store.Install{AppID: app.ID, DeviceHash: "d1", Attribution: store.AttributionOrganic})
 
@@ -445,7 +432,6 @@ func TestWorkerFailureLogOmitsURL(t *testing.T) {
 	}
 }
 
-// Admin disables a webhook mid-cycle: the batch in flight finishes, no further batch goes to the old URL.
 func TestWorkerStopsWhenDisabledMidCycle(t *testing.T) {
 	st := newTestStore(t)
 	app, _ := st.CreateApp("Revoke App", "dk_revoke")

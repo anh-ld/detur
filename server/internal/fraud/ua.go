@@ -9,12 +9,10 @@ import (
 //go:embed data/bots.txt
 var botsTxt string
 
-// bots: lowercased PostHog bot substrings, parsed once on first use.
 var bots = sync.OnceValue(func() []string {
-	return strings.Split(strings.TrimRight(strings.ToLower(botsTxt), "\n"), "\n") // patterns may hold spaces
+	return strings.Split(strings.TrimRight(strings.ToLower(botsTxt), "\n"), "\n")
 })
 
-// SuspectUA: empty/whitespace UA, or case-insensitive substring hit in bundled bot list. Separate from ua.IsBot (redirect-time filter).
 func SuspectUA(ua string) bool {
 	l := strings.ToLower(strings.TrimSpace(ua))
 	if l == "" {

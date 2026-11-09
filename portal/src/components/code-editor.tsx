@@ -1,12 +1,10 @@
 import { JSX } from 'preact';
-import { useRef } from 'preact/hooks';
+import { useMemo, useRef } from 'preact/hooks';
 
-// HTML (+ <style> CSS) highlighter for the page editor. Output = escaped source wrapped in spans; nothing else.
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const span = (cls: string, s: string) => (s ? `<span class="hl-${cls}">${esc(s)}</span>` : '');
 const ph = (s: string) => esc(s).replace(/\{\{[a-z_]+\}\}/g, (m) => `<span class="hl-ph">${m}</span>`);
 
-// gaps between matches -> plain(text); matches -> hit(match)
 function scan(src: string, re: RegExp, hit: (m: RegExpExecArray) => string, plain: (s: string) => string): string {
   let out = '';
   let at = 0;
@@ -59,15 +57,14 @@ export function highlightHtml(src: string): string {
   );
 }
 
-// transparent textarea over a highlighted <pre>: native editing, undo, selection; pre follows its scroll
 export function CodeEditor({ id, value, onInput, height }: { id: string; value: string; onInput: (v: string) => void; height: number }) {
   const pre = useRef<HTMLPreElement>(null);
+  const html = useMemo(() => highlightHtml(value) + '\n', [value]);
   const sync = (e: JSX.TargetedEvent<HTMLTextAreaElement>) => {
     if (!pre.current) return;
     pre.current.scrollTop = e.currentTarget.scrollTop;
     pre.current.scrollLeft = e.currentTarget.scrollLeft;
   };
-  // Tab indents 2 spaces (Esc then Tab still leaves the field: Tab only inserts while no modifier)
   const key = (e: JSX.TargetedKeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== 'Tab' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
@@ -77,8 +74,7 @@ export function CodeEditor({ id, value, onInput, height }: { id: string; value: 
   };
   return (
     <div class="code-editor" style={{ height }}>
-      {/* trailing newline: pre keeps the textarea's last empty line */}
-      <pre ref={pre} aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightHtml(value) + '\n' }} />
+      <pre ref={pre} aria-hidden="true" dangerouslySetInnerHTML={{ __html: html }} />
       <textarea
         id={id}
         value={value}

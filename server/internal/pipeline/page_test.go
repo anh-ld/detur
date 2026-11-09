@@ -1,7 +1,5 @@
 package pipeline
 
-// Custom get-app page: served on copy + tap pages, CSP + nonce, we own the button script.
-
 import (
 	"regexp"
 	"strings"
@@ -10,7 +8,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// custom HTML on iOS copy page, iOS tap, Android tap: placeholders filled, CSP nonce == every injected script's nonce, user HTML has none.
 func TestCustomPageServed(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -46,7 +43,6 @@ func TestCustomPageServed(t *testing.T) {
 	}
 }
 
-// empty page_html -> default design on the copy page too (icon + button), with CSP.
 func TestDefaultCopyPageDesign(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	_, link := setupPipeline(t, s)
@@ -61,7 +57,6 @@ func TestDefaultCopyPageDesign(t *testing.T) {
 	}
 }
 
-// Script bypassing save validation (old row, direct DB write): never gets the nonce, CSP has no 'unsafe-inline' for scripts.
 func TestPageUserScriptNeverNonced(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -77,7 +72,6 @@ func TestPageUserScriptNeverNonced(t *testing.T) {
 	}
 }
 
-// Visitor-controlled query reaches HREF / intent / Play referrer: never breaks out of the attribute or the script.
 func TestPageHostileQueryEscaped(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)
@@ -99,7 +93,6 @@ func TestPageHostileQueryEscaped(t *testing.T) {
 	}
 }
 
-// iOS scheme set + user's own <button>: scheme-first still wired through OPEN.
 func TestPageCustomButtonSchemeFirst(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)
@@ -120,7 +113,6 @@ func TestPageCustomButtonSchemeFirst(t *testing.T) {
 	}
 }
 
-// Auto interstitial (no copy, no tap) never shows the custom page.
 func TestPageNotOnAutoInterstitial(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, link := setupPipeline(t, s)

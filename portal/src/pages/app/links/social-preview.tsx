@@ -3,7 +3,7 @@ import { Accordion, Field, Input, Label, Select, Textarea } from 'kinu';
 import type { SocialPreset } from '../../../lib/types';
 import { hostOf } from '../../../lib/format';
 import { muted } from '../../../lib/styles';
-import { httpsUrl, OG_DESC_MAX, OG_TITLE_MAX, type LinkDraft } from './link-draft';
+import { httpsUrl, ogImageBad, OG_DESC_MAX, OG_TITLE_MAX, type LinkDraft } from './link-draft';
 
 export function SocialPreview({
   id,
@@ -24,7 +24,7 @@ export function SocialPreview({
     const p = presets.find((x) => x.name === name);
     if (p) setDraft({ ...draft, ogTitle: p.title ?? '', ogDescription: p.description ?? '', ogImage: p.image ?? '' });
   };
-  const imageBad = !!draft.ogImage.trim() && !httpsUrl(draft.ogImage.trim());
+  const imageBad = ogImageBad(draft);
   const filled = !!(draft.ogTitle || draft.ogDescription || draft.ogImage);
 
   return (

@@ -15,7 +15,6 @@ func recordLinkEvent(t *testing.T, s *Store, e LinkEvent, now time.Time) {
 	}
 }
 
-// linkEvents: link_event_days as key/event -> n.
 func linkEvents(t *testing.T, s *Store, appID string) map[string]int64 {
 	t.Helper()
 	rows, err := s.db.Query(`SELECT l.key, e.event, e.n FROM link_event_days e JOIN links l ON l.id = e.link_id WHERE e.app_id = ?`, appID)
@@ -42,7 +41,6 @@ func cohort(t *testing.T, s *Store, linkID, day string) [4]int64 {
 	return c
 }
 
-// Tag maps device -> its first link; tag marker isn't a conversion; later events count for that link.
 func TestRecordLinkEventConversions(t *testing.T) {
 	s := newTestStore(t)
 	app, abc := setupApp(t, s)
@@ -51,7 +49,7 @@ func TestRecordLinkEventConversions(t *testing.T) {
 	}
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "dev-1", LinkKey: "ABC", Event: LinkTag}, linkDay0)
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "dev-1", Event: "purchase"}, linkDay0)
-	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "dev-1", LinkKey: "def", Event: "signup"}, linkDay0) // first tag wins
+	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "dev-1", LinkKey: "def", Event: "signup"}, linkDay0)
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "dev-2", LinkKey: "nope", Event: "purchase"}, linkDay0)
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, LinkKey: "abc", Event: "purchase"}, linkDay0)
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "dev-3", Event: "purchase"}, linkDay0)
@@ -70,7 +68,6 @@ func TestRecordLinkEventConversions(t *testing.T) {
 	}
 }
 
-// Retention: device counts once per mark, on exactly day 1, 7, 30; untagged devices count nothing.
 func TestRecordLinkEventRetention(t *testing.T) {
 	s := newTestStore(t)
 	app, abc := setupApp(t, s)
@@ -87,7 +84,6 @@ func TestRecordLinkEventRetention(t *testing.T) {
 	}
 }
 
-// Mapping purged at 90d; rollups stay. DeleteLink and DeleteApp drop all three tables.
 func TestLinkAnalyticsLifecycle(t *testing.T) {
 	s := newTestStore(t)
 	app, abc := setupApp(t, s)
@@ -134,7 +130,6 @@ func TestLinkAnalyticsLifecycle(t *testing.T) {
 	}
 }
 
-// Devices = cohorts started in range; each DN = cohorts whose mark day is in range.
 func TestAnalyticsLinkRetentionAndConversions(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -145,9 +140,9 @@ func TestAnalyticsLinkRetentionAndConversions(t *testing.T) {
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "old", LinkKey: "abc", Event: "signup"}, now.AddDate(0, 0, -10))
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "old", Event: "app_open", Retention: true}, now.AddDate(0, 0, -3))
 	stale, _ := s.CreateLink(Link{AppID: app.ID, Key: "stale", URL: "https://example.com/s"})
-	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "gone", LinkKey: stale.Key, Event: "signup"}, now.AddDate(0, 0, -20)) // no mark day in range
+	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "gone", LinkKey: stale.Key, Event: "signup"}, now.AddDate(0, 0, -20))
 
-	a, err := s.Analytics(app.ID, 7, "", now)
+	a, err := s.AnalyticsRange(app.ID, now.AddDate(0, 0, -6), now, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,13 +159,12 @@ func TestAnalyticsLinkRetentionAndConversions(t *testing.T) {
 	}
 
 	other, _ := s.CreateApp("quiet", "quiet-key-1")
-	q, _ := s.Analytics(other.ID, 7, "", now)
+	q, _ := s.AnalyticsRange(other.ID, now.AddDate(0, 0, -6), now, "", "")
 	if q.Retention == nil || q.Conversions == nil || len(q.Retention)+len(q.Conversions) != 0 {
 		t.Errorf("quiet app = %#v / %#v; want empty slices", q.Retention, q.Conversions)
 	}
 }
 
-// install date filters: [from, to] both ends inclusive by UTC day; later installs never leak into an earlier range
 func TestInstallDateRangeBounds(t *testing.T) {
 	s := newTestStore(t)
 	app, _ := setupApp(t, s)
@@ -183,10 +177,10 @@ func TestInstallDateRangeBounds(t *testing.T) {
 			t.Fatalf("backdate: %v", err)
 		}
 	}
-	at("d0", "2026-01-09T23:59:59Z") // before
+	at("d0", "2026-01-09T23:59:59Z")
 	at("d1", "2026-01-10T00:00:00Z")
 	at("d2", "2026-01-15T23:59:59Z")
-	at("d3", "2026-01-16T00:00:00Z") // after
+	at("d3", "2026-01-16T00:00:00Z")
 	to := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 	q, err := s.MatchQuality(app.ID, 6, to)
 	if err != nil {
@@ -195,7 +189,7 @@ func TestInstallDateRangeBounds(t *testing.T) {
 	if n := q.Methods[MethodOrganic]; n != 2 {
 		t.Errorf("MatchQuality organic = %d; want 2 (Jan 10–15 only)", n)
 	}
-	a, err := s.AnalyticsRange(app.ID, time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC), to, "")
+	a, err := s.AnalyticsRange(app.ID, time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC), to, "", "")
 	if err != nil {
 		t.Fatalf("AnalyticsRange: %v", err)
 	}
@@ -221,27 +215,22 @@ func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Clicks: linkA (2 clicks with distinct IPs), linkB (1 click)
 	cA1, _ := s.RecordClick(Click{AppID: app.ID, LinkID: linkA.ID, Destination: linkA.URL, Platform: "ios", Fingerprint: Fingerprint{IP: "1.1.1.1"}}, 24)
 	cA2, _ := s.RecordClick(Click{AppID: app.ID, LinkID: linkA.ID, Destination: linkA.URL, Platform: "ios", Source: "messenger", Fingerprint: Fingerprint{IP: "2.2.2.2"}}, 24)
 	cB, _ := s.RecordClick(Click{AppID: app.ID, LinkID: linkB.ID, Destination: linkB.URL, Platform: "android", Fingerprint: Fingerprint{IP: "3.3.3.3"}}, 24)
 
-	// Installs: linkA (1 non-organic), 1 organic
 	iA, _ := s.RecordInstall(Install{AppID: app.ID, LinkID: linkA.ID, DeviceHash: "dev-a", Platform: "ios", Attribution: AttributionNonOrganic})
 	iOrg, _ := s.RecordInstall(Install{AppID: app.ID, DeviceHash: "dev-org", Attribution: AttributionOrganic})
 
 	now := time.Now().UTC()
-	// Set exact timestamps within the last 5 minutes
 	s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-4*time.Minute)), cA1.ID)
 	s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-2*time.Minute)), cA2.ID)
 	s.db.Exec(`UPDATE clicks SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-3*time.Minute)), cB.ID)
 	s.db.Exec(`UPDATE installs SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-2*time.Minute)), iA.ID)
 	s.db.Exec(`UPDATE installs SET created_at = ? WHERE id = ?`, rfc3339(now.Add(-1*time.Minute)), iOrg.ID)
 
-	// Events
 	s.RecordEvent(app.ID, "app_open", `{}`)
 
-	// 1. Sub-day 15m (all links)
 	a15, err := s.AnalyticsSubDay(app.ID, "15m", "", "", now)
 	if err != nil {
 		t.Fatalf("AnalyticsSubDay 15m: %v", err)
@@ -265,7 +254,6 @@ func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
 		t.Errorf("15m sources = %+v", a15.Sources)
 	}
 
-	// 2. Sub-day 15m filtered by linkA
 	a15A, err := s.AnalyticsSubDay(app.ID, "15m", "", linkA.ID, now)
 	if err != nil {
 		t.Fatalf("AnalyticsSubDay 15m linkA: %v", err)
@@ -283,7 +271,6 @@ func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
 		t.Errorf("15m linkA links = %+v; want only alice", a15A.Links)
 	}
 
-	// 3. Other sub-day windows bucket counts
 	for _, win := range []struct {
 		w string
 		b int
@@ -294,7 +281,6 @@ func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
 		}
 	}
 
-	// 4. AnalyticsRange filtered by linkA
 	arA, err := s.AnalyticsRange(app.ID, now.AddDate(0, 0, -1), now, "", linkA.ID)
 	if err != nil {
 		t.Fatalf("AnalyticsRange linkA: %v", err)
@@ -303,7 +289,6 @@ func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
 		t.Errorf("AnalyticsRange linkA links = %+v", arA.Links)
 	}
 
-	// 5. link-scoped events: range reads link_event_days (that link only); window has no link column -> empty
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "d1", LinkKey: "alice", Event: LinkTag}, now)
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "d1", Event: "buy"}, now)
 	recordLinkEvent(t, s, LinkEvent{AppID: app.ID, Device: "d2", LinkKey: "bob", Event: LinkTag}, now)
@@ -318,7 +303,6 @@ func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
 	if ev, _ := s.AnalyticsSubDay(app.ID, "15m", "", linkA.ID, time.Now()); len(ev.Events) != 0 {
 		t.Errorf("15m linkA events = %+v; want none", ev.Events)
 	}
-	// 6. platform filter in window mode: only the android click
 	aAnd, err := s.AnalyticsSubDay(app.ID, "15m", "android", "", now)
 	if err != nil {
 		t.Fatal(err)
@@ -332,7 +316,6 @@ func TestAnalyticsSubDayAndLinkFilter(t *testing.T) {
 	}
 }
 
-// Refresh across a UTC day moves the click_days rollup with created_at; pre-upgrade NULL platform backfilled from UA at Open.
 func TestRefreshClickMovesRollupAndBackfillsPlatform(t *testing.T) {
 	path := t.TempDir() + "/p.db"
 	s, err := Open(path)
@@ -355,7 +338,6 @@ func TestRefreshClickMovesRollupAndBackfillsPlatform(t *testing.T) {
 	if d1 != 0 || d2 != 1 {
 		t.Errorf("rollup after refresh: day1=%d day2=%d; want 0, 1", d1, d2)
 	}
-	// legacy rows: NULL platform, UA present -> backfilled; scrubbed UA stays NULL
 	s.db.Exec(`UPDATE clicks SET platform = NULL`)
 	for id, c := range map[string][2]string{"desk": {"Mozilla/5.0 (Macintosh; Intel Mac OS X)", KindWeb}, "open": {"MyApp/1 CFNetwork/1494 Darwin/23", KindOpen}} {
 		s.db.Exec(`INSERT INTO clicks (id, app_id, link_id, destination, user_agent, kind, expires_at) VALUES (?, ?, ?, 'x', ?, ?, '2999-01-01T00:00:00.000Z')`, id, app.ID, link.ID, c[0], c[1])
@@ -371,7 +353,7 @@ func TestRefreshClickMovesRollupAndBackfillsPlatform(t *testing.T) {
 	s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE platform = 'desktop' AND id = 'desk'`).Scan(&desk)
 	s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE platform = 'ios'`).Scan(&ios)
 	s.db.QueryRow(`SELECT COUNT(*) FROM clicks WHERE platform IS NULL`).Scan(&nulls)
-	if desk != 1 || ios != 2 || nulls != 1 { // ios: browser iPhone click + kind=open CFNetwork
+	if desk != 1 || ios != 2 || nulls != 1 {
 		t.Errorf("backfill: desktop=%d ios=%d null=%d; want 1, 2, 1", desk, ios, nulls)
 	}
 }

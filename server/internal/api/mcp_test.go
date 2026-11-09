@@ -119,7 +119,6 @@ func TestMCP(t *testing.T) {
 				t.Errorf("%s = %d; want 405", m, resp.StatusCode)
 			}
 		}
-		// link key "mcp" still redirects
 		if _, err := st.CreateLink(store.Link{AppID: a.ID, Key: "mcp", URL: "https://example.com/m"}); err != nil {
 			t.Fatal(err)
 		}

@@ -5,9 +5,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { AppPage } from '../src/pages/app';
 import { AnalyticsView } from '../src/pages/app/analytics';
 import { CopyButton } from '../src/components/copy-button';
+import { api, setApiBase } from '../src/lib/api';
 import { getAdmin, refreshAdminSession, setElevated } from '../src/lib/admin';
 
-// unit, mocked fetch: cases the real binary can't produce on demand (delayed reply, every outcome/signal at once)
 
 const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
 const stats = (clicks: number) => ({
@@ -27,7 +27,6 @@ const app = {
   matchWindowMinutes: 15,
 };
 
-// Clicks tile value ('' while skeleton up)
 const clicksTileText = () =>
   screen
     .getAllByText('Clicks', { exact: true })
@@ -53,7 +52,7 @@ it('stale analytics response: a slow 7-day reply after switching to 30 days is d
 
   const { rerender } = render(<AppPage id="app1" tab="analytics" />);
   fireEvent.change(await screen.findByLabelText('Date range'), { target: { value: '30' } });
-  rerender(<AppPage id="app1" tab="analytics" range={{ days: 30 }} />); // router re-render after the hash write
+  rerender(<AppPage id="app1" tab="analytics" range={{ days: 30 }} />);
   await waitFor(() => expect(clicksTile()).toBe(30));
 
   releaseSlow();
@@ -140,7 +139,7 @@ it('flagged installs table: per-signal counts, signal names and outcome wording 
             fraudLinkKey: 'flood-link',
           }),
           install({ id: 'e', fraud: ['timing', 'install_ip'], fraudAction: 'excluded', fraudLinkKey: 'fast-link' }),
-          install({ id: 'g', fraud: ['ip'], fraudAction: 'excluded' }), // flagged click's link since deleted
+          install({ id: 'g', fraud: ['ip'], fraudAction: 'excluded' }),
           install({ id: 'a', linkKey: 'tagged-link', attribution: 'non_organic', fraud: ['user_agent', 'fingerprint'] }),
           install({ id: 'o', fraud: ['new_signal'] }),
         ],
@@ -186,7 +185,7 @@ it('flagged installs table: per-signal counts, signal names and outcome wording 
 
 it('switching apps: the old app, its links and its numbers never show under the new id', async () => {
   const appB = { ...app, id: 'appB', name: 'Other App' };
-  let shown = ''; // name AppPage hands the sidebar
+  let shown = '';
   const onName = (n: string) => (shown = n);
   const pending: Record<string, (r: Response) => void> = {};
   const hold = (k: string) => new Promise<Response>((r) => (pending[k] = r));
@@ -222,7 +221,7 @@ it('switching apps: the old app, its links and its numbers never show under the 
 
 it('switching apps mid-load: a slow reply for the app left behind never lands under the new id', async () => {
   const appB = { ...app, id: 'appB', name: 'Other App' };
-  let shown = ''; // name AppPage hands the sidebar
+  let shown = '';
   const onName = (n: string) => (shown = n);
   let releaseA!: () => void;
   vi.stubGlobal('fetch', (url: string) => {
@@ -250,7 +249,6 @@ it('analytics error: a rejected range shows the alert; the next good range clear
   });
   const { rerender } = render(<AppPage id="app1" tab="analytics" />);
   await screen.findByText(/730 days/);
-  // filters live in the route: picking a range rewrites the hash, the router re-renders with it
   fireEvent.change(await screen.findByLabelText('Date range'), { target: { value: '30' } });
   expect(location.hash).toBe('#/apps/app1/analytics?days=30');
   rerender(<AppPage id="app1" tab="analytics" range={{ days: 30 }} />);
@@ -259,7 +257,7 @@ it('analytics error: a rejected range shows the alert; the next good range clear
   rerender(<AppPage id="app1" tab="analytics" />);
   await screen.findByText(/730 days/);
   rerender(<AppPage id="app2" tab="settings" />);
-  await screen.findByRole('heading', { name: 'API key' }); // past the loading screen, page rendered
+  await screen.findByRole('heading', { name: 'API key' });
   gone(screen.queryByText(/730 days/));
 });
 
@@ -318,10 +316,24 @@ it('copy fallback inside an open modal: textarea lives in the dialog (rest is in
 it('admin session: a slow session read that started before unlock never clears the fresh elevation', async () => {
   let release!: () => void;
   vi.stubGlobal('fetch', () => new Promise<Response>((r) => (release = () => r(new Response(JSON.stringify({ admin: false }))))));
-  const pending = refreshAdminSession(); // mount-time check, still in flight
-  setElevated(true, new Date(Date.now() + 3600_000).toISOString()); // unlock lands first
+  const pending = refreshAdminSession();
+  setElevated(true, new Date(Date.now() + 3600_000).toISOString());
   release();
   await pending;
   expect(getAdmin()).toBe(true);
   setElevated(false);
+});
+
+it('getConfig: a failed fetch is not cached, the next call retries', async () => {
+  setApiBase('');
+  let n = 0;
+  vi.stubGlobal('fetch', () =>
+    ++n === 1
+      ? Promise.resolve(new Response('boom', { status: 500 }))
+      : json({ logoutUrl: '', adminSet: false, linkBase: '', version: 'v' }),
+  );
+  await expect(api.getConfig()).rejects.toThrow();
+  expect((await api.getConfig()).version).toBe('v');
+  expect(n).toBe(2);
+  setApiBase('');
 });

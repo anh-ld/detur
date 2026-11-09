@@ -3,7 +3,6 @@ import { Button } from 'kinu';
 import { copyText } from '../lib/clipboard';
 import { ICONS, IconButton } from './icons';
 
-// copy button: "Copied" (or a check) for 1.5s. icon = compact ghost version for inline values
 export function CopyButton({ value, label, icon }: { value: string; label: string; icon?: boolean }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -18,7 +17,7 @@ export function CopyButton({ value, label, icon }: { value: string; label: strin
       setFailed(false);
       setCopied(true);
     } catch {
-      setFailed(true); // say so: a silent no-op on the show-once key dialog loses the key
+      setFailed(true);
     }
   };
   const text = copied ? 'Copied' : failed ? 'Copy failed: select and copy' : label;

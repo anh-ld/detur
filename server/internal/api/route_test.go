@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// Route destination -> /<first 3 of appID><route> path on both SDK responses (SDK drops the first segment). Full URLs unchanged.
 func TestRouteDestinationExpanded(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -39,7 +38,6 @@ func TestURLDestinationUnchanged(t *testing.T) {
 	}
 }
 
-// Portal: url accepts an app route; bare paths and protocol-relative URLs stay rejected.
 func TestPortalRouteDestinationValidation(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	_, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"routes"}`, nil)
@@ -63,7 +61,6 @@ func TestPortalRouteDestinationValidation(t *testing.T) {
 	}
 }
 
-// Update path takes the same destination rules as create.
 func TestPortalRouteDestinationUpdate(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	_, b := portalReq(t, portal, "POST", "/api/apps", `{"name":"routes"}`, nil)

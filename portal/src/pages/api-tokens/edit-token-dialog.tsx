@@ -5,10 +5,11 @@ import { ApiToken, App } from '../../lib/types';
 import { adminCall } from '../../lib/admin';
 import { ActionErrors } from '../../components/action-errors';
 import { closeDialog } from '../../lib/dialog';
-import { row } from '../../lib/styles';
+import { stack, end } from '../../lib/styles';
 import { AppChecks } from './app-checks';
 
-// fields re-prefill when the target token changes
+export const EDIT_TOKEN_DIALOG = 'dlg-edit-token';
+
 export function EditTokenDialog({
   token,
   apps,
@@ -34,7 +35,7 @@ export function EditTokenDialog({
     setBusy(true);
     try {
       onSaved(await adminCall(() => api.updateToken(token.id, { name: name.trim(), appIds: ids })));
-      closeDialog('dlg-edit-token');
+      closeDialog(EDIT_TOKEN_DIALOG);
     } catch (e) {
       errors.fail(e);
     } finally {
@@ -43,9 +44,9 @@ export function EditTokenDialog({
   };
 
   return (
-    <Dialog id="dlg-edit-token">
+    <Dialog id={EDIT_TOKEN_DIALOG}>
       <Dialog.Content>
-        <form style={{ display: 'grid', gap: 16 }} onSubmit={save}>
+        <form style={stack} onSubmit={save}>
           <h2 style={{ margin: 0 }}>Edit token</h2>
           <Field>
             <Label htmlFor="tok-edit-name">Name</Label>
@@ -55,8 +56,8 @@ export function EditTokenDialog({
             <Label>Allowed apps</Label>
             <AppChecks apps={apps} value={ids} onChange={setIds} />
           </Field>
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
-            <Button type="button" variant="outline" onClick={() => closeDialog('dlg-edit-token')}>
+          <div style={end}>
+            <Button type="button" variant="outline" onClick={() => closeDialog(EDIT_TOKEN_DIALOG)}>
               Cancel
             </Button>
             <Button type="submit" disabled={busy || !name.trim() || ids.length === 0}>

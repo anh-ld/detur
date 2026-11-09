@@ -1,8 +1,5 @@
 package pipeline
 
-// Well-known hosting tests. Real store + real mux via httptest; hosts from
-// domain set built like main.go (config.DomainSet).
-
 import (
 	"encoding/json"
 	"errors"
@@ -19,13 +16,11 @@ import (
 
 const primaryDomain = "detur.example.com"
 
-// testDomains: domain set, built like main.go.
 func testDomains(t *testing.T) []string {
 	t.Helper()
 	return config.DomainSet(&config.Config{Domain: primaryDomain})
 }
 
-// newWellKnownServer: real store + short-link pipeline + well-known routes on one mux (same as main.go), over httptest
 func newWellKnownServer(t *testing.T, domains []string) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, err := store.Open(t.TempDir() + "/detur-wellknown.db")
@@ -41,7 +36,6 @@ func newWellKnownServer(t *testing.T, domains []string) (*httptest.Server, *stor
 	return ts, st
 }
 
-// getWithHost: GET path with fixed Host, no redirect following (short-link tests assert 302 itself)
 func getWithHost(t *testing.T, ts *httptest.Server, path, host string) (*http.Response, []byte) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, ts.URL+path, nil)
@@ -62,7 +56,6 @@ func getWithHost(t *testing.T, ts *httptest.Server, path, host string) (*http.Re
 	return resp, b
 }
 
-// aasaResp: AASA shape.
 type aasaResp struct {
 	AppLinks struct {
 		Apps    []string `json:"apps"`
@@ -75,7 +68,6 @@ type aasaResp struct {
 	} `json:"applinks"`
 }
 
-// assetlinksResp: one assetlinks.json entry.
 type assetlinksResp []struct {
 	Relation []string `json:"relation"`
 	Target   struct {
@@ -85,7 +77,6 @@ type assetlinksResp []struct {
 	} `json:"target"`
 }
 
-// setupWellKnownApp: app with iOS + Android well-known details.
 func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	t.Helper()
 	app, err := s.CreateApp("well-known app", "sekrit-key-123")
@@ -98,7 +89,6 @@ func setupWellKnownApp(t *testing.T, s *store.Store) store.App {
 	return app
 }
 
-// Scenario 1: AASA valid JSON per app. Several iOS apps: each claims only own link keys (iOS routes URL to first matching entry; blanket ["*"] per app shadows all but first).
 func TestAASAValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	iosOnly, err := st.CreateApp("ios only", "key-1")
@@ -123,7 +113,6 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 		t.Fatalf("UpdateAppDetails: %v", err)
 	}
 
-	// Multi-app: each app claims only own link keys, zero-link apps omitted, new keys appear on refetch.
 	checkAASA := func(team1Want []string) {
 		resp, b := getWithHost(t, ts, "/.well-known/apple-app-site-association", primaryDomain)
 		if resp.StatusCode != http.StatusOK {
@@ -162,7 +151,6 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 					break
 				}
 			}
-			// iOS 13+ format, same claim (appIDs + components mirroring paths, "*" -> "/*")
 			if len(d.AppIDs) != 1 || d.AppIDs[0] != d.AppID || len(d.Components) != len(d.Paths) {
 				t.Errorf("appID %s appIDs/components = %v/%v; want one entry mirroring paths", d.AppID, d.AppIDs, d.Components)
 				continue
@@ -181,14 +169,12 @@ func TestAASAValidJSONPerApp(t *testing.T) {
 
 	checkAASA([]string{"/abc"})
 
-	// New key appears under its owning app on refetch; the sibling's claim is untouched.
 	if _, err := st.CreateLink(store.Link{AppID: iosOnly.ID, Key: "later", URL: "https://example.com/later"}); err != nil {
 		t.Fatalf("CreateLink: %v", err)
 	}
 	checkAASA([]string{"/abc", "/later"})
 }
 
-// AASA enumeration keeps the newest MaxAASAKeys per app (wellknown.go slice direction).
 func TestAASAEnumerationKeepsNewestKeys(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 
@@ -202,14 +188,14 @@ func TestAASAEnumerationKeepsNewestKeys(t *testing.T) {
 	if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: "first", URL: "https://example.com/first"}); err != nil {
 		t.Fatalf("CreateLink: %v", err)
 	}
-	time.Sleep(1100 * time.Millisecond) // strictly later created_at than "first", even at second precision
+	time.Sleep(1100 * time.Millisecond)
 	for i := 0; i < store.MaxAASAKeys; i++ {
 		key := fmt.Sprintf("k%03d", i)
 		if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: key, URL: "https://example.com/" + key}); err != nil {
 			t.Fatalf("CreateLink %s: %v", key, err)
 		}
 	}
-	setupWellKnownApp(t, st) // second iOS app: switches the domain to per-key enumeration
+	setupWellKnownApp(t, st)
 
 	resp, b := getWithHost(t, ts, "/.well-known/apple-app-site-association", primaryDomain)
 	if resp.StatusCode != http.StatusOK {
@@ -241,7 +227,6 @@ func TestAASAEnumerationKeepsNewestKeys(t *testing.T) {
 	t.Fatalf("app TEAM77.com.example.cap missing from details: %+v", aasa.AppLinks.Details)
 }
 
-// Scenario 1b: AASA wildcard for single iOS app. Wildcard ["*"] ensures newly created links work immediately without Apple CDN cache staleness (R7).
 func TestAASASingleAppWildcard(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	app, err := st.CreateApp("single ios app", "key-single")
@@ -274,7 +259,6 @@ func TestAASASingleAppWildcard(t *testing.T) {
 		t.Errorf("components = %v; want [{\"/\": \"/*\"}]", d.Components)
 	}
 
-	// Verify that creating a new link in the DB does not alter AASA file (prevents Apple CDN cache invalidation need)
 	if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: "newkey123", URL: "https://example.com/new"}); err != nil {
 		t.Fatalf("CreateLink: %v", err)
 	}
@@ -295,7 +279,6 @@ func TestAASASingleAppWildcard(t *testing.T) {
 	}
 }
 
-// Scenario 2: assetlinks.json, one entry per app with android package AND cert fingerprint; ios-only apps absent
 func TestAssetlinksValidJSONPerApp(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	iosOnly, err := st.CreateApp("ios only", "key-1")
@@ -336,7 +319,6 @@ func TestAssetlinksValidJSONPerApp(t *testing.T) {
 	}
 }
 
-// Scenario 3: apps without details omitted; AASA details empty (apps still []), assetlinks [], both 200 valid JSON
 func TestAppsWithoutDetailsOmitted(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	if _, err := st.CreateApp("no details", "key-1"); err != nil {
@@ -372,7 +354,6 @@ func TestAppsWithoutDetailsOmitted(t *testing.T) {
 	}
 }
 
-// Scenario 4: host outside domain set -> 404 (host gate).
 func TestUnknownDomain404(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	setupWellKnownApp(t, st)
@@ -384,7 +365,6 @@ func TestUnknownDomain404(t *testing.T) {
 	}
 }
 
-// Scenario 7: UpdateAppDetails persists details; GetApp/ListApps return them; unknown id -> ErrNotFound; empty strings clear
 func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 	st, err := store.Open(t.TempDir() + "/detur-appdetails.db")
 	if err != nil {
@@ -418,7 +398,6 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 		t.Errorf("ListApps = %+v; want the persisted details", apps)
 	}
 
-	// unknown app -> ErrNotFound, both methods
 	if err := st.UpdateAppDetails("nope", "x", "", "", ""); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("UpdateAppDetails(unknown) err = %v; want ErrNotFound", err)
 	}
@@ -426,7 +405,6 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 		t.Errorf("GetApp(unknown) err = %v; want ErrNotFound", err)
 	}
 
-	// empty strings clear (nullable columns read back "")
 	if err := st.UpdateAppDetails(app.ID, "", "", "", ""); err != nil {
 		t.Fatalf("UpdateAppDetails(clear): %v", err)
 	}
@@ -439,7 +417,6 @@ func TestUpdateAppDetailsPersistsGetAppReturnsFields(t *testing.T) {
 	}
 }
 
-// Scenario 8: AASA + assetlinks + short link on same domain, same mux
 func TestIntegrationWellKnownAndShortLinksOnConfiguredDomain(t *testing.T) {
 	ts, st := newWellKnownServer(t, testDomains(t))
 	setupWellKnownApp(t, st)

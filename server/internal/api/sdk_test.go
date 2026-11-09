@@ -1,7 +1,5 @@
 package api
 
-// SDK endpoint tests. Real store + mux via httptest; no store mocks.
-
 import (
 	"database/sql"
 	"encoding/json"
@@ -12,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite" // SQLite driver: tests drop tables to inject backend errors
+	_ "modernc.org/sqlite"
 
 	"detur.dev/server/internal/fraud"
 	"detur.dev/server/internal/httpx"
@@ -57,7 +55,6 @@ func setup(t *testing.T, s *store.Store) (store.App, store.Link) {
 	return app, link
 }
 
-// recordAndroidClick: click with every Android-scorable signal; matching fingerprint scores 1300 >= 850.
 func recordAndroidClick(t *testing.T, s *store.Store, app store.App, link store.Link) store.Click {
 	t.Helper()
 	c, err := s.RecordClick(store.Click{
@@ -67,7 +64,7 @@ func recordAndroidClick(t *testing.T, s *store.Store, app store.App, link store.
 			Screen:    "393x852@3",
 			UserAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/TQ3A.230805.001)",
 		},
-		Platform: "android", Kind: store.KindApp, // as the browser redirect records it
+		Platform: "android", Kind: store.KindApp,
 	}, 24)
 	if err != nil {
 		t.Fatalf("RecordClick: %v", err)
@@ -121,7 +118,6 @@ func doPost(t *testing.T, ts *httptest.Server, path, body string, hdr map[string
 	return resp, b
 }
 
-// dropTable: drop table via second conn (WAL allows), injects backend failure, rest of store intact.
 func dropTable(t *testing.T, path, table string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
@@ -151,7 +147,6 @@ func countInstallsAttribution(t *testing.T, path, appID, attribution string) int
 	return n
 }
 
-// Scenario 1: fingerprint above threshold -> 200 link + non-organic install.
 func TestMatchLinkFingerprintAboveThreshold(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -174,7 +169,6 @@ func TestMatchLinkFingerprintAboveThreshold(t *testing.T) {
 	}
 }
 
-// Scenario 1b: install write fails -> match-link still 200 (backend errors never deny link).
 func TestMatchLinkInstallFailureStillReturnsLink(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, link := setup(t, s)
@@ -194,7 +188,6 @@ func TestMatchLinkInstallFailureStillReturnsLink(t *testing.T) {
 	}
 }
 
-// Scenario 2: no matching click -> 404 + organic install recorded.
 func TestMatchLinkNoMatch404Organic(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -220,11 +213,9 @@ func mustLink(t *testing.T, s *store.Store, app store.App) store.Link {
 	return l
 }
 
-// Scenario 3: backend error mid-request -> 404 + unknown-attribution row, logged distinctly.
 func TestMatchLinkBackendErrorFailOpen404Unknown(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
-	// matching reads clicks: drop it. installs intact, unknown row persists.
 	dropTable(t, path, "clicks")
 	hdr := authHeaders(app.ID)
 	resp, b := doPost(t, ts, "/api/link/match-link", androidFingerprintJSON(), hdr)
@@ -236,7 +227,6 @@ func TestMatchLinkBackendErrorFailOpen404Unknown(t *testing.T) {
 	}
 }
 
-// Scenario 4: duplicate match-link -> one attribution row (idempotent).
 func TestMatchLinkDuplicateIdempotent(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -258,7 +248,6 @@ func TestMatchLinkDuplicateIdempotent(t *testing.T) {
 	}
 }
 
-// One click attributes at most one install: second device, same signals -> no match.
 func TestMatchLinkTwoDevicesOneClick(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -280,7 +269,6 @@ func TestMatchLinkTwoDevicesOneClick(t *testing.T) {
 	}
 }
 
-// Scenario 5: invalid apiKey -> 401, SDK-visible error shape.
 func TestMatchLinkInvalidAPIKey401(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -300,7 +288,6 @@ func TestMatchLinkInvalidAPIKey401(t *testing.T) {
 	}
 }
 
-// Scenario 6: missing X-App-ID -> 401.
 func TestMatchLinkMissingAppID401(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -312,7 +299,6 @@ func TestMatchLinkMissingAppID401(t *testing.T) {
 	}
 }
 
-// Scenario 7: unknown clickId -> 404, no probabilistic fallback even with strong click in window.
 func TestMatchLinkUnknownClickIDNoProbabilisticFallback(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -329,7 +315,6 @@ func TestMatchLinkUnknownClickIDNoProbabilisticFallback(t *testing.T) {
 	}
 }
 
-// Scenario 8: resolve-short valid URL -> link/route/parameters.
 func TestResolveShortValid(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -351,7 +336,6 @@ func TestResolveShortValid(t *testing.T) {
 	}
 }
 
-// Installed-app tap keeps the tapped query like a browser click: add-only, internal params dropped, route prefixed.
 func TestResolveShortForwardsQuery(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -374,7 +358,6 @@ func TestResolveShortForwardsQuery(t *testing.T) {
 	}
 }
 
-// Scenario 9: resolve-short unknown key -> 404 (SDK null).
 func TestResolveShortUnknown404(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -385,7 +368,6 @@ func TestResolveShortUnknown404(t *testing.T) {
 	}
 }
 
-// Scenario 10: universal-link-click DB error -> fail open, allowed:true + no-limit fields.
 func TestUniversalLinkClickFailOpenOnDBError(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -410,7 +392,6 @@ func TestUniversalLinkClickFailOpenOnDBError(t *testing.T) {
 	}
 }
 
-// Scenario 11: universal-link-click -> allowed:true, effectiveLimit -1, clickId, click recorded.
 func TestUniversalLinkClickNormal(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -437,7 +418,6 @@ func TestUniversalLinkClickNormal(t *testing.T) {
 	}
 }
 
-// Deep-link clicks not bot-filtered: caller is app (Dub skips bot checks for deeplink opens); bot-ish UA still records.
 func TestUniversalLinkClickBotUARecorded(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -459,7 +439,6 @@ func TestUniversalLinkClickBotUARecorded(t *testing.T) {
 	}
 }
 
-// Scenario 12: analytics event persisted (event_name verbatim, task-spec "event" key fallback).
 func TestAnalyticsEventPersisted(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -479,7 +458,6 @@ func TestAnalyticsEventPersisted(t *testing.T) {
 	}
 }
 
-// Scenario 13: analytics retention persisted (task-spec {days: N} -> event "retention").
 func TestAnalyticsRetentionPersisted(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -505,7 +483,6 @@ func TestAnalyticsRetentionPersisted(t *testing.T) {
 	}
 }
 
-// auth wrapper on all five endpoints.
 func TestAllSDKEndpointsRequireAuth(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	_, _ = setup(t, s)
@@ -523,7 +500,6 @@ func TestAllSDKEndpointsRequireAuth(t *testing.T) {
 	}
 }
 
-// universal-link-click fails open when auth can't query store: closed DB still -> allow shape.
 func TestUniversalLinkClickAuthFailOpenOnClosedDB(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -559,7 +535,6 @@ func TestMatchLinkAuthFailOpenOnClosedDB(t *testing.T) {
 	}
 }
 
-// installPlatform: Apple manufacturer -> ios, other manufacturer -> android, else app UA markers.
 func TestInstallPlatform(t *testing.T) {
 	for _, c := range []struct {
 		body matchLinkBody
@@ -577,7 +552,6 @@ func TestInstallPlatform(t *testing.T) {
 	}
 }
 
-// Analytics labels from real SDK paths: universal-link open = iOS open; clickId-only match takes matched click's platform.
 func TestSDKAnalyticsLabels(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -591,14 +565,14 @@ func TestSDKAnalyticsLabels(t *testing.T) {
 		t.Fatalf("clickId match: %d %s", resp.StatusCode, b)
 	}
 
-	ios, err := s.Analytics(app.ID, 7, "ios", time.Now())
+	ios, err := s.AnalyticsRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now(), "ios", "")
 	if err != nil {
 		t.Fatalf("Analytics ios: %v", err)
 	}
 	if got := ios.Days[6]; got.Opens != 1 || got.NonOrganic != 0 {
 		t.Errorf("ios today = %+v; want 1 open, 0 installs", got)
 	}
-	android, err := s.Analytics(app.ID, 7, "android", time.Now())
+	android, err := s.AnalyticsRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now(), "android", "")
 	if err != nil {
 		t.Fatalf("Analytics android: %v", err)
 	}
@@ -610,7 +584,6 @@ func TestSDKAnalyticsLabels(t *testing.T) {
 	}
 }
 
-// Fraud UA signal skips opens (KTD3): native okhttp UA on universal-link open not flagged; kind persisted.
 func TestUniversalLinkOpenNotUASuspect(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)
@@ -630,7 +603,6 @@ func TestUniversalLinkOpenNotUASuspect(t *testing.T) {
 	}
 }
 
-// installRows: every install row for app as "attribution|fraud|fraud_action|fraud_link_id".
 func installRows(t *testing.T, path, appID string) []string {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
@@ -663,7 +635,6 @@ func activeFraud(t *testing.T, s *store.Store, appID string, mut func(*fraud.Set
 	}
 }
 
-// AE5 end to end: active-flagged clickId -> 404, one organic install carrying labels.
 func TestMatchLinkFlaggedClickIDOrganic(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, link := setup(t, s)
@@ -677,7 +648,6 @@ func TestMatchLinkFlaggedClickIDOrganic(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, body %s; want 404", resp.StatusCode, b)
 	}
-	// clickId is fresh: short timing fires too
 	want := "organic|timing,user_agent|excluded|" + link.ID
 	if got := installRows(t, path, app.ID); len(got) != 1 || got[0] != want {
 		t.Errorf("installs = %v; want [%s]", got, want)
@@ -687,7 +657,6 @@ func TestMatchLinkFlaggedClickIDOrganic(t *testing.T) {
 	}
 }
 
-// Same-device retry after re-attributed match: PriorMatch returns same click, labels kept, one row.
 func TestMatchLinkRetryAfterReattributed(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, link := setup(t, s)
@@ -698,7 +667,7 @@ func TestMatchLinkRetryAfterReattributed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	flagged := recordAndroidClick(t, s, app, link) // newer: wins 900 tie (TRUST_PROXY off, no IP match) -> excluded overall best
+	flagged := recordAndroidClick(t, s, app, link)
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
@@ -724,7 +693,6 @@ func TestMatchLinkRetryAfterReattributed(t *testing.T) {
 	}
 }
 
-// Same-device retry after excluded match: PriorMatch misses (organic), re-match -> organic, click unconsumed, one row.
 func TestMatchLinkRetryAfterExcluded(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, link := setup(t, s)
@@ -753,7 +721,6 @@ func TestMatchLinkRetryAfterExcluded(t *testing.T) {
 	}
 }
 
-// execSQL: raw statement via second connection (WAL allows it).
 func execSQL(t *testing.T, path, q string, args ...any) {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
@@ -766,8 +733,6 @@ func execSQL(t *testing.T, path, q string, args ...any) {
 	}
 }
 
-// Fingerprint concentration e2e, FingerprintMax 5: one device config installs 5x, each from a real click whose
-// retention lapses (PriorMatch stops answering). Installs 1-4 clean; 5th (4 priors on link) labeled, still attributed.
 func TestMatchLinkFingerprintConcentration(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, link := setup(t, s)
@@ -802,7 +767,6 @@ func TestMatchLinkFingerprintConcentration(t *testing.T) {
 	}
 }
 
-// Universal-link open from hosting range records ip_hosting (KTD3: IP still judged on opens); documentation-range IP doesn't.
 func TestUniversalLinkOpenHostingIP(t *testing.T) {
 	httpx.TrustProxy = true
 	t.Cleanup(func() { httpx.TrustProxy = false })
@@ -828,7 +792,6 @@ func TestUniversalLinkOpenHostingIP(t *testing.T) {
 	}
 }
 
-// Hit counter table gone: universal-link-click still allow shape + clickId (fail-open); no click recorded.
 func TestUniversalLinkClickFailOpenOnHitsError(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -846,7 +809,6 @@ func TestUniversalLinkClickFailOpenOnHitsError(t *testing.T) {
 	}
 }
 
-// Event with data.link (short URL) tags device + counts; retention call 1 day after cohort counts D1, never a conversion.
 func TestAnalyticsLinkTagging(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -858,9 +820,8 @@ func TestAnalyticsLinkTagging(t *testing.T) {
 	}
 	post("/api/analytics/event", `{"event_name":"signup","data":{"link":"https://lnk.example/abc"},"device_id":"dev-1"}`)
 	post("/api/analytics/event", `{"event_name":"purchase","data":{"value":3},"device_id":"dev-1"}`)
-	post("/api/analytics/event", `{"event_name":"purchase","data":{"link":"abc"}}`) // no device: not counted
+	post("/api/analytics/event", `{"event_name":"purchase","data":{"link":"abc"}}`)
 
-	// handlers use time.Now(): shift cohort back 1 day, mapping + rollup key together
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
@@ -875,7 +836,7 @@ func TestAnalyticsLinkTagging(t *testing.T) {
 	}
 	post("/api/analytics/retention", `{"event_name":"app_open","platform":"ios","device_id":"dev-1"}`)
 
-	a, err := s.Analytics(app.ID, 7, "", time.Now())
+	a, err := s.AnalyticsRange(app.ID, time.Now().AddDate(0, 0, -6), time.Now(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -891,7 +852,6 @@ func TestAnalyticsLinkTagging(t *testing.T) {
 	}
 }
 
-// Link rollups best-effort: broken device_links never fails SDK call or loses raw event.
 func TestAnalyticsLinkRollupFailureStillOK(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, _ := setup(t, s)
@@ -907,7 +867,6 @@ func TestAnalyticsLinkRollupFailureStillOK(t *testing.T) {
 	}
 }
 
-// match-link hits click tagged Variant B -> install stored with Variant B, returns Variant B deep link.
 func TestMatchLinkVariantAttribution(t *testing.T) {
 	ts, s, path := newTestServer(t)
 	app, link := setup(t, s)
@@ -918,7 +877,6 @@ func TestMatchLinkVariantAttribution(t *testing.T) {
 	}
 	defer db.Close()
 
-	// seed click with variant + custom destination
 	c, err := s.RecordClick(store.Click{
 		AppID:       app.ID,
 		LinkID:      link.ID,
@@ -950,7 +908,6 @@ func TestMatchLinkVariantAttribution(t *testing.T) {
 		t.Errorf("expected link destination %q, got %q", "myapp://promo/variant-b", res["link"])
 	}
 
-	// install recorded with variant-b
 	var instVariant string
 	err = db.QueryRow(`SELECT COALESCE(variant, '') FROM installs WHERE app_id = ? AND click_id = ?`, app.ID, c.ID).Scan(&instVariant)
 	if err != nil {
@@ -960,7 +917,6 @@ func TestMatchLinkVariantAttribution(t *testing.T) {
 		t.Errorf("expected install variant 'variant-b', got %q", instVariant)
 	}
 
-	// variant_days rollup
 	stats, err := s.GetLinkVariantStats(app.ID, link.ID, time.Now().AddDate(0, 0, -1), time.Now().AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("GetLinkVariantStats: %v", err)
@@ -970,7 +926,6 @@ func TestMatchLinkVariantAttribution(t *testing.T) {
 	}
 }
 
-// Android Dimensions.get("screen") is px / density: fractional dp (Pixel 7 at 2.625). Must decode and score the screen, not 400.
 func TestMatchLinkFractionalAndroidScreen(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, link := setup(t, s)
@@ -992,7 +947,6 @@ func TestMatchLinkFractionalAndroidScreen(t *testing.T) {
 	}
 }
 
-// Event metadata capped: oversized body 413, nothing stored (webhook batches stay small).
 func TestAnalyticsEventTooLarge(t *testing.T) {
 	ts, s, _ := newTestServer(t)
 	app, _ := setup(t, s)

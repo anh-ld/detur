@@ -5,7 +5,7 @@ import { DateRangeFilter } from '../../../lib/range';
 import { Fraud } from '../../../lib/types';
 import { SIGNALS } from '../../../lib/matching';
 import { fmt } from '../../../lib/format';
-import { mono, muted, row } from '../../../lib/styles';
+import { mono, muted, row, stack } from '../../../lib/styles';
 import { useLatest } from '../../../lib/use-latest';
 import { DateRangePicker } from '../../../components/date-range-picker';
 import { Skeleton } from '../../../components/page';
@@ -31,7 +31,7 @@ export function Flagged({ appId, tick }: { appId: string; tick: number }) {
   }, [appId, range.days, range.window, range.from, range.to, tick]);
 
   return (
-    <section aria-label="Flagged installs" style={{ display: 'grid', gap: 16 }}>
+    <section aria-label="Flagged installs" style={stack}>
       <div style={{ ...row, justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'grid', gap: 4 }}>
           <h2 style={{ margin: 0 }}>Flagged installs</h2>

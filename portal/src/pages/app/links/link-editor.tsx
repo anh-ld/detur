@@ -15,7 +15,6 @@ import { RuleEditor } from './rule-editor';
 import { RuleList } from './rule-list';
 import { useLinkRules } from './use-link-rules';
 
-// One editor per link: target, redirects, tags, rules. Stats live in Analytics.
 export function LinkEditor({
   appId,
   link,
@@ -48,7 +47,6 @@ export function LinkEditor({
   const changed = r.dirty || baseDirty;
   const canAdd = !saving && r.loaded;
 
-  // Close (Escape, backdrop, button) keeps unsaved edits; reopening shows them until Save or Discard.
   const discard = () => {
     setEditing(null);
     setSuccess('');
@@ -79,7 +77,6 @@ export function LinkEditor({
     }
   };
 
-  // After Done/Cancel, focus Save if enabled, else Close; otherwise focus stays on the button that replaced the clicked one.
   const wasEditing = useRef(false);
   useEffect(() => {
     if (wasEditing.current && !editing) {

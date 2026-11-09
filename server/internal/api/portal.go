@@ -1,8 +1,5 @@
 package api
 
-// Portal: apps/links CRUD, matching settings, analytics, static kinu-built UI. No identity checks;
-// every route behind origin/host guard (DNS-rebinding + CSRF; listener loopback by default).
-
 import (
 	"errors"
 	"fmt"
@@ -23,29 +20,24 @@ import (
 	"detur.dev/server/internal/match"
 	"detur.dev/server/internal/page"
 	"detur.dev/server/internal/store"
+	"detur.dev/server/internal/ua"
+	"detur.dev/server/internal/webhook"
 )
 
-// Version: release tag without "v", set at startup from the -ldflags build value; "dev" for source runs.
 var Version = "dev"
 
-// matching defaults from store's exported defaults; settings table overrides at runtime.
 type portalServer struct {
-	linkBase string // short-link origin shown in the portal (https://DOMAIN)
-	st       *store.Store
-	log      *log.Logger
-	dir      string // portal static dir (built UI)
-	logout   string // LOGOUT_URL, served to the UI via /api/config
-	// adminPassword "" = no gating.
+	linkBase      string
+	st            *store.Store
+	log           *log.Logger
+	dir           string
+	logout        string
 	adminPassword string
 	adminHours    int
-	adminMu       sync.Mutex           // guards adminLocks
-	adminLocks    map[string]*peerLock // per socket peer: serializes password compare + wrong-password delay
+	adminMu       sync.Mutex
+	adminLocks    map[string]*peerLock
 }
 
-// RegisterPortal: apps/links CRUD, matching, analytics routes + static UI from staticDir (missing file/dir
-// = plain 404, never crash). Origin/host guard on mux; allowedHosts = listener address + PORTAL_HOSTS, loopback
-// always ok, others 403. Viewer routes open to anyone the gateway admits; app management behind requireAdmin.
-// adminPassword "" = no gating; adminSessionHours = elevated session TTL (1-72).
 func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, logoutURL string, adminPassword string, adminSessionHours int, linkBase string) http.Handler {
 	p := &portalServer{st: st, log: log.Default(), dir: staticDir, logout: logoutURL, linkBase: linkBase,
 		adminPassword: adminPassword, adminHours: adminSessionHours, adminLocks: map[string]*peerLock{}}
@@ -53,6 +45,12 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 		p.log.Printf("portal static dir %q missing: portal API only, UI will 404", staticDir)
 	}
 	mux := http.NewServeMux()
+	whAdmin := func(h http.HandlerFunc) http.HandlerFunc {
+		return p.requireAdminSet("webhooks require ADMIN_PASSWORD to be configured", h)
+	}
+	tokenAdmin := func(h http.HandlerFunc) http.HandlerFunc {
+		return p.requireAdminSet("API tokens require ADMIN_PASSWORD to be configured", h)
+	}
 	mux.HandleFunc("GET /api/config", p.config)
 	mux.HandleFunc("GET /api/apps", p.listApps)
 	mux.HandleFunc("POST /api/apps", p.requireAdmin(p.createApp))
@@ -79,24 +77,23 @@ func RegisterPortal(st *store.Store, staticDir string, allowedHosts []string, lo
 	mux.HandleFunc("GET /api/apps/{id}/fraud", p.fraud)
 	mux.HandleFunc("GET /api/apps/{id}/fraud/settings", p.requireAdmin(p.fraudSettings))
 	mux.HandleFunc("PATCH /api/apps/{id}/fraud/settings", p.requireAdmin(p.updateFraudSettings))
-	mux.HandleFunc("GET /api/apps/{id}/webhooks", p.requireWebhookAdmin(p.listWebhooks))
-	mux.HandleFunc("POST /api/apps/{id}/webhooks", p.requireWebhookAdmin(p.createWebhook))
-	mux.HandleFunc("PATCH /api/webhooks/{id}", p.requireWebhookAdmin(p.updateWebhook))
-	mux.HandleFunc("DELETE /api/webhooks/{id}", p.requireWebhookAdmin(p.deleteWebhook))
-	mux.HandleFunc("POST /api/webhooks/{id}/rotate-secret", p.requireWebhookAdmin(p.rotateWebhookSecret))
-	mux.HandleFunc("POST /api/webhooks/{id}/replay", p.requireWebhookAdmin(p.replayWebhook))
-	mux.HandleFunc("GET /api/tokens", p.requireTokenAdmin(p.listTokens))
-	mux.HandleFunc("POST /api/tokens", p.requireTokenAdmin(p.createToken))
-	mux.HandleFunc("PATCH /api/tokens/{id}", p.requireTokenAdmin(p.updateToken))
-	mux.HandleFunc("DELETE /api/tokens/{id}", p.requireTokenAdmin(p.deleteToken))
+	mux.HandleFunc("GET /api/apps/{id}/webhooks", whAdmin(p.listWebhooks))
+	mux.HandleFunc("POST /api/apps/{id}/webhooks", whAdmin(p.createWebhook))
+	mux.HandleFunc("PATCH /api/webhooks/{id}", whAdmin(p.updateWebhook))
+	mux.HandleFunc("DELETE /api/webhooks/{id}", whAdmin(p.deleteWebhook))
+	mux.HandleFunc("POST /api/webhooks/{id}/rotate-secret", whAdmin(p.rotateWebhookSecret))
+	mux.HandleFunc("POST /api/webhooks/{id}/replay", whAdmin(p.replayWebhook))
+	mux.HandleFunc("GET /api/tokens", tokenAdmin(p.listTokens))
+	mux.HandleFunc("POST /api/tokens", tokenAdmin(p.createToken))
+	mux.HandleFunc("PATCH /api/tokens/{id}", tokenAdmin(p.updateToken))
+	mux.HandleFunc("DELETE /api/tokens/{id}", tokenAdmin(p.deleteToken))
 	mux.HandleFunc("GET /api/admin/session", p.sessionStatus)
 	mux.HandleFunc("POST /api/admin/session", p.elevate)
 	mux.HandleFunc("DELETE /api/admin/session", p.clearSession)
-	mux.HandleFunc("GET /", p.static) // SPA shell + assets (catch-all)
+	mux.HandleFunc("GET /", p.static)
 	return guard(mux, allowedHosts)
 }
 
-// guard: 403 on unallowed Host or cross-origin Origin (DNS-rebinding + CSRF), anti-framing headers. No identity check.
 func guard(next http.Handler, allowedHosts []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !hostAllowed(r.Host, allowedHosts) {
@@ -107,7 +104,6 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		// never framed: a cross-site iframe would make the SPA's own same-origin fetches pass the Origin check (clickjacking)
 		h := w.Header()
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
@@ -117,9 +113,8 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 	})
 }
 
-// hostAllowed: Host is loopback, listener, or PORTAL_HOSTS. Port ignored: gateway/published port in front still passes.
 func hostAllowed(host string, allowedHosts []string) bool {
-	if isLoopbackHost(hostnameOf(host)) {
+	if webhook.IsLoopbackHost(hostnameOf(host)) {
 		return true
 	}
 	return inHosts(hostnameOf(host), allowedHosts)
@@ -137,7 +132,7 @@ func originAllowed(origin, reqHost string, allowedHosts []string) bool {
 		return true
 	}
 	h := hostnameOf(u.Host)
-	if isLoopbackHost(h) {
+	if webhook.IsLoopbackHost(h) {
 		return false
 	}
 	if ip := net.ParseIP(h); ip != nil && ip.IsUnspecified() {
@@ -145,8 +140,6 @@ func originAllowed(origin, reqHost string, allowedHosts []string) bool {
 	}
 	return inHosts(h, allowedHosts)
 }
-
-func isLoopbackHost(h string) bool { return h == "127.0.0.1" || h == "::1" || h == "localhost" }
 
 func inHosts(h string, hosts []string) bool {
 	for _, a := range hosts {
@@ -157,7 +150,6 @@ func inHosts(h string, hosts []string) bool {
 	return false
 }
 
-// hostnameOf: lowercase hostname from "host[:port]" (IPv6 brackets ok; bare IPv6 like "::1" has no port).
 func hostnameOf(host string) string {
 	h := strings.ToLower(strings.TrimSpace(host))
 	if host, _, err := net.SplitHostPort(h); err == nil {
@@ -166,7 +158,6 @@ func hostnameOf(host string) string {
 	return strings.Trim(h, "[]")
 }
 
-// appJSON: app wire shape. Only key hash, never key; plaintext only in create response (show-once).
 type appJSON struct {
 	ID                     string                  `json:"id"`
 	Name                   string                  `json:"name"`
@@ -197,7 +188,6 @@ func toAppJSON(a store.App) appJSON {
 		RedirectProfiles: profiles, SocialPresets: social}
 }
 
-// linkJSON: link wire shape.
 type linkJSON struct {
 	ID            string   `json:"id"`
 	AppID         string   `json:"appId"`
@@ -207,7 +197,7 @@ type linkJSON struct {
 	IOS           string   `json:"ios"`
 	Android       string   `json:"android"`
 	FallbackURL   string   `json:"fallbackUrl"`
-	ExpiresAt     string   `json:"expiresAt"` // RFC3339; empty = never
+	ExpiresAt     string   `json:"expiresAt"`
 	ExpiredURL    string   `json:"expiredUrl"`
 	OGTitle       string   `json:"ogTitle"`
 	OGDescription string   `json:"ogDescription"`
@@ -226,35 +216,32 @@ func toLinkJSON(l store.Link) linkJSON {
 		j.Tags = []string{}
 	}
 	if l.ExpiresAt != nil {
-		j.ExpiresAt = l.ExpiresAt.UTC().Format(time.RFC3339)
+		j.ExpiresAt = fmtTime(*l.ExpiresAt)
 	}
 	return j
 }
 
-// linkBody: link payload (create + update). Omitted update fields unchanged.
 type linkBody struct {
 	Key           string    `json:"key"`
 	URL           string    `json:"url"`
 	Title         *string   `json:"title"`
-	Note          *string   `json:"note"` // alias for title
+	Note          *string   `json:"note"`
 	IOS           *string   `json:"ios"`
 	Android       *string   `json:"android"`
 	FallbackURL   *string   `json:"fallbackUrl"`
-	ExpiresAt     *string   `json:"expiresAt"` // RFC3339; "" clears
+	ExpiresAt     *string   `json:"expiresAt"`
 	ExpiredURL    *string   `json:"expiredUrl"`
 	OGTitle       *string   `json:"ogTitle"`
 	OGDescription *string   `json:"ogDescription"`
 	OGImage       *string   `json:"ogImage"`
-	Tags          *[]string `json:"tags"` // omitted = unchanged; [] = clear
+	Tags          *[]string `json:"tags"`
 }
 
-// Tag limits: short labels the portal lists and filters on; case-insensitive dedupe.
 const (
 	maxTags   = 10
 	maxTagLen = 24
 )
 
-// normalizeTags: trim, drop empties, dedupe case-insensitively, keep first spelling.
 func normalizeTags(in []string) ([]string, error) {
 	out := make([]string, 0, len(in))
 	seen := make(map[string]bool, len(in))
@@ -282,16 +269,21 @@ func normalizeTags(in []string) ([]string, error) {
 	return out, nil
 }
 
-// maxTitleLen: link title cap, in characters.
 const maxTitleLen = 100
 
-// Social preview limits: title / description in characters; image absolute https (crawlers and chat apps fetch it).
+func checkTitle(w http.ResponseWriter, title string) bool {
+	if utf8.RuneCountInString(title) > maxTitleLen {
+		http.Error(w, fmt.Sprintf("title must be at most %d characters", maxTitleLen), http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
 const (
 	maxOGTitle = 100
 	maxOGDesc  = 300
 )
 
-// validOG: preview fields within limits.
 func validOG(l store.Link) error {
 	if utf8.RuneCountInString(l.OGTitle) > maxOGTitle {
 		return fmt.Errorf("ogTitle must be at most %d characters", maxOGTitle)
@@ -307,13 +299,11 @@ func validOG(l store.Link) error {
 	return nil
 }
 
-// httpsURL: absolute https URL with a host.
 func httpsURL(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
-// parseExpiry: optional RFC3339 expiry; nil or "" = never.
 func parseExpiry(v *string) (*time.Time, error) {
 	if v == nil || strings.TrimSpace(*v) == "" {
 		return nil, nil
@@ -325,7 +315,6 @@ func parseExpiry(v *string) (*time.Time, error) {
 	return &t, nil
 }
 
-// config: UI settings from env. logoutUrl "" = no Log out link; adminSet = ADMIN_PASSWORD configured.
 func (p *portalServer) config(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"logoutUrl": p.logout, "adminSet": p.adminPassword != "", "linkBase": p.linkBase, "version": Version})
 }
@@ -344,13 +333,27 @@ func (p *portalServer) listApps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *portalServer) getApp(w http.ResponseWriter, r *http.Request) {
-	a, err := p.st.GetApp(r.PathValue("id"))
+	p.writeApp(w, r.PathValue("id"))
+}
+
+func (p *portalServer) writeApp(w http.ResponseWriter, id string) {
+	a, err := p.st.GetApp(id)
 	if err != nil {
 		p.storeErr(w, err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
 }
+
+func (p *portalServer) requireApp(w http.ResponseWriter, id string) bool {
+	if _, err := p.st.GetApp(id); err != nil {
+		p.storeErr(w, err)
+		return false
+	}
+	return true
+}
+
+func newAPIKey() string { return "dk_" + store.Nanoid(22) }
 
 func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -365,29 +368,22 @@ func (p *portalServer) createApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
-	// "dk_" + 22 base62 (~131 bits) = 25 chars.
-	apiKey := "dk_" + store.Nanoid(22)
+	apiKey := newAPIKey()
 	a, err := p.st.CreateApp(body.Name, apiKey)
 	if err != nil {
 		p.internal(w, err)
 		return
 	}
-	// show-once: plaintext only in this response; later reads return hash
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{
 		"id": a.ID, "name": a.Name, "apiKey": apiKey, "apiKeyHash": a.APIKeyHash,
 	})
 }
 
-// rotateAppKey: new key, swap stored hash; old key dies now. Plaintext in this one response, like create.
 func (p *portalServer) rotateAppKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	apiKey := "dk_" + store.Nanoid(22)
+	apiKey := newAPIKey()
 	if err := p.st.UpdateAppKey(id, apiKey); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			http.NotFound(w, r)
-			return
-		}
-		p.internal(w, err)
+		p.storeErr(w, err)
 		return
 	}
 	app, err := p.st.GetApp(id)
@@ -400,15 +396,10 @@ func (p *portalServer) rotateAppKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// revokeAppKey: clear stored hash; SDK stops accepting key.
 func (p *portalServer) revokeAppKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := p.st.ClearAppKey(id); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			http.NotFound(w, r)
-			return
-		}
-		p.internal(w, err)
+		p.storeErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -416,12 +407,12 @@ func (p *portalServer) revokeAppKey(w http.ResponseWriter, r *http.Request) {
 
 func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		IOSAppID               *string                  `json:"iosAppId"`               // omitted = keep existing
-		AndroidPackage         *string                  `json:"androidPackage"`         // omitted = keep existing
-		AndroidCertFingerprint *string                  `json:"androidCertFingerprint"` // omitted = keep existing
-		IOSScheme              *string                  `json:"iosScheme"`              // omitted = keep existing
-		RedirectProfiles       *[]store.RedirectProfile `json:"redirectProfiles"`       // omitted = keep existing
-		SocialPresets          *[]store.SocialPreset    `json:"socialPresets"`          // omitted = keep existing
+		IOSAppID               *string                  `json:"iosAppId"`
+		AndroidPackage         *string                  `json:"androidPackage"`
+		AndroidCertFingerprint *string                  `json:"androidCertFingerprint"`
+		IOSScheme              *string                  `json:"iosScheme"`
+		RedirectProfiles       *[]store.RedirectProfile `json:"redirectProfiles"`
+		SocialPresets          *[]store.SocialPreset    `json:"socialPresets"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -434,7 +425,6 @@ func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := store.AppDetails{IOSAppID: cur.IOSAppID, AndroidPackage: cur.AndroidPackage, AndroidCertFingerprint: cur.AndroidCertFingerprint, IOSScheme: cur.IOSScheme}
-	// pasted from App Store Connect / Play Console: stray spaces or newlines would land verbatim in AASA / assetlinks and break verification
 	if body.IOSAppID != nil {
 		d.IOSAppID = strings.TrimSpace(*body.IOSAppID)
 	}
@@ -468,15 +458,9 @@ func (p *portalServer) updateApp(w http.ResponseWriter, r *http.Request) {
 		p.storeErr(w, err)
 		return
 	}
-	a, err := p.st.GetApp(id)
-	if err != nil {
-		p.storeErr(w, err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
+	p.writeApp(w, id)
 }
 
-// getPage: custom get-app page, default + placeholders for the editor (kept out of appJSON: up to 50 KB).
 func (p *portalServer) getPage(w http.ResponseWriter, r *http.Request) {
 	a, err := p.st.GetApp(r.PathValue("id"))
 	if err != nil {
@@ -486,7 +470,6 @@ func (p *portalServer) getPage(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"html": a.PageHTML, "defaultHtml": page.DefaultHTML, "placeholders": page.Placeholders})
 }
 
-// putPage: save custom page; "" resets to default. Admin: the HTML is served on the link domain and can break the install flow.
 func (p *portalServer) putPage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		HTML string `json:"html"`
@@ -506,12 +489,11 @@ func (p *portalServer) putPage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// previewPage: real renderer on sample links, no scripts (the portal frame is sandboxed). Admin: same as save.
 func (p *portalServer) previewPage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		HTML     string `json:"html"`
-		Page     string `json:"page"`     // copy | tap
-		Platform string `json:"platform"` // ios | android
+		Page     string `json:"page"`
+		Platform string `json:"platform"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -547,8 +529,6 @@ func (p *portalServer) listLinks(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-// validTarget: absolute URL with scheme; http(s) needs host. Empty ok (optional fields). Scripting schemes rejected.
-// maxTargetLen: per link target; values land in every redirect Location and click row.
 const maxTargetLen = 2048
 
 func validTarget(field, v string) error {
@@ -573,7 +553,7 @@ func validTarget(field, v string) error {
 	return nil
 }
 
-// validDestination: app route only ("/product/42"). Full URLs lose their first segment in the SDK, app schemes get dropped (R10).
+// validDestination: app route only ("/product/42"). Full URLs lose their first segment in the SDK, app schemes get dropped.
 func validDestination(field, v string) error {
 	if len(v) > maxTargetLen {
 		return fmt.Errorf("%s longer than %d bytes", field, maxTargetLen)
@@ -584,7 +564,6 @@ func validDestination(field, v string) error {
 	return nil
 }
 
-// validTargets: first bad destination field wins.
 func validTargets(l store.Link) error {
 	for _, f := range []struct{ name, v string }{
 		{"ios", l.IOS}, {"android", l.Android}, {"fallbackUrl", l.FallbackURL}, {"expiredUrl", l.ExpiredURL},
@@ -609,7 +588,6 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key and url are required", http.StatusBadRequest)
 		return
 	}
-	// key lives in URL path: path-safe chars only, never shadows a route or breaks pipeline
 	if !linkKeyRe.MatchString(body.Key) || isReservedKey(body.Key) {
 		http.Error(w, "key must be 1-64 chars of [A-Za-z0-9_-], not starting with _", http.StatusBadRequest)
 		return
@@ -621,21 +599,20 @@ func (p *portalServer) createLink(w http.ResponseWriter, r *http.Request) {
 	}
 	title := ""
 	if body.Title != nil {
-		title = strings.TrimSpace(*body.Title)
+		title = trimPtr(body.Title)
 	} else if body.Note != nil {
-		title = strings.TrimSpace(*body.Note)
+		title = trimPtr(body.Note)
 	}
-	if utf8.RuneCountInString(title) > maxTitleLen {
-		http.Error(w, "title must be at most 100 characters", http.StatusBadRequest)
+	if !checkTitle(w, title) {
 		return
 	}
 	nl := store.Link{
 		AppID: appID, Key: body.Key, URL: body.URL, Title: title,
-		IOS: strings.TrimSpace(stringValue(body.IOS)), Android: strings.TrimSpace(stringValue(body.Android)),
-		FallbackURL: strings.TrimSpace(stringValue(body.FallbackURL)),
-		ExpiresAt:   expiresAt, ExpiredURL: strings.TrimSpace(stringValue(body.ExpiredURL)),
-		OGTitle: strings.TrimSpace(stringValue(body.OGTitle)), OGDescription: strings.TrimSpace(stringValue(body.OGDescription)),
-		OGImage: strings.TrimSpace(stringValue(body.OGImage)),
+		IOS: trimPtr(body.IOS), Android: trimPtr(body.Android),
+		FallbackURL: trimPtr(body.FallbackURL),
+		ExpiresAt:   expiresAt, ExpiredURL: trimPtr(body.ExpiredURL),
+		OGTitle: trimPtr(body.OGTitle), OGDescription: trimPtr(body.OGDescription),
+		OGImage: trimPtr(body.OGImage),
 	}
 	if body.Tags != nil {
 		tags, err := normalizeTags(*body.Tags)
@@ -678,12 +655,11 @@ func (p *portalServer) updateLink(w http.ResponseWriter, r *http.Request) {
 		l.URL = body.URL
 	}
 	if body.Title != nil {
-		l.Title = strings.TrimSpace(*body.Title)
+		l.Title = trimPtr(body.Title)
 	} else if body.Note != nil {
-		l.Title = strings.TrimSpace(*body.Note)
+		l.Title = trimPtr(body.Note)
 	}
-	if utf8.RuneCountInString(l.Title) > maxTitleLen {
-		http.Error(w, "title must be at most 100 characters", http.StatusBadRequest)
+	if !checkTitle(w, l.Title) {
 		return
 	}
 	if body.IOS != nil {
@@ -744,7 +720,6 @@ func (p *portalServer) deleteLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// updateMatching: app match threshold + window (Detour: app-level). Both required.
 func (p *portalServer) updateMatching(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
@@ -767,15 +742,9 @@ func (p *portalServer) updateMatching(w http.ResponseWriter, r *http.Request) {
 		p.storeErr(w, err)
 		return
 	}
-	a, err := p.st.GetApp(id)
-	if err != nil {
-		p.storeErr(w, err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
+	p.writeApp(w, id)
 }
 
-// updateTagging: PATCH {tagLinks}: SDK destinations get detur_link=<key> so app can tag its device (per-link conversions + retention).
 func (p *portalServer) updateTagging(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
@@ -789,15 +758,9 @@ func (p *portalServer) updateTagging(w http.ResponseWriter, r *http.Request) {
 		p.storeErr(w, err)
 		return
 	}
-	a, err := p.st.GetApp(id)
-	if err != nil {
-		p.storeErr(w, err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, toAppJSON(a))
+	p.writeApp(w, id)
 }
 
-// analyticsRanges: allowed ?days= windows (portal range picker).
 var analyticsRanges = map[string]int{
 	"7":   7,
 	"14":  14,
@@ -808,15 +771,13 @@ var analyticsRanges = map[string]int{
 	"365": 365,
 }
 
-// analytics: daily click/install/event stats. ?days= or ?from=YYYY-MM-DD&to=YYYY-MM-DD (default 7 days); ?platform=ios|android|desktop (default all); ?window=15m|1h|3h|12h; ?link_id=...
 func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
-	if _, err := p.st.GetApp(appID); err != nil {
-		p.storeErr(w, err)
+	if !p.requireApp(w, appID) {
 		return
 	}
 	platform := r.URL.Query().Get("platform")
-	if platform != "" && platform != "ios" && platform != "android" && platform != "desktop" {
+	if platform != "" && !ua.ValidPlatform(platform) {
 		http.Error(w, "platform must be ios, android or desktop", http.StatusBadRequest)
 		return
 	}
@@ -866,11 +827,9 @@ func (p *portalServer) analytics(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, a)
 }
 
-// matchQuality: GET /api/apps/{id}/match-quality?days=... or ?from=...&to=... (default 30).
 func (p *portalServer) matchQuality(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
-	if _, err := p.st.GetApp(appID); err != nil {
-		p.storeErr(w, err)
+	if !p.requireApp(w, appID) {
 		return
 	}
 	from, to, ok := parseDateRange(w, r, 30)
@@ -886,7 +845,6 @@ func (p *portalServer) matchQuality(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, q)
 }
 
-// fraudInstallJSON: flagged install row; link ids -> keys ("" = link deleted). No device hash.
 type fraudInstallJSON struct {
 	ID           string    `json:"id"`
 	CreatedAt    time.Time `json:"createdAt"`
@@ -899,11 +857,9 @@ type fraudInstallJSON struct {
 	FraudLinkKey string    `json:"fraudLinkKey"`
 }
 
-// fraud: GET /api/apps/{id}/fraud?days=... or ?from=...&to=... (default 7): per-signal counts + latest flagged installs.
 func (p *portalServer) fraud(w http.ResponseWriter, r *http.Request) {
 	appID := r.PathValue("id")
-	if _, err := p.st.GetApp(appID); err != nil {
-		p.storeErr(w, err)
+	if !p.requireApp(w, appID) {
 		return
 	}
 	from, to, ok := parseDateRange(w, r, 7)
@@ -915,14 +871,10 @@ func (p *portalServer) fraud(w http.ResponseWriter, r *http.Request) {
 		p.internal(w, err)
 		return
 	}
-	links, err := p.st.ListLinks(appID)
+	keys, err := p.st.LinkKeysByID(appID)
 	if err != nil {
 		p.internal(w, err)
 		return
-	}
-	keys := make(map[string]string, len(links))
-	for _, l := range links {
-		keys[l.ID] = l.Key
 	}
 	out := make([]fraudInstallJSON, 0, len(f.Installs))
 	for _, in := range f.Installs {
@@ -932,7 +884,6 @@ func (p *portalServer) fraud(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"signals": f.Signals, "installs": out})
 }
 
-// fraudSettingsJSON: fraud settings wire shape. Pointers: PATCH requires every field.
 type fraudSettingsJSON struct {
 	VelocityMode          *string `json:"velocityMode"`
 	TimingMode            *string `json:"timingMode"`
@@ -947,12 +898,10 @@ type fraudSettingsJSON struct {
 	FingerprintWindowDays *int    `json:"fingerprintWindowDays"`
 }
 
-// fraudSettings: GET /api/apps/{id}/fraud/settings.
 func (p *portalServer) fraudSettings(w http.ResponseWriter, r *http.Request) {
 	p.writeFraudSettings(w, r.PathValue("id"))
 }
 
-// parseDateRange: ?from=YYYY-MM-DD&to=YYYY-MM-DD if either present, else ?days= via parseDays. Returns from, to, ok.
 func parseDateRange(w http.ResponseWriter, r *http.Request, defDays int) (time.Time, time.Time, bool) {
 	q := r.URL.Query()
 	if q.Get("window") != "" {
@@ -996,7 +945,6 @@ func parseDateRange(w http.ResponseWriter, r *http.Request, defDays int) (time.T
 	return from, to, true
 }
 
-// parseDays: ?days= in analyticsRanges (def if absent); else writes 400, ok false.
 func parseDays(w http.ResponseWriter, r *http.Request, def int) (int, bool) {
 	v := r.URL.Query().Get("days")
 	if v == "" {
@@ -1011,8 +959,7 @@ func parseDays(w http.ResponseWriter, r *http.Request, def int) (int, bool) {
 }
 
 func (p *portalServer) writeFraudSettings(w http.ResponseWriter, appID string) {
-	if _, err := p.st.GetApp(appID); err != nil {
-		p.storeErr(w, err)
+	if !p.requireApp(w, appID) {
 		return
 	}
 	s, err := p.st.FraudSettings(appID)
@@ -1028,7 +975,6 @@ func (p *portalServer) writeFraudSettings(w http.ResponseWriter, appID string) {
 	})
 }
 
-// updateFraudSettings: PATCH /api/apps/{id}/fraud/settings: every field required, validated, upserted; responds like GET.
 func (p *portalServer) updateFraudSettings(w http.ResponseWriter, r *http.Request) {
 	var b fraudSettingsJSON
 	if err := decodeJSON(w, r, &b); err != nil {
@@ -1058,12 +1004,10 @@ func (p *portalServer) updateFraudSettings(w http.ResponseWriter, r *http.Reques
 	p.writeFraudSettings(w, id)
 }
 
-// static: built portal from dir. Missing dir/file = plain 404 (FileServer); server keeps running.
 func (p *portalServer) static(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.Dir(p.dir)).ServeHTTP(w, r)
 }
 
-// storeErr: store error -> HTTP response.
 func (p *portalServer) storeErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -1076,25 +1020,19 @@ func (p *portalServer) storeErr(w http.ResponseWriter, err error) {
 	p.internal(w, err)
 }
 
-func stringValue(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
+func trimPtr(p *string) string { return strings.TrimSpace(strOr(p)) }
+
+func fmtTime(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 func (p *portalServer) internal(w http.ResponseWriter, err error) {
 	p.log.Printf("portal backend error: %v", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
-// linkKeyRe: short-link key charset (URL-path-safe, single segment).
 var linkKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// schemeRe: RFC 3986 scheme. Ends up in the tap page href, so browser-handled schemes are refused (validScheme).
 var schemeRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]{0,63}$`)
 
-// validScheme: app URL scheme only; web and script schemes would turn the tap button into a web page or script.
 func validScheme(v string) bool {
 	switch strings.ToLower(v) {
 	case "http", "https", "javascript", "data", "file", "vbscript", "blob", "about", "ftp", "ws", "wss", "intent":
@@ -1103,7 +1041,6 @@ func validScheme(v string) bool {
 	return schemeRe.MatchString(v)
 }
 
-// isReservedKey: keys shadowing registered routes (case-insensitive) or "_" prefix Dub reserves (_root).
 func isReservedKey(key string) bool {
 	key = strings.ToLower(key)
 	switch key {

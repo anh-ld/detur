@@ -7,7 +7,6 @@ import { App, HealthCheck } from '../../../lib/types';
 
 const STATUS = { ok: 'OK', warn: 'Check', fail: 'Fix' };
 
-// refetches when the app changes (config save)
 export function HealthTable({ app }: { app: App }) {
   const [checks, setChecks] = useState<HealthCheck[] | null>(null);
   useEffect(() => {

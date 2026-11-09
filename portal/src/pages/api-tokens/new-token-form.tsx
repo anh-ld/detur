@@ -5,12 +5,11 @@ import { App, CreatedToken } from '../../lib/types';
 import { adminCall } from '../../lib/admin';
 import { ActionErrors } from '../../components/action-errors';
 import { closeDialog } from '../../lib/dialog';
-import { muted, row } from '../../lib/styles';
+import { muted, stack, end } from '../../lib/styles';
 import { AppChecks } from './app-checks';
 
 export const NEW_TOKEN_DIALOG = 'dlg-new-token';
 
-// drawer opened by the page's "New token" action (same pattern as Create app)
 export function NewTokenDialog({ apps, errors, onCreated }: { apps: App[]; errors: ActionErrors; onCreated: (t: CreatedToken) => void }) {
   const [name, setName] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
@@ -38,7 +37,7 @@ export function NewTokenDialog({ apps, errors, onCreated }: { apps: App[]; error
   return (
     <Dialog id={NEW_TOKEN_DIALOG}>
       <Dialog.Content>
-        <form style={{ display: 'grid', gap: 16 }} onSubmit={create}>
+        <form style={stack} onSubmit={create}>
           <div style={{ display: 'grid', gap: 4 }}>
             <h2 style={{ margin: 0 }}>New token</h2>
             <p style={muted}>Read-only access to the apps you pick. Shown once after creating.</p>
@@ -51,7 +50,7 @@ export function NewTokenDialog({ apps, errors, onCreated }: { apps: App[]; error
             <Label>Allowed apps</Label>
             <AppChecks apps={apps} value={picked} onChange={setPicked} />
           </Field>
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
+          <div style={end}>
             <Button type="button" variant="outline" onClick={() => closeDialog(NEW_TOKEN_DIALOG)}>
               Cancel
             </Button>

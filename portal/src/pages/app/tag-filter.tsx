@@ -1,7 +1,6 @@
 import { Button, Checkbox, Label, Popover, PopoverContent, PopoverTrigger } from 'kinu';
 import { muted } from '../../lib/styles';
 
-// A link shows when it carries any selected tag.
 export function TagFilter({ tags, selected, onChange }: { tags: string[]; selected: string[]; onChange: (t: string[]) => void }) {
   const toggle = (t: string) => onChange(selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t]);
   return (

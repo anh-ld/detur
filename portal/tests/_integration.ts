@@ -1,5 +1,3 @@
-// real Go binary + fresh SQLite per file. flows (AE1: ADMIN_PASSWORD unset) and admin (gated)
-// each own their server.
 import { execSync, spawn, ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,7 +17,6 @@ export async function waitForServer(url: string, ms: number, server: ChildProces
       const res = await fetch(url);
       if (res.ok) return;
     } catch {
-      // not up yet
     }
     if (Date.now() - start > ms) {
       throw new Error(`server not ready at ${url}: ${getStderr()}`);
@@ -28,7 +25,6 @@ export async function waitForServer(url: string, ms: number, server: ChildProces
   }
 }
 
-// open <dialog>; kinu shows one modal at a time
 export const openDialog = (): HTMLElement => {
   const d = document.querySelector('dialog[open]');
   if (!d) throw new Error('no open dialog');
@@ -37,7 +33,6 @@ export const openDialog = (): HTMLElement => {
 
 export const uniq = (s: string) => `${s}-${Date.now().toString(36)}`;
 
-// Settings save buttons all read "Save": scope to the form (or toolbar) that owns the anchor.
 export const saveButton = (anchor: Element) =>
   within((anchor.closest('form') ?? anchor.parentElement) as HTMLElement).getByRole('button', { name: 'Save' });
 
@@ -47,7 +42,6 @@ export function go(hash: string) {
   window.dispatchEvent(new Event('hashchange'));
 }
 
-// sidebar nav links; text minus the <kbd> shortcut hint
 const navText = (a: HTMLElement) =>
   a.firstChild
     ? [...a.childNodes]
@@ -62,7 +56,6 @@ export const selectedTab = () =>
     .filter((t) => t.getAttribute('aria-current') === 'page')
     .map(navText);
 
-// build + spawn server: fresh SQLite, unique portal port
 export function startServer(opts: { port: number; bin: string; env?: Record<string, string> }) {
   execSync(`go build -o ${opts.bin} ./cmd/detur`, { cwd: join(repoRoot, 'server'), stdio: 'inherit' });
   const dbDir = mkdtempSync(join(tmpdir(), 'detur-integ-'));

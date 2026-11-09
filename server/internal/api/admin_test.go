@@ -1,7 +1,5 @@
 package api
 
-// Token primitive tests (mintToken/verifyToken). Endpoint wire behavior + route gating: portal_test.go.
-
 import (
 	"crypto/tls"
 	"fmt"
@@ -20,7 +18,6 @@ func TestTokenRoundTrip(t *testing.T) {
 	if !expiresAt.Equal(want) {
 		t.Fatalf("expiresAt = %v, want %v", expiresAt, want)
 	}
-	// shape: <expiry-unix>.<64 hex chars>
 	exp, sig, ok := strings.Cut(token, ".")
 	if !ok || len(sig) != 64 {
 		t.Fatalf("token shape = %q, want <expiry-unix>.<64 hex>", token)
@@ -40,7 +37,6 @@ func TestTokenRoundTrip(t *testing.T) {
 func TestTokenTamperedFails(t *testing.T) {
 	now := time.Now()
 	token, _ := mintToken("s3cret", 12, now)
-	// flip one hex char: first digit 0->1, a->b
 	flip := map[byte]byte{'0': '1', '1': '0', 'a': 'b', 'b': 'a'}
 	for i := range token {
 		if token[i] == '.' {
@@ -52,7 +48,6 @@ func TestTokenTamperedFails(t *testing.T) {
 			if _, ok := verifyToken(tampered, "s3cret", now); ok {
 				t.Fatalf("tampered token %q must fail verification", tampered)
 			}
-			// wrong secret also fails on the untouched token
 			if _, ok := verifyToken(token, "other-secret", now); ok {
 				t.Fatal("verifyToken with a different secret must fail")
 			}
@@ -85,8 +80,6 @@ func TestTokenMalformed(t *testing.T) {
 	}
 }
 
-// Login lock per socket peer: one peer's wrong-password burst doesn't queue another's login; same-peer guesses
-// serialize; idle entries dropped.
 func TestElevateLockPerPeer(t *testing.T) {
 	p := &portalServer{adminPassword: "s3cret", adminHours: 12, adminLocks: map[string]*peerLock{}}
 	post := func(peer, pw string) int {
@@ -103,7 +96,7 @@ func TestElevateLockPerPeer(t *testing.T) {
 		wg.Add(1)
 		go func() { defer wg.Done(); post("10.0.0.1:1000", "wrong") }()
 	}
-	time.Sleep(50 * time.Millisecond) // attacker's guesses hold 10.0.0.1's lock
+	time.Sleep(50 * time.Millisecond)
 	if code := post("10.0.0.2:2000", "s3cret"); code != http.StatusOK {
 		t.Fatalf("other peer login = %d; want 200", code)
 	}
@@ -119,7 +112,6 @@ func TestElevateLockPerPeer(t *testing.T) {
 	}
 }
 
-// Admin cookie Secure only when the browser came over HTTPS (TLS here or at the gateway); plain-HTTP loopback stays usable.
 func TestSessionCookieSecure(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -149,7 +141,6 @@ func TestSessionCookieSecure(t *testing.T) {
 	}
 }
 
-// Portal never framed (clickjacking past the Origin guard): every response, SPA shell and API alike.
 func TestPortalAntiFramingHeaders(t *testing.T) {
 	portal, _, _ := newPortalEnv(t)
 	for _, path := range []string{"/", "/api/apps"} {
@@ -163,7 +154,6 @@ func TestPortalAntiFramingHeaders(t *testing.T) {
 	}
 }
 
-// Token minted under a longer ADMIN_SESSION_HOURS dies once the setting is lowered.
 func TestAdminTokenCappedBySessionHours(t *testing.T) {
 	const pw = "correct horse battery staple"
 	portal, _, _ := newPortalEnvAdmin(t, pw, 12)

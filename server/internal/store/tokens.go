@@ -8,11 +8,10 @@ import (
 	"time"
 )
 
-// Token: data API / MCP bearer token. Plaintext only returned by CreateToken; only SHA-256 stored.
 type Token struct {
 	ID         string
 	Name       string
-	Prefix     string // dtr_ + first 4 chars, for display
+	Prefix     string
 	AppIDs     []string
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
@@ -21,7 +20,6 @@ type Token struct {
 // TouchEvery: min gap between last_used_at writes per token (one SQLite conn).
 const TouchEvery = time.Minute
 
-// CreateToken: new token for appIDs (deduped); unknown app -> ErrNotFound, nothing stored. Plaintext returned once.
 func (s *Store) CreateToken(name string, appIDs []string) (Token, string, error) {
 	plain := "dtr_" + Nanoid(32)
 	t := Token{ID: Nanoid(21), Name: name, Prefix: plain[:8], AppIDs: dedup(appIDs), CreatedAt: time.Now().UTC()}
@@ -43,7 +41,6 @@ func (s *Store) CreateToken(name string, appIDs []string) (Token, string, error)
 	return t, plain, nil
 }
 
-// setTokenApps: replace token's app set; unknown app -> ErrNotFound.
 func setTokenApps(tx *sql.Tx, id string, appIDs []string) error {
 	if _, err := tx.Exec(`DELETE FROM api_token_apps WHERE token_id = ?`, id); err != nil {
 		return fmt.Errorf("token apps: %w", err)
@@ -73,26 +70,20 @@ func dedup(ids []string) []string {
 	return out
 }
 
-// ListTokens: all tokens, oldest first, with allowed app ids.
 func (s *Store) ListTokens() ([]Token, error) {
 	return s.tokens(`ORDER BY created_at, rowid`)
 }
 
-// TokenByPlain: token for a presented secret (hash lookup); ErrNotFound on miss.
 func (s *Store) TokenByPlain(plain string) (Token, error) {
-	ts, err := s.tokens(`WHERE token_hash = ?`, HashKey(plain))
-	if err != nil {
-		return Token{}, err
-	}
-	if len(ts) == 0 {
-		return Token{}, ErrNotFound
-	}
-	return ts[0], nil
+	return s.oneToken(`token_hash = ?`, HashKey(plain))
 }
 
-// TokenByID: token by id; ErrNotFound on miss.
 func (s *Store) TokenByID(id string) (Token, error) {
-	ts, err := s.tokens(`WHERE id = ?`, id)
+	return s.oneToken(`id = ?`, id)
+}
+
+func (s *Store) oneToken(where string, arg any) (Token, error) {
+	ts, err := s.tokens(`WHERE `+where, arg)
 	if err != nil {
 		return Token{}, err
 	}
@@ -117,17 +108,14 @@ func (s *Store) tokens(tail string, args ...any) ([]Token, error) {
 			return nil, fmt.Errorf("list tokens: %w", err)
 		}
 		t.CreatedAt = parseTime(created)
-		if used.Valid {
-			u := parseTime(used.String)
-			t.LastUsedAt = &u
-		}
+		t.LastUsedAt = timePtr(used)
 		t.AppIDs = []string{}
 		out = append(out, t)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list tokens: %w", err)
 	}
-	rows.Close() // one connection: free it before the app query
+	rows.Close()
 	if len(out) == 0 {
 		return out, nil
 	}
@@ -155,19 +143,14 @@ func (s *Store) tokens(tail string, args ...any) ([]Token, error) {
 	return out, nil
 }
 
-// UpdateToken: rename ("" keeps) and/or replace app set (nil keeps) in one tx. ErrNotFound if token or any app unknown.
 func (s *Store) UpdateToken(id, name string, appIDs []string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("update token: %w", err)
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`UPDATE api_tokens SET name = COALESCE(NULLIF(?, ''), name) WHERE id = ?`, name, id)
-	if err != nil {
-		return fmt.Errorf("update token: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
+	if err := execOne(tx, "update token", `UPDATE api_tokens SET name = COALESCE(NULLIF(?, ''), name) WHERE id = ?`, name, id); err != nil {
+		return err
 	}
 	if appIDs != nil {
 		if err := setTokenApps(tx, id, dedup(appIDs)); err != nil {
@@ -177,19 +160,10 @@ func (s *Store) UpdateToken(id, name string, appIDs []string) error {
 	return tx.Commit()
 }
 
-// DeleteToken: revoke; ErrNotFound if unknown. Takes effect on the next request.
 func (s *Store) DeleteToken(id string) error {
-	res, err := s.db.Exec(`DELETE FROM api_tokens WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete token: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return execOne(s.db, "delete token", `DELETE FROM api_tokens WHERE id = ?`, id)
 }
 
-// TouchToken: set last_used_at = now unless set within TouchEvery.
 func (s *Store) TouchToken(id string, now time.Time) error {
 	_, err := s.db.Exec(`UPDATE api_tokens SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)`,
 		rfc3339(now), id, rfc3339(now.Add(-TouchEvery)))

@@ -3,7 +3,9 @@ import { ApiToken, App } from '../../lib/types';
 import { fmtDate } from '../../lib/format';
 import { AdminButton } from '../../components/admin';
 import { openDialog } from '../../lib/dialog';
-import { mono, muted, row } from '../../lib/styles';
+import { REVOKE_TOKEN_DIALOG } from './revoke-token-dialog';
+import { EDIT_TOKEN_DIALOG } from './edit-token-dialog';
+import { mono, muted, row, end } from '../../lib/styles';
 
 export function TokenTable({
   tokens,
@@ -46,13 +48,13 @@ export function TokenTable({
             <td>{fmtDate(t.createdAt)}</td>
             <td style={t.lastUsedAt ? undefined : muted}>{t.lastUsedAt ? fmtDate(t.lastUsedAt) : 'Never'}</td>
             <td style={{ textAlign: 'right' }}>
-              <div style={{ ...row, justifyContent: 'flex-end' }}>
+              <div style={end}>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => {
                     onEdit(t);
-                    openDialog('dlg-edit-token');
+                    openDialog(EDIT_TOKEN_DIALOG);
                   }}
                 >
                   Edit
@@ -62,7 +64,7 @@ export function TokenTable({
                   variant="destructive"
                   onClick={() => {
                     onRevoke(t);
-                    openDialog('dlg-revoke-token');
+                    openDialog(REVOKE_TOKEN_DIALOG);
                   }}
                 >
                   Revoke

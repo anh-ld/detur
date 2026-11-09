@@ -4,7 +4,7 @@ import { api } from '../../../lib/api';
 import { Webhook } from '../../../lib/types';
 import { adminCall } from '../../../lib/admin';
 import { closeDialog } from '../../../lib/dialog';
-import { muted, row } from '../../../lib/styles';
+import { muted, stack, end } from '../../../lib/styles';
 import { ActionErrors } from '../../../components/action-errors';
 
 const note = {
@@ -26,6 +26,8 @@ const PRESETS: [hours: number, label: string][] = [
   [720, '30 days ago'],
 ];
 
+export const REPLAY_DIALOG = 'dlg-replay-webhook';
+
 export function ReplayDialog({ target, errors, onReplayed }: { target: Webhook | null; errors: ActionErrors; onReplayed: () => void }) {
   const [hours, setHours] = useState('1');
   const [busy, setBusy] = useState(false);
@@ -37,7 +39,7 @@ export function ReplayDialog({ target, errors, onReplayed }: { target: Webhook |
     try {
       const from = new Date(Date.now() - (parseInt(hours, 10) || 1) * 3600 * 1000).toISOString();
       await adminCall(() => api.replayWebhook(target.id, from));
-      closeDialog('dlg-replay-webhook');
+      closeDialog(REPLAY_DIALOG);
       onReplayed();
     } catch (e) {
       errors.fail(e);
@@ -47,9 +49,9 @@ export function ReplayDialog({ target, errors, onReplayed }: { target: Webhook |
   };
 
   return (
-    <Dialog id="dlg-replay-webhook">
+    <Dialog id={REPLAY_DIALOG}>
       <Dialog.Content>
-        <div style={{ display: 'grid', gap: 16 }}>
+        <div style={stack}>
           <h2 style={{ margin: 0 }}>Replay Historical Events</h2>
           <p style={muted}>
             Rewind cursors for <strong>{target?.url}</strong> to re-deliver past events. Requests sent during replay include the{' '}
@@ -69,8 +71,8 @@ export function ReplayDialog({ target, errors, onReplayed }: { target: Webhook |
               ))}
             </Select>
           </Field>
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
-            <Button variant="outline" onClick={() => closeDialog('dlg-replay-webhook')}>
+          <div style={end}>
+            <Button variant="outline" onClick={() => closeDialog(REPLAY_DIALOG)}>
               Cancel
             </Button>
             <Button disabled={busy} onClick={replay}>

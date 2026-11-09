@@ -52,7 +52,6 @@ func elevatePortalSession(t *testing.T, portalURL, password string) *http.Cookie
 }
 
 func TestWebhookRoutesFailClosedWithoutAdminPassword(t *testing.T) {
-	// ADMIN_PASSWORD unset
 	portalURL, st := newPortalWithAdmin(t, "")
 	app, _ := st.CreateApp("App1", "dk_1")
 
@@ -87,7 +86,6 @@ func TestWebhookRoutesRequireElevationWhenAdminSet(t *testing.T) {
 	portalURL, st := newPortalWithAdmin(t, "supersecret")
 	app, _ := st.CreateApp("App1", "dk_1")
 
-	// unauthenticated -> 403
 	req, _ := http.NewRequest(http.MethodGet, portalURL+"/api/apps/"+app.ID+"/webhooks", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -105,7 +103,6 @@ func TestWebhookRoutesCRUDWithAdminElevation(t *testing.T) {
 	cookie := elevatePortalSession(t, portalURL, adminPass)
 	app, _ := st.CreateApp("Hook App", "dk_hook")
 
-	// 1. SSRF destination (169.254.169.254) rejected
 	bodyInvalid, _ := json.Marshal(map[string]any{
 		"url":   "http://169.254.169.254/hook",
 		"types": []string{"installs"},
@@ -122,7 +119,6 @@ func TestWebhookRoutesCRUDWithAdminElevation(t *testing.T) {
 		t.Errorf("POST prohibited URL: got %d, want 400 Bad Request", resp.StatusCode)
 	}
 
-	// 2. Create
 	bodyValid, _ := json.Marshal(map[string]any{
 		"url":   "https://example.com/events-receiver",
 		"types": []string{"installs", "events"},
@@ -150,7 +146,6 @@ func TestWebhookRoutesCRUDWithAdminElevation(t *testing.T) {
 		t.Fatal("expected secret in creation response")
 	}
 
-	// 3. List
 	req, _ = http.NewRequest(http.MethodGet, portalURL+"/api/apps/"+app.ID+"/webhooks", nil)
 	req.AddCookie(cookie)
 	resp, err = http.DefaultClient.Do(req)
@@ -168,7 +163,6 @@ func TestWebhookRoutesCRUDWithAdminElevation(t *testing.T) {
 		t.Errorf("List returned unexpected items: %v", list)
 	}
 
-	// 4. Update
 	disabled := false
 	bodyUpdate, _ := json.Marshal(map[string]any{
 		"enabled": disabled,
@@ -192,7 +186,6 @@ func TestWebhookRoutesCRUDWithAdminElevation(t *testing.T) {
 		t.Errorf("expected enabled = false, got %v", updated["enabled"])
 	}
 
-	// 5. Rotate secret
 	req, _ = http.NewRequest(http.MethodPost, portalURL+"/api/webhooks/"+whID+"/rotate-secret", nil)
 	req.AddCookie(cookie)
 	resp, err = http.DefaultClient.Do(req)
@@ -211,7 +204,6 @@ func TestWebhookRoutesCRUDWithAdminElevation(t *testing.T) {
 		t.Errorf("unexpected rotated secret: %q (old %q)", newSecret, secret)
 	}
 
-	// 6. Replay
 	bodyReplay, _ := json.Marshal(map[string]string{
 		"from": time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339),
 	})
@@ -227,7 +219,6 @@ func TestWebhookRoutesCRUDWithAdminElevation(t *testing.T) {
 		t.Fatalf("POST replay: got %d, want 200 OK", resp.StatusCode)
 	}
 
-	// 7. Delete
 	req, _ = http.NewRequest(http.MethodDelete, portalURL+"/api/webhooks/"+whID, nil)
 	req.AddCookie(cookie)
 	resp, err = http.DefaultClient.Do(req)

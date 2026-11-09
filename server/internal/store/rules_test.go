@@ -21,7 +21,6 @@ func TestLinkRulesCRUD(t *testing.T) {
 		t.Fatalf("CreateLink: %v", err)
 	}
 
-	// starts empty
 	rules, err := s.GetLinkRules(link.ID)
 	if err != nil {
 		t.Fatalf("GetLinkRules: %v", err)
@@ -107,7 +106,6 @@ func TestLinkRulesCRUD(t *testing.T) {
 		t.Fatalf("expected 2 split variants, got %d", len(storedRules[1].Action.Split))
 	}
 
-	// atomic replace with 1 rule
 	newRules := []LinkRule{
 		{
 			Position: 1,
@@ -133,7 +131,6 @@ func TestLinkRulesCRUD(t *testing.T) {
 		t.Fatalf("expected 1 rule 'Android Only', got %+v", storedRules)
 	}
 
-	// DeleteLink cascades to link_rules
 	if err := s.DeleteLink(link.ID); err != nil {
 		t.Fatalf("DeleteLink: %v", err)
 	}
@@ -163,7 +160,6 @@ func TestVariantDaysRollups(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	// 1. clicks with variants
 	c1, err := s.RecordClick(Click{
 		AppID:   app.ID,
 		LinkID:  link.ID,
@@ -181,7 +177,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Errorf("expected variant-a, got %q", c1.Variant)
 	}
 
-	// 2nd click, variant-a
 	_, err = s.RecordClick(Click{
 		AppID:   app.ID,
 		LinkID:  link.ID,
@@ -196,7 +191,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordClick c2: %v", err)
 	}
 
-	// click, variant-b
 	c3, err := s.RecordClick(Click{
 		AppID:   app.ID,
 		LinkID:  link.ID,
@@ -211,7 +205,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordClick c3: %v", err)
 	}
 
-	// UASuspect click: no variant_days bump
 	_, err = s.RecordClick(Click{
 		AppID:     app.ID,
 		LinkID:    link.ID,
@@ -227,7 +220,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordClick suspect: %v", err)
 	}
 
-	// variant-a 2 clicks, variant-b 1
 	stats, err := s.GetLinkVariantStats(app.ID, link.ID, now.AddDate(0, 0, -1), now.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("GetLinkVariantStats: %v", err)
@@ -242,7 +234,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Errorf("unexpected stats[1]: %+v", stats[1])
 	}
 
-	// 2. install for variant-b
 	inst1, err := s.RecordInstall(Install{
 		AppID:       app.ID,
 		DeviceHash:  "dev-b1",
@@ -258,7 +249,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Errorf("expected variant-b on install, got %q", inst1.Variant)
 	}
 
-	// organic install with variant: no variant_days bump
 	_, err = s.RecordInstall(Install{
 		AppID:       app.ID,
 		DeviceHash:  "dev-org",
@@ -269,7 +259,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Fatalf("RecordInstall organic: %v", err)
 	}
 
-	// duplicate install: no double count
 	_, err = s.RecordInstall(Install{
 		AppID:       app.ID,
 		DeviceHash:  "dev-b1",
@@ -286,8 +275,6 @@ func TestVariantDaysRollups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetLinkVariantStats: %v", err)
 	}
-	// variant-a: 2 clicks, 0 installs (0% conv)
-	// variant-b: 1 click, 1 install (100% conv)
 	var statA, statB *VariantStat
 	for i := range stats {
 		if stats[i].Variant == "variant-a" {
@@ -303,7 +290,6 @@ func TestVariantDaysRollups(t *testing.T) {
 		t.Errorf("unexpected statB: %+v", statB)
 	}
 
-	// DeleteApp drops variant_days
 	if err := s.DeleteApp(app.ID); err != nil {
 		t.Fatalf("DeleteApp: %v", err)
 	}
@@ -317,7 +303,6 @@ func TestVariantDaysRollups(t *testing.T) {
 }
 
 func TestAddMissingColumnsVariant(t *testing.T) {
-	// db without variant columns -> tests migration
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "legacy.db")
 
@@ -335,7 +320,6 @@ func TestAddMissingColumnsVariant(t *testing.T) {
 	}
 }
 
-// Position is array order; ids survive only for rules the link already owns, so foreign or repeated ids never collide.
 func TestSetLinkRulesIDsAndPositions(t *testing.T) {
 	s := newTestStore(t)
 	app, err := s.CreateApp("App", "key")
@@ -368,7 +352,6 @@ func TestSetLinkRulesIDsAndPositions(t *testing.T) {
 		t.Fatalf("initial rules: %+v", orig)
 	}
 
-	// 1. link 2 sends link 1's rule id: saved under a fresh id, link 1 untouched
 	if err := s.SetLinkRules(l2.ID, []LinkRule{{ID: orig[0].ID, Name: "c", Action: act}}); err != nil {
 		t.Fatalf("SetLinkRules with foreign id: %v", err)
 	}
@@ -379,7 +362,6 @@ func TestSetLinkRulesIDsAndPositions(t *testing.T) {
 		t.Fatalf("link 1 changed: %+v", got)
 	}
 
-	// 2. reorder with bogus client positions and a repeated id
 	if err := s.SetLinkRules(l1.ID, []LinkRule{
 		{ID: orig[1].ID, Position: 9, Name: "b", Action: act},
 		{ID: orig[1].ID, Position: 1, Name: "b2", Action: act},
@@ -390,21 +372,17 @@ func TestSetLinkRulesIDsAndPositions(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("want 2 rules, got %+v", got)
 	}
-	// array order wins over client position
 	if got[0].Name != "b" || got[0].Position != 1 || got[1].Name != "b2" || got[1].Position != 2 {
 		t.Errorf("order: got %q@%d, %q@%d", got[0].Name, got[0].Position, got[1].Name, got[1].Position)
 	}
-	// first use of an owned id keeps id + created_at
 	if got[0].ID != orig[1].ID || !got[0].CreatedAt.Equal(orig[1].CreatedAt) {
 		t.Errorf("kept rule: id %s created %v, want %s %v", got[0].ID, got[0].CreatedAt, orig[1].ID, orig[1].CreatedAt)
 	}
-	// repeated id -> fresh one
 	if got[1].ID == orig[1].ID {
 		t.Errorf("repeated id reused: %s", got[1].ID)
 	}
 }
 
-// Dedup refresh: the variant changes only together with the destination; an in-app reopen keeps both.
 func TestRefreshClickVariantFollowsDestination(t *testing.T) {
 	s := newTestStore(t)
 	app, err := s.CreateApp("App", "key")
@@ -446,7 +424,6 @@ func TestRefreshClickVariantFollowsDestination(t *testing.T) {
 		return c
 	}
 
-	// 1. same visitor, rule edited mid-window: label follows new destination, B counts new exposure
 	a := click("192.0.2.10", safari, "", "A", "myapp://a")
 	b := click("192.0.2.10", safari, "", "B", "myapp://b")
 	if b.ID != a.ID {
@@ -459,7 +436,6 @@ func TestRefreshClickVariantFollowsDestination(t *testing.T) {
 		t.Errorf("after refresh: clicks %v, want A=1 B=1", m)
 	}
 
-	// 2. in-app click, then "Open in browser" (no source, other UA, same IP + platform): original label and destination kept
 	inApp := click("192.0.2.20", safari+" Instagram 300.0", "instagram", "A", "myapp://a")
 	reopen := click("192.0.2.20", safari, "", "B", "myapp://b")
 	if reopen.ID != inApp.ID {

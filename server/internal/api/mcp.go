@@ -1,8 +1,5 @@
 package api
 
-// MCP: stateless Streamable HTTP, JSON responses only (no SSE, no session). Tools are the data API reads,
-// dispatched in-process to the /api/v1 mux with the caller's token, so MCP can never see more than HTTP does.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -20,8 +17,8 @@ const mcpLatest = "2025-11-25"
 var mcpVersions = []string{mcpLatest, "2025-06-18", "2025-03-26"}
 
 type mcpTool struct {
-	name, desc, path string   // path: /api/v1 template, {x} = required string arg
-	query            []string // optional args passed as query params
+	name, desc, path string
+	query            []string
 }
 
 const rangeDesc = " Range: days (UTC days ending today) or from+to (YYYY-MM-DD, UTC)."
@@ -45,7 +42,6 @@ var argDesc = map[string]string{
 	"window": "Sub-day window: 15m, 1h, 3h or 12h. Overrides days/from/to.", "platform": "ios, android or desktop. Omit for all.",
 }
 
-// pathArgs: {x} names in the template, in order.
 func (t mcpTool) pathArgs() []string {
 	var out []string
 	for _, seg := range strings.Split(t.path, "/") {
@@ -90,14 +86,13 @@ func rpcErr(w http.ResponseWriter, id json.RawMessage, code int, msg string) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": msg}})
 }
 
-// mcp: one JSON-RPC message per POST (token already checked by auth).
 func (d *dataServer) mcp(w http.ResponseWriter, r *http.Request) {
 	var req rpcReq
 	if err := decodeJSON(w, r, &req); err != nil {
 		rpcErr(w, nil, -32700, "parse error")
 		return
 	}
-	if len(req.ID) == 0 { // notification: no response body
+	if len(req.ID) == 0 {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}

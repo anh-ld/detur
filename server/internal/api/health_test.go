@@ -43,7 +43,6 @@ func TestHealthChecks(t *testing.T) {
 		t.Error("AASA refresh shown without several iOS apps")
 	}
 
-	// authed SDK call → version + last seen
 	if resp, b := portalReq(t, sdk, "POST", "/api/analytics/event", `{"event_name":"x"}`, authHeaders(app.ID)); resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, b)
 	}
@@ -51,7 +50,6 @@ func TestHealthChecks(t *testing.T) {
 		t.Errorf("SDK after call = %+v; want ok with version", c)
 	}
 
-	// bad formats fail; 2nd iOS app → fresh link waits for AASA
 	if err := st.UpdateAppDetails(app.ID, "com.example.app", "com.example", "AA:BB", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +73,6 @@ func TestHealthChecks(t *testing.T) {
 		t.Errorf("good details = %+v / %+v; want ok", h["iOS app ID"], h["Android"])
 	}
 
-	// proxy off + private peers → fail
 	httpx.TrustProxy = false
 	for range minPeers {
 		httpx.RemoteIP(&http.Request{RemoteAddr: "10.0.0.2:5000"})
@@ -84,7 +81,6 @@ func TestHealthChecks(t *testing.T) {
 		t.Errorf("Proxy = %+v; want fail", c)
 	}
 
-	// untrusted peer sending XFF with TrustProxy=true → Forwarded headers warn
 	defer func() {
 		httpx.TrustProxy = false
 		_ = httpx.SetTrustedProxies(nil)
@@ -99,7 +95,6 @@ func TestHealthChecks(t *testing.T) {
 		t.Errorf("Forwarded headers = %+v; want warn naming 203.0.113.50", c)
 	}
 
-	// multi-app iOS exceeding MaxAASAKeys on app.ID → AASA keys warn on app, not on other
 	for i := range store.MaxAASAKeys {
 		key := fmt.Sprintf("cap-%03d", i)
 		if _, err := st.CreateLink(store.Link{AppID: app.ID, Key: key, URL: "https://example.com/" + key}); err != nil {

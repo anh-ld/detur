@@ -5,10 +5,11 @@ import { Webhook } from '../../../lib/types';
 import { adminCall } from '../../../lib/admin';
 import { SecretField } from '../../../components/secret-field';
 import { closeDialog } from '../../../lib/dialog';
-import { muted, row } from '../../../lib/styles';
+import { muted, stack, end } from '../../../lib/styles';
 import { ActionErrors } from '../../../components/action-errors';
 
-// `open` is a fresh object per click so reopening the same webhook clears the previous secret
+export const ROTATE_SECRET_DIALOG = 'dlg-rotate-secret';
+
 export function RotateDialog({ open, errors, onRotated }: { open: { wh: Webhook } | null; errors: ActionErrors; onRotated: () => void }) {
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState(false);
@@ -29,17 +30,17 @@ export function RotateDialog({ open, errors, onRotated }: { open: { wh: Webhook 
   };
 
   return (
-    <Dialog id="dlg-rotate-secret">
+    <Dialog id={ROTATE_SECRET_DIALOG}>
       <Dialog.Content>
-        <div style={{ display: 'grid', gap: 16 }}>
+        <div style={stack}>
           <h2 style={{ margin: 0 }}>Rotate Signing Secret</h2>
           <p style={muted}>
             Rotating the secret invalidates the old secret immediately. Existing signature verification on your receiver will fail until
             updated with the new secret.
           </p>
           {secret && <SecretField label="New Signing Secret" value={secret} copyLabel="Copy secret" />}
-          <div style={{ ...row, justifyContent: 'flex-end' }}>
-            <Button variant="outline" onClick={() => closeDialog('dlg-rotate-secret')}>
+          <div style={end}>
+            <Button variant="outline" onClick={() => closeDialog(ROTATE_SECRET_DIALOG)}>
               {secret ? 'Close' : 'Cancel'}
             </Button>
             {!secret && (

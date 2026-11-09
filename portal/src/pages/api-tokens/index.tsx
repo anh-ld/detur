@@ -8,13 +8,12 @@ import { actionErrors } from '../../components/action-errors';
 import { openDialog } from '../../lib/dialog';
 import { Loading, PageHeader } from '../../components/page';
 import { Connect } from './connect';
-import { CreatedTokenDialog } from './created-token-dialog';
-import { EditTokenDialog } from './edit-token-dialog';
+import { CreatedTokenDialog, CREATED_TOKEN_DIALOG } from './created-token-dialog';
+import { EditTokenDialog, EDIT_TOKEN_DIALOG } from './edit-token-dialog';
 import { NEW_TOKEN_DIALOG, NewTokenDialog } from './new-token-form';
-import { RevokeTokenDialog } from './revoke-token-dialog';
+import { RevokeTokenDialog, REVOKE_TOKEN_DIALOG } from './revoke-token-dialog';
 import { TokenTable } from './token-table';
 
-// Admin-managed data-API / MCP tokens. Plaintext token lives in state only while its dialog is open.
 export function ApiTokensPage() {
   const [apps, setApps] = useState<App[]>([]);
   const [linkBase, setLinkBase] = useState('');
@@ -107,7 +106,7 @@ export function ApiTokensPage() {
             const { token: _plain, ...rest } = t;
             setTokens((prev) => [...(prev ?? []), rest]);
             setCreated(t);
-            openDialog('dlg-created-token');
+            openDialog(CREATED_TOKEN_DIALOG);
           }}
         />
       )}

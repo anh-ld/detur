@@ -1,11 +1,11 @@
-import type { LinkRule, RuleTargets, SplitVariant } from '../../../lib/types';
+import { PLATFORMS, type LinkRule, type RuleTargets, type SplitVariant } from '../../../lib/types';
 import { muted } from '../../../lib/styles';
 import { toLocalInput } from './link-draft';
 
 const VARIANT_COLORS = ['205 87% 59%', '205 90% 34%', '187 72% 42%', '35 92% 55%', '262 55% 62%', '340 70% 60%'];
 export const variantColor = (i: number) => `hsl(${VARIANT_COLORS[i % VARIANT_COLORS.length]})`;
 
-const PLATFORM_LABEL: Record<string, string> = { ios: 'iOS', android: 'Android', desktop: 'Desktop' };
+const PLATFORM_LABEL: Record<string, string> = Object.fromEntries(PLATFORMS.map((p) => [p.id, p.label]));
 const fmtUtc = (iso: string) => toLocalInput(iso).replace('T', ' ');
 
 export function condLabels(c: LinkRule['cond']): string[] {
@@ -19,7 +19,6 @@ export function condLabels(c: LinkRule['cond']): string[] {
   return out;
 }
 
-// What a direct rule overrides; nothing set means the link default.
 export function TargetSummary({ t }: { t?: RuleTargets }) {
   const parts = [
     t?.destination && <code class="target">{t.destination}</code>,
@@ -30,7 +29,6 @@ export function TargetSummary({ t }: { t?: RuleTargets }) {
   return parts.length ? <>{parts}</> : <span style={muted}>link default</span>;
 }
 
-// Stacked weight bar and legend; compact (list row) drops the bar's room.
 export function SplitBar({ variants, compact }: { variants: SplitVariant[]; compact?: boolean }) {
   return (
     <div class={compact ? 'split split-compact' : 'split'}>

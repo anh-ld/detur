@@ -11,7 +11,6 @@ import (
 	"detur.dev/server/internal/store"
 )
 
-// ResolvedRoute: evaluated targets + variant for a short-link click.
 type ResolvedRoute struct {
 	Variant     string
 	Destination string
@@ -20,19 +19,21 @@ type ResolvedRoute struct {
 	FallbackURL string
 }
 
-// EvaluateRules: ordered link rules vs request -> resolved route.
 func EvaluateRules(rules []store.LinkRule, baseLink store.Link, req *http.Request, now time.Time) ResolvedRoute {
+	var q url.Values
+	if req != nil && req.URL != nil {
+		q = req.URL.Query()
+	}
+	return evaluateRules(rules, baseLink, req, q, now)
+}
+
+func evaluateRules(rules []store.LinkRule, baseLink store.Link, req *http.Request, q url.Values, now time.Time) ResolvedRoute {
 	resolved := ResolvedRoute{
 		Variant:     "",
 		Destination: baseLink.URL,
 		IOS:         baseLink.IOS,
 		Android:     baseLink.Android,
 		FallbackURL: baseLink.FallbackURL,
-	}
-
-	var q url.Values
-	if req != nil && req.URL != nil {
-		q = req.URL.Query()
 	}
 
 	for _, rule := range rules {
@@ -45,21 +46,18 @@ func EvaluateRules(rules []store.LinkRule, baseLink store.Link, req *http.Reques
 	return resolved
 }
 
-// matchRuleCond: all RuleCond criteria ANDed; empty ones ignored.
 func matchRuleCond(cond store.RuleCond, req *http.Request, q url.Values, now time.Time) bool {
 	agent := ""
 	if req != nil {
 		agent = req.UserAgent()
 	}
 
-	// platform: "ios", "android", "desktop"
 	if cond.Platform != "" {
 		if ua.ClickPlatform(agent) != strings.ToLower(strings.TrimSpace(cond.Platform)) {
 			return false
 		}
 	}
 
-	// language: prefix of Accept-Language primary tag (e.g. "de")
 	if cond.Lang != "" {
 		acceptLang := ""
 		if req != nil {
@@ -70,7 +68,6 @@ func matchRuleCond(cond store.RuleCond, req *http.Request, q url.Values, now tim
 		}
 	}
 
-	// query param: ParamKey present, ParamVal optional
 	if cond.ParamKey != "" {
 		if q == nil || !q.Has(cond.ParamKey) {
 			return false
@@ -80,7 +77,6 @@ func matchRuleCond(cond store.RuleCond, req *http.Request, q url.Values, now tim
 		}
 	}
 
-	// date window: UTC From / Until
 	if cond.From != nil && now.Before(*cond.From) {
 		return false
 	}
@@ -91,14 +87,12 @@ func matchRuleCond(cond store.RuleCond, req *http.Request, q url.Values, now tim
 	return true
 }
 
-// primaryLang: first Accept-Language tag.
 func primaryLang(al string) string {
 	primary, _, _ := strings.Cut(al, ",")
 	primary, _, _ = strings.Cut(primary, ";")
 	return strings.TrimSpace(primary)
 }
 
-// matchLang: user's primary lang tag starts with ruleLang (case-insensitive).
 func matchLang(acceptLang, ruleLang string) bool {
 	if ruleLang == "" {
 		return true
@@ -111,7 +105,6 @@ func matchLang(acceptLang, ruleLang string) bool {
 	return primary == ruleLang || strings.HasPrefix(primary, ruleLang+"-") || strings.HasPrefix(primary, ruleLang+"_")
 }
 
-// applyTargets: non-empty target overrides -> route.
 func applyTargets(resolved *ResolvedRoute, targets store.RuleTargets) {
 	if targets.Destination != "" {
 		resolved.Destination = targets.Destination
@@ -127,7 +120,6 @@ func applyTargets(resolved *ResolvedRoute, targets store.RuleTargets) {
 	}
 }
 
-// applyRuleAction: direct targets or sticky A/B split. Variant = split variant name, or rule name on direct match (R8).
 func applyRuleAction(resolved *ResolvedRoute, rule store.LinkRule, baseLink store.Link, req *http.Request) {
 	action := rule.Action
 	if len(action.Split) > 0 {
@@ -168,7 +160,6 @@ const (
 	fnvPrime64  = 1099511628211
 )
 
-// HashBucket: deterministic [0, 99] via 64-bit FNV-1a, no heap allocs.
 func HashBucket(linkID, ip, userAgent string) int {
 	var h uint64 = fnvOffset64
 	for _, s := range []string{linkID, "|", ip, "|", userAgent} {

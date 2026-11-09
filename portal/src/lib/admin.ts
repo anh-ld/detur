@@ -3,12 +3,10 @@ import { api, HttpError } from './api';
 import { openDialog } from './dialog';
 import { useLatest } from './use-latest';
 
-// --- Admin elevation: sudo-style password session. Server enforces; this store mirrors
-// GET /api/admin/session; adminSet mirrors config.adminSet (unset password = no gating). ---
 let adminSet = false;
 let elevated = false;
-let adminVersion = 0; // bumped on every state change: a session read started before one is stale
-let until = ''; // expiresAt ISO; '' = not lifted
+let adminVersion = 0;
+let until = '';
 const adminListeners = new Set<() => void>();
 
 export const getAdmin = () => elevated;
@@ -32,8 +30,6 @@ function subscribeAdmin(cb: () => void): () => void {
   };
 }
 
-// re-read session from server; 403 handler calls this first
-// a slow read (e.g. the mount check) landing after an unlock or exit would undo it: dropped
 export async function refreshAdminSession() {
   const v = adminVersion;
   try {
@@ -47,11 +43,8 @@ export async function refreshAdminSession() {
 let pendingAdmin: Promise<boolean> | null = null;
 let settleAdmin: ((ok: boolean) => void) | null = null;
 
-// prompt dialog id: gate opens, dialog closes
 export const ADMIN_PW_DIALOG = 'dlg-admin-password';
 
-// on-demand gate: no password set or lifted → pass; else prompt, resolves on close (false = canceled).
-// concurrent gates share one pending prompt: no orphaned waiter.
 export function ensureAdmin(): Promise<boolean> {
   if (!adminSet || elevated) return Promise.resolve(true);
   if (pendingAdmin) return pendingAdmin;
@@ -67,22 +60,19 @@ export function settleAdminGate(ok: boolean) {
   pendingAdmin = null;
 }
 
-// the one admin snapshot: password set?, elevated?, until; re-renders its component on any change.
-// locked = a password is set and the session isn't elevated.
 export function useAdmin() {
   const [, bump] = useState(0);
+  const snap = { adminSet, admin: elevated, until, locked: adminSet && !elevated };
   useEffect(() => {
     const off = subscribeAdmin(() => bump((n) => n + 1));
-    bump((n) => n + 1); // a change between render and this effect had no listener: re-read once
+    if (adminSet !== snap.adminSet || elevated !== snap.admin || until !== snap.until) bump((n) => n + 1);
     return off;
   }, []);
-  return { adminSet, admin: elevated, until, locked: adminSet && !elevated };
+  return snap;
 }
-// prompt canceled: skip gated action (callers return quietly)
 export class AdminGateAborted extends Error {}
+export const isGateAbort = (e: unknown) => e instanceof AdminGateAborted;
 
-// one gated API call: prompt if needed. Mid-use 403 = session died (also proves server gates,
-// self-heals failed config fetch) -> refresh state (chip clears), re-prompt once, retry.
 export async function adminCall<T>(fn: () => Promise<T>): Promise<T> {
   if (!(await ensureAdmin())) throw new AdminGateAborted();
   try {
@@ -95,19 +85,11 @@ export async function adminCall<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-// a 403 from a gated call proves the server gates and the session is gone: mark the password set
-// (self-heals a failed config fetch), re-read the session (chip clears). Never prompts.
 async function sessionDied() {
   setAdminAvailable(true);
   await refreshAdminSession();
 }
 
-// Admin-gated load, one rule for every panel. Never prompts, never asks the server while the gate is closed.
-// - 'when-set': open when no password is set; closed = password set and not elevated. Unlock loads only
-//   until the first success (edits are never clobbered); deps changes reload.
-// - 'needs-password': the server 403s without a password, so closed = not set or not elevated. Lists:
-//   elevation is a dep (refetch on every unlock) and a closed gate resets data to `empty` (secrets leave state).
-// A load 403 = session died (sessionDied) -> locked. reload() re-runs through the same gate and guard.
 export function useGatedLoad<T>(opts: {
   load: () => Promise<T>;
   deps: unknown[];
