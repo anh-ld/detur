@@ -21,6 +21,16 @@ func hasStoreTarget(link store.Link, platform string) bool {
 	return false
 }
 
+// webTarget: "Continue on web" URL after a store return: fallback, else the link URL; "" when neither is a web page.
+func webTarget(link store.Link, q url.Values) string {
+	for _, t := range []string{link.FallbackURL, link.URL} {
+		if isWebURL(t) && !isAppStoreURL(t) && !isPlayStoreURL(t) {
+			return httpx.AddParams(t, q, forwardable)
+		}
+	}
+	return ""
+}
+
 func intentURL(host, key string, q url.Values, pkg, fallback string) string {
 	short := httpx.AddParams("https://"+host+"/"+key, q, forwardable)
 	return "intent://" + strings.TrimPrefix(short, "https://") +
@@ -54,7 +64,7 @@ func menuLabel(source string) string {
 
 func (p *pipelineServer) serveTap(w http.ResponseWriter, r *http.Request, link store.Link, dest, source string, q url.Values) {
 	ios := ua.IsIOS(r.UserAgent())
-	in := page.Input{IOS: ios, Href: dest, Steps: tapSteps(source, ios)}
+	in := page.Input{IOS: ios, Href: dest, Steps: tapSteps(source, ios), Web: webTarget(link, q)}
 	app := p.appOrDefault(link, "tap page")
 	in.AppName = app.Name
 	in.Icon = appIcons.first(iconKeys(link.IOS, link.Android, app.AndroidPackage))

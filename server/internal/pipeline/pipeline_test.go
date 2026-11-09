@@ -332,6 +332,22 @@ func TestPpidAndDtbParamsPassThrough(t *testing.T) {
 	}
 }
 
+// Instagram iOS percent-encodes Detour's #detour_open_app=true into the path or a query value.
+func TestDetourOpenAppFlagStripped(t *testing.T) {
+	ts, s, _ := newPipelineServer(t)
+	_, link := setupPipeline(t, s)
+	for _, p := range []string{
+		"/" + link.Key + "%23detour_open_app%3Dtrue?utm_source=ig",
+		"/" + link.Key + "?a=1%23detour_open_app%3Dtrue&utm_source=ig",
+	} {
+		resp, _ := doGET(t, ts, p, map[string]string{"User-Agent": desktopUA})
+		loc := resp.Header.Get("Location")
+		if resp.StatusCode != http.StatusFound || strings.Contains(loc, "detour_open_app") || !strings.Contains(loc, "utm_source=ig") {
+			t.Errorf("%s -> %d %q; want 302 without flag, utm kept", p, resp.StatusCode, loc)
+		}
+	}
+}
+
 func TestMobileWithoutOverridesFallsThroughToURL(t *testing.T) {
 	ts, s, _ := newPipelineServer(t)
 	app, _ := setupPipeline(t, s)

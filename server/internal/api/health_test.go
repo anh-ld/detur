@@ -42,6 +42,9 @@ func TestHealthChecks(t *testing.T) {
 	if _, ok := h["AASA refresh"]; ok {
 		t.Error("AASA refresh shown without several iOS apps")
 	}
+	if _, ok := h["iOS URL scheme"]; ok {
+		t.Error("iOS URL scheme shown without an iOS app")
+	}
 
 	if resp, b := portalReq(t, sdk, "POST", "/api/analytics/event", `{"event_name":"x"}`, authHeaders(app.ID)); resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, b)
@@ -58,18 +61,18 @@ func TestHealthChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	h = healthOf(t, portal, app.ID)
-	if h["iOS app ID"].Status != "fail" || h["Android"].Status != "fail" {
+	if h["iOS app ID"].Status != "fail" || h["Android"].Status != "fail" || h["iOS URL scheme"].Status != "warn" {
 		t.Errorf("bad details = %+v / %+v; want fail", h["iOS app ID"], h["Android"])
 	}
 	if c := h["AASA refresh"]; c.Status != "warn" || !strings.Contains(c.Detail, "/abc") {
 		t.Errorf("AASA refresh = %+v; want warn naming /abc", c)
 	}
 
-	if err := st.UpdateAppDetails(app.ID, "ABCDE12345.com.example.app", "com.example.app", strings.TrimSuffix(strings.Repeat("AB:", 32), ":"), ""); err != nil {
+	if err := st.UpdateAppDetails(app.ID, "ABCDE12345.com.example.app", "com.example.app", strings.TrimSuffix(strings.Repeat("AB:", 32), ":"), "myapp"); err != nil {
 		t.Fatal(err)
 	}
 	h = healthOf(t, portal, app.ID)
-	if h["iOS app ID"].Status != "ok" || h["Android"].Status != "ok" {
+	if h["iOS app ID"].Status != "ok" || h["Android"].Status != "ok" || h["iOS URL scheme"].Status != "ok" {
 		t.Errorf("good details = %+v / %+v; want ok", h["iOS app ID"], h["Android"])
 	}
 

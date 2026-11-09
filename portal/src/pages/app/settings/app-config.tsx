@@ -49,7 +49,7 @@ export function AppConfigTable({ app, onSaved }: { app: App; onSaved: (a: App) =
         </thead>
         <tbody>
           {line('cfg-ios', 'iOS App ID', field('cfg-ios', 'iosAppId', 'ABCDE12345.com.example.app'), 'TEAMID.BUNDLEID')}
-          {line('cfg-scheme', 'iOS URL scheme', field('cfg-scheme', 'iosScheme', 'myapp'), 'Optional. In-app browsers open the installed app first')}
+          {line('cfg-scheme', 'iOS URL scheme', field('cfg-scheme', 'iosScheme', 'myapp'), 'Recommended. Unset: iOS in-app browsers send installed users to the App Store')}
           {line('cfg-android', 'Android package', field('cfg-android', 'androidPackage', 'com.example.app'), 'Application ID')}
           {line('cfg-cert', 'Android cert fingerprint', field('cfg-cert', 'androidCertFingerprint', 'AA:BB:CC:…', mono), 'SHA-256 of the signing certificate')}
         </tbody>

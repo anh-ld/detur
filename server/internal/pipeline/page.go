@@ -56,12 +56,27 @@ if (cta) cta.addEventListener("click", function (e) {
   location.href = OPEN;
 });`)
 	}
+	if in.Web != "" {
+		b.WriteString(returnJS)
+	}
 	b.WriteString("\n</script>")
 	if in.Copy {
 		return `<noscript><meta http-equiv="refresh" content="0;url=` + stdhtml.EscapeString(in.Href) + `"></noscript>` + b.String()
 	}
 	return b.String()
 }
+
+// returnJS: back from the store or app (page hidden then visible, or bfcache restore) → show "Continue on web".
+const returnJS = `
+(function () {
+  var web = document.getElementById("detur-web"), away = false;
+  if (!web) return;
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") away = true;
+    else if (away) web.style.display = "";
+  });
+  window.addEventListener("pageshow", function (e) { if (e.persisted) web.style.display = ""; });
+})();`
 
 func withScripts(doc, add string) string {
 	if i := strings.LastIndex(strings.ToLower(doc), "</body>"); i >= 0 {

@@ -69,6 +69,13 @@ func (p *portalServer) healthChecks(app store.App, now time.Time) ([]healthCheck
 	default:
 		add("iOS app ID", "ok", app.IOSAppID)
 	}
+	switch {
+	case app.IOSAppID == "":
+	case app.IOSScheme == "":
+		add("iOS URL scheme", "warn", "Not set. iOS in-app browsers (Instagram, TikTok…) send installed users to the App Store.")
+	default:
+		add("iOS URL scheme", "ok", app.IOSScheme+"://")
+	}
 
 	pkg, fp := app.AndroidPackage, app.AndroidCertFingerprint
 	switch {

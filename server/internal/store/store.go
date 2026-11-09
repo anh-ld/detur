@@ -952,7 +952,9 @@ func PasteToken(raw string) (key, token string) {
 	if !rePasteToken.MatchString(t) {
 		return "", ""
 	}
-	return strings.Trim(u.Path, "/"), t
+	// cut at '#': Instagram iOS percent-encodes Detour's #detour_open_app=true into the path; pages copy location.pathname.
+	key, _, _ = strings.Cut(strings.Trim(u.Path, "/"), "#")
+	return key, t
 }
 
 func (s *Store) clickIDCutoff(now time.Time) time.Time {

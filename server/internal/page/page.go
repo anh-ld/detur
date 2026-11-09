@@ -25,6 +25,7 @@ var Placeholders = []Placeholder{
 	{"app_name", "App name"},
 	{"play_link", "Play Store link `.detur-alt`, Android in-app only"},
 	{"steps", "\"Open in browser\" steps `.detur-hint` `.detur-steps`, in-app only"},
+	{"web_link", "\"Continue on web\" link `#detur-web`, shown after the visitor returns from the store"},
 }
 
 const DefaultHTML = `<!doctype html>
@@ -84,6 +85,7 @@ const DefaultHTML = `<!doctype html>
     <img class="icon" src="{{icon_url}}" alt="">
     {{cta}}
     {{play_link}}
+    {{web_link}}
     {{steps}}
   </main>
 </body>
@@ -92,11 +94,11 @@ const DefaultHTML = `<!doctype html>
 
 var glyphIcon = html.EscapeString("data:image/svg+xml," + url.PathEscape(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" fill="#7f7f7f" fill-opacity=".2"/><g fill="#7f7f7f" fill-opacity=".6"><rect x="22" y="22" width="15" height="15" rx="4"/><rect x="43" y="22" width="15" height="15" rx="4"/><rect x="22" y="43" width="15" height="15" rx="4"/><rect x="43" y="43" width="15" height="15" rx="4"/></g></svg>`))
 
-type Vars struct{ CTA, CTAURL, PlayLink, IconURL, AppName, Steps string }
+type Vars struct{ CTA, CTAURL, PlayLink, WebLink, IconURL, AppName, Steps string }
 
 func Render(page string, v Vars) string {
 	return strings.NewReplacer(
-		"{{cta}}", v.CTA, "{{cta_url}}", v.CTAURL, "{{play_link}}", v.PlayLink,
+		"{{cta}}", v.CTA, "{{cta_url}}", v.CTAURL, "{{play_link}}", v.PlayLink, "{{web_link}}", v.WebLink,
 		"{{icon_url}}", v.IconURL, "{{app_name}}", v.AppName, "{{steps}}", v.Steps,
 	).Replace(page)
 }
@@ -139,6 +141,7 @@ type Input struct {
 	Href    string
 	Open    string
 	Play    string
+	Web     string
 	Steps   []string
 	Icon    string
 	AppName string
@@ -162,6 +165,9 @@ func (in Input) Vars() Vars {
 	}
 	if in.Play != "" {
 		v.PlayLink = `<a class="detur-alt" href="` + html.EscapeString(in.Play) + `">Open Play Store</a>`
+	}
+	if in.Web != "" {
+		v.WebLink = `<a id="detur-web" class="detur-alt" href="` + html.EscapeString(in.Web) + `" style="display:none">Continue on web</a>`
 	}
 	if len(in.Steps) > 0 {
 		var b strings.Builder

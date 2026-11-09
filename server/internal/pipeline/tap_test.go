@@ -31,7 +31,7 @@ func TestInAppIOSGetsTapPage(t *testing.T) {
 		t.Fatalf("hop 2 = %d; want 200 tap page", resp.StatusCode)
 	}
 	page := string(body)
-	for _, want := range []string{"Get the app", `href="https://apps.apple.com/app/id123"`, "Open in browser"} {
+	for _, want := range []string{"Get the app", `href="https://apps.apple.com/app/id123"`, "Open in browser", `id="detur-web"`, "Continue on web", `e.persisted`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tap page missing %q:\n%s", want, page)
 		}

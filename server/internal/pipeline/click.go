@@ -39,8 +39,25 @@ func Register(mux *http.ServeMux, st *store.Store, retentionHours int) {
 	})
 }
 
+// stripOpenApp: Detour's #detour_open_app=true flag. Instagram iOS percent-encodes it into the path or a query value
+// (/key%23detour_open_app%3Dtrue?utm_…) → 404 / polluted param. Drop it; the app never sees it (Detour does the same).
+func stripOpenApp(r *http.Request) string {
+	key, _, _ := strings.Cut(r.PathValue("key"), "#")
+	if strings.Contains(r.URL.RawQuery, "%23detour_open_app") {
+		q := r.URL.Query()
+		delete(q, "#detour_open_app")
+		for _, vs := range q {
+			for i, v := range vs {
+				vs[i] = strings.Replace(v, "#detour_open_app=true", "", 1)
+			}
+		}
+		r.URL.RawQuery = q.Encode()
+	}
+	return key
+}
+
 func (p *pipelineServer) handleShort(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
+	key := stripOpenApp(r)
 	link, err := p.st.GetLinkByKeyGlobal(key)
 	if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrAmbiguousKey) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -205,7 +222,7 @@ func serveInterstitial(w http.ResponseWriter, q url.Values, delay int) {
 func (p *pipelineServer) serveCopyPage(w http.ResponseWriter, link store.Link, q url.Values, delay int) {
 	app := p.appOrDefault(link, "copy page")
 	servePage(w, app.PageHTML, page.Input{
-		Copy: true, IOS: true, Href: nextQuery(q), Delay: delay,
+		Copy: true, IOS: true, Href: nextQuery(q), Delay: delay, Web: webTarget(link, q),
 		Paste: store.PasteQuery(),
 		Icon:  appIcons.first(iconKeys(link.IOS, link.Android, app.AndroidPackage)), AppName: app.Name,
 	})
@@ -259,7 +276,11 @@ func validScreen(v string) string {
 
 func pastedFor(raw string, r *http.Request, key string) string {
 	u, err := url.Parse(raw)
-	if err != nil || !strings.EqualFold(u.Host, r.Host) || !strings.EqualFold(strings.Trim(u.Path, "/"), key) {
+	if err != nil {
+		return ""
+	}
+	path, _, _ := strings.Cut(strings.Trim(u.Path, "/"), "#") // flagged path, see stripOpenApp
+	if !strings.EqualFold(u.Host, r.Host) || !strings.EqualFold(path, key) {
 		return ""
 	}
 	return raw

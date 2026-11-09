@@ -35,6 +35,8 @@ Read before deploying. Why → [DECISIONS.md](DECISIONS.md).
 - **Dedup**: link + IP + UA within 1h = one click; re-tap refreshes time + signals.
 - **In-app → browser merge**: "Open in browser" within 1h merges into the in-app click. Shared IPs (office, CGNAT) → two users can merge.
 - **X, Telegram**: Safari View Controller / Custom Tabs send plain browser UAs → only the delayed safety net catches them.
+- **`#detour_open_app=true`**: stripped, never acted on → Instagram/Threads iOS installed users press the tap page button (needs iOS URL scheme).
+- **Continue on web**: shown only on return to the page; custom pages without `{{web_link}}` never show it. Untested on devices.
 - **Tap page**: English only. Skip in dev: `?detur-no-track=1`.
 - **Custom get-app page**: admin HTML runs on the link domain (can break the install flow). CSP blocks scripts, not `<meta http-equiv="refresh">`. Old webviews ignore CSP; the save check only catches `<script` tags.
 
