@@ -1,12 +1,13 @@
 import { DayStat, Mark } from '../../../lib/types';
 import { fmt } from '../../../lib/format';
+import { fmtTzTime } from '../../../lib/tz';
 import { Metric } from './constants';
 
 export const sum = (days: DayStat[], k: Metric) => days.reduce((n, d) => n + d[k], 0);
 
 export const fmtDay = (d: string) => {
   if (d.includes('T')) {
-    return new Date(d).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' });
+    return fmtTzTime(d);
   }
   return new Date(d + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 };

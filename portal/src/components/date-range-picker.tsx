@@ -11,6 +11,7 @@ export const RANGE_OPTIONS: readonly RangePreset[] = [
   { window: '1h', label: 'Last 1 hour' },
   { window: '3h', label: 'Last 3 hours' },
   { window: '12h', label: 'Last 12 hours' },
+  { days: 1, label: 'Last 1 day' },
   { days: 7, label: 'Last 7 days' },
   { days: 14, label: 'Last 14 days' },
   { days: 30, label: 'Last 30 days' },

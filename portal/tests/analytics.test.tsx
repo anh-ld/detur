@@ -2,6 +2,7 @@ import { afterEach, expect, it } from 'bun:test';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/preact';
 import { AnalyticsView } from '../src/pages/app/analytics';
 import { Filters } from '../src/components/filters';
+import { TzToggle } from '../src/components/tz-toggle';
 import { DateRangeFilter } from '../src/lib/range';
 import { buildAppHash, parseHash } from '../src/lib/route';
 
@@ -100,4 +101,25 @@ it('app hash round-trips filters and ignores invalid ones', () => {
   expect(rt({ from: '2026-01-01', to: '2026-01-31' })).toEqual(['l1', 'ios', { from: '2026-01-01', to: '2026-01-31' }]);
   const bad = parseHash('#/apps/a1/analytics?platform=palm&window=2h&range=15m');
   expect(bad).toMatchObject({ platform: undefined, range: undefined });
+});
+
+it('time zone toggle switches sub-day labels between UTC and browser time and persists across remount', () => {
+  const data = { days: [{ day: '2026-01-01T10:00:00Z', clicks: 3, webFallbacks: 0, opens: 0, organic: 0, nonOrganic: 0 }], links: [], events: [], sources: [], conversions: [], retention: [] } as any;
+  const local = new Date('2026-01-01T10:00:00Z');
+  const browser = new Date(local.getTime() - local.getTimezoneOffset() * 60000).toISOString().slice(11, 16);
+  const ui = () => (
+    <>
+      <TzToggle />
+      <AnalyticsView data={data} range={{ window: '1h' }} />
+    </>
+  );
+  render(ui());
+  fireEvent.click(screen.getByLabelText('Time zone'));
+  expect(screen.getAllByText(browser).length).toBeGreaterThan(0);
+  cleanup();
+  render(ui());
+  expect(screen.getByLabelText('Time zone').textContent).toBe('Local');
+  expect(screen.getAllByText(browser).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByLabelText('Time zone'));
+  expect(screen.getAllByText('10:00').length).toBeGreaterThan(0);
 });

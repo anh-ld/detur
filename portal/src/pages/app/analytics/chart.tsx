@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Analytics, DayStat } from '../../../lib/types';
 import { fmt } from '../../../lib/format';
 import { row } from '../../../lib/styles';
+import { useTz } from '../../../lib/tz';
 import { Skeleton } from '../../../components/page';
 import { Series } from './constants';
 import { fmtDay, sum } from './helpers';
@@ -21,9 +22,16 @@ function useWidth() {
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setW(el.clientWidth || 640));
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setW(el.clientWidth || 640));
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
   }, []);
   return [ref, w] as const;
 }
@@ -36,6 +44,7 @@ export function ChartOr({ data, series, kind, empty }: { data: Analytics | null;
 }
 
 function Chart({ days, series, kind }: { days: DayStat[]; series: Series; kind: Kind }) {
+  useTz();
   const [ref, w] = useWidth();
   const [hoverAt, setHover] = useState<number | null>(null);
   const hover = hoverAt !== null && hoverAt < days.length ? hoverAt : null;

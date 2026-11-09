@@ -93,6 +93,7 @@ Change a decision → edit the row, keep the ID. New conflict → add the row be
 | A8 | Tag deferred links: per app, off by default, admin. On → `match-link` + `resolve-short` destination gets `detur_link=<key>`, add-only (R3); visitor `?detur_link=` never forwarded. | Ours | SDK 2.3.1 hands the app the destination, never the key. Off = destinations as stored. | link-analytics |
 | A9 | Sub-day analytics: `?window=15m\|1h\|3h\|12h` aggregates raw clicks/installs directly in SQLite (`strftime('%s')` bucket division) in 1m/5m/10m/30m buckets within `RETENTION_HOURS`. Day ranges keep the daily rollups. | Ours | Track a post in near real time; rollups stop at days. Aggregating in SQL avoids streaming raw rows to Go. | — |
 | A10 | Link-scoped analytics: `?link_id=<id>` filters activity, clicks, conversions, retention, and cohorts to that link; organic installs 0. | Ours | Member / campaign post attribution. | — |
+| A11 | Time zone is display-only: UTC or browser (global sidebar toggle, per browser). Sub-day labels, flagged times, created dates honor it; daily buckets, retention, custom ranges stay UTC days (A4). | Ours | Rollups are per UTC day; shifting would need re-bucketing. | — |
 
 ## Fraud
 

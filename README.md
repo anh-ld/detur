@@ -11,7 +11,7 @@ Self-hosted, drop-in [Detour](https://detour.swmansion.com) backend for its Reac
 - **Link pages**: per-link social previews; desktop QR page for app-only links.
 - **Tags**: label links, filter the list by tag.
 - **Fraud**: flag/block click floods, bots, datacenter IPs, repeat devices.
-- **Analytics & webhooks**: per-link conversions, D1/D7/D30 retention, sub-day + link filters, HMAC-signed webhooks.
+- **Analytics & webhooks**: per-link conversions, D1/D7/D30 retention, sub-day + link filters, display time zone, HMAC-signed webhooks.
 - **Data API + MCP**: read-only, per-app tokens → ask Claude/Cursor about installs, fraud, conversions.
 
 [DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)

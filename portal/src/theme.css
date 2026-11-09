@@ -819,8 +819,9 @@ button.nav-link {
   }
 
   .app-switch {
+    order: 1;
+    flex: 0 0 100%;
     min-width: 0;
-    max-width: 50vw;
   }
 
   .side-foot {
@@ -832,7 +833,7 @@ button.nav-link {
   }
 
   .side-nav {
-    order: 1;
+    order: 2;
     width: 100%;
     display: flex;
     overflow-x: auto;
@@ -1658,34 +1659,6 @@ main p code,
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: 14px;
   color: hsl(var(--k-muted-foreground));
-}
-
-.version .nav-link {
-  font-size: 12px;
-  gap: 4px;
-}
-
-.admin-chip,
-.admin-chip:hover {
-  gap: 8px;
-  padding: 4px 4px 4px 12px;
-  background: hsl(var(--k-card));
-  border: 1px solid hsl(var(--k-border));
-  font-size: 13px;
-  font-weight: 500;
-  cursor: default;
-}
-
-.admin-chip [k='chip-button'] {
-  width: 24px;
-  height: 24px;
-  background: hsl(var(--k-muted));
-  color: hsl(var(--k-foreground));
-  cursor: pointer;
-}
-
-.admin-chip [k='chip-button']:hover {
-  background: hsl(var(--k-muted-hover));
 }

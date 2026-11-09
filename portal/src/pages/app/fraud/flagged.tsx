@@ -5,6 +5,7 @@ import { DateRangeFilter } from '../../../lib/range';
 import { Fraud } from '../../../lib/types';
 import { SIGNALS } from '../../../lib/matching';
 import { fmt } from '../../../lib/format';
+import { fmtTzDateTime as fmtTime, useTz } from '../../../lib/tz';
 import { mono, muted, row, stack } from '../../../lib/styles';
 import { useLatest } from '../../../lib/use-latest';
 import { DateRangePicker } from '../../../components/date-range-picker';
@@ -13,9 +14,9 @@ import { Outcome } from './outcome';
 
 const signalLabel = (k: string) => SIGNALS.find((s) => s.key === k)?.label ?? k;
 
-const fmtTime = (t: string) => new Date(t).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 export function Flagged({ appId, tick }: { appId: string; tick: number }) {
+  useTz();
   const [range, setRange] = useState<DateRangeFilter>({ days: 7 });
   const [data, setData] = useState<Fraud | null>(null);
   const [error, setError] = useState('');

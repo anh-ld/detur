@@ -91,7 +91,7 @@ describe('portal admin flows (gated)', () => {
     await waitFor(() => screen.getByTitle(/^Admin until/));
     expect(await api.getAdminSession()).toMatchObject({ admin: true });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exit admin' }));
     await screen.findByRole('button', { name: 'Enter admin' });
     fireEvent.click(screen.getByRole('button', { name: 'Enter admin' }));
     dlg = await waitFor(pwDialog);
@@ -249,7 +249,7 @@ describe('portal admin flows (gated)', () => {
     });
     fireEvent.input(field, { target: { value: '<h1>typed</h1>' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exit admin' }));
     await screen.findByText(SETTINGS_LOCKED);
     fireEvent.click(screen.getByRole('button', { name: 'Unlock admin' }));
     await unlock();
@@ -269,7 +269,7 @@ describe('portal admin flows (gated)', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Unlock' }));
     await screen.findByTitle(/^Admin until/);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exit admin' }));
     await waitFor(() => gone(screen.queryByTitle(/^Admin until/)));
     await screen.findByRole('button', { name: 'Enter admin' });
     expect(await api.getAdminSession()).toMatchObject({ admin: false });
