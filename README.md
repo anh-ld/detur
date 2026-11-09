@@ -16,20 +16,41 @@ Self-hosted, drop-in [Detour](https://detour.swmansion.com) backend for its Reac
 
 [DECISIONS.md](DECISIONS.md) · [CAVEATS.md](CAVEATS.md)
 
+**Build**
+
 <table>
   <tr>
-    <td width="20%"><img src="images/apps.webp" alt="Apps list"></td>
-    <td width="20%"><img src="images/analytics.webp" alt="Analytics: clicks, installs via link, web fallbacks"></td>
-    <td width="20%"><img src="images/charts.webp" alt="Daily activity and organic vs. non-organic installs"></td>
-    <td width="20%"><img src="images/fraud.webp" alt="Fraud signals: tagged or active per signal, thresholds inline"></td>
-    <td width="20%"><img src="images/settings.webp" alt="App settings: health, config, API key, matching"></td>
+    <td width="20%"><img src="images/apps.webp" alt="Apps list: three apps with setup status"></td>
+    <td width="20%"><img src="images/links.webp" alt="Links list filtered by tag, with clicks and matches"></td>
+    <td width="20%"><img src="images/link-page.webp" alt="Link editor: expiry and social preview"></td>
+    <td width="20%"><img src="images/rules.webp" alt="Rules: platform rule, ?ref=tiktok rule, 70/30 split"></td>
+    <td width="20%"><img src="images/settings.webp" alt="App settings: health checks for SDK, iOS, Android, AASA, proxy"></td>
   </tr>
   <tr>
     <td align="center">Apps</td>
+    <td align="center">Links</td>
+    <td align="center">Link page</td>
+    <td align="center">Rules</td>
+    <td align="center">Settings</td>
+  </tr>
+</table>
+
+**Measure and protect**
+
+<table>
+  <tr>
+    <td width="20%"><img src="images/analytics.webp" alt="Analytics: clicks, installs via link, web fallbacks"></td>
+    <td width="20%"><img src="images/charts.webp" alt="Daily activity and organic vs. non-organic installs"></td>
+    <td width="20%"><img src="images/fraud.webp" alt="Fraud signals: tagged or active per signal, thresholds inline"></td>
+    <td width="20%"><img src="images/webhooks.webp" alt="Webhooks: one active endpoint, one retrying"></td>
+    <td width="20%"><img src="images/mcp.webp" alt="API token and MCP connect snippet"></td>
+  </tr>
+  <tr>
     <td align="center">Analytics</td>
     <td align="center">Charts</td>
     <td align="center">Fraud</td>
-    <td align="center">Settings</td>
+    <td align="center">Webhooks</td>
+    <td align="center">API + MCP</td>
   </tr>
 </table>
 
