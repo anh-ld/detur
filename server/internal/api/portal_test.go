@@ -278,7 +278,7 @@ func TestPortalAnalytics(t *testing.T) {
 		t.Fatalf("analytics sources: want empty list for browser-only traffic, got %s", b)
 	}
 
-	for _, d := range []int{7, 14, 30, 60, 90, 180, 365} {
+	for _, d := range []int{1, 7, 14, 30, 60, 90, 180, 365} {
 		resp, b = portalReq(t, portal, "GET", fmt.Sprintf("/api/apps/%s/analytics?days=%d", app.ID, d), "", nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("analytics days=%d: %d %s", d, resp.StatusCode, b)

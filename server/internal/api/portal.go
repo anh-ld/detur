@@ -762,6 +762,7 @@ func (p *portalServer) updateTagging(w http.ResponseWriter, r *http.Request) {
 }
 
 var analyticsRanges = map[string]int{
+	"1":   1,
 	"7":   7,
 	"14":  14,
 	"30":  30,
@@ -952,7 +953,7 @@ func parseDays(w http.ResponseWriter, r *http.Request, def int) (int, bool) {
 	}
 	days := analyticsRanges[v]
 	if days == 0 {
-		http.Error(w, "days must be 7, 14, 30, 60, 90, 180 or 365", http.StatusBadRequest)
+		http.Error(w, "days must be 1, 7, 14, 30, 60, 90, 180 or 365", http.StatusBadRequest)
 		return 0, false
 	}
 	return days, true
