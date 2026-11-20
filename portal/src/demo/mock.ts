@@ -490,6 +490,6 @@ bar.textContent = "Demo · all data is fake, nothing is saved";
 bar.setAttribute("role", "status");
 
 bar.style.cssText =
-  "position:sticky;top:0;z-index:1000;padding:6px 16px;text-align:center;font:500 13px system-ui,sans-serif;background:hsl(var(--k-accent));color:hsl(var(--k-accent-foreground));border-bottom:1px solid hsl(var(--k-border))";
+  "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:1000;pointer-events:none;white-space:nowrap;padding:6px 14px;border-radius:999px;font:500 13px system-ui,sans-serif;background:hsl(var(--k-accent));color:hsl(var(--k-accent-foreground));border:1px solid hsl(var(--k-border));box-shadow:var(--shadow-md)";
 
 document.body.prepend(bar);
