@@ -4,6 +4,10 @@ import { Button } from 'kinu';
 import { App } from './app';
 import { muted } from './lib/styles';
 
+// --define DEMO_MODE: true in build:demo, false in build (branch dropped); undefined in dev
+declare const DEMO_MODE: boolean;
+if (typeof DEMO_MODE !== 'undefined' && DEMO_MODE) await import('./demo/mock');
+
 class ErrorBoundary extends Component<{ children: ComponentChildren }, { err: Error | null }> {
   state = { err: null as Error | null };
 

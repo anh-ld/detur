@@ -2,6 +2,8 @@
 
 > **Built on the Detour team's work. Support them with [Detour](https://detour.swmansion.com).**
 
+**[Live demo](https://detur-demo.netlify.app)**: portal with fake data, read-only.
+
 Self-hosted, drop-in [Detour](https://detour.swmansion.com) backend for its React Native, iOS, Android, and Flutter SDKs. Deferred deep links open on first launch after install; analytics track clicks, installs, and events.
 
 - **Single binary**: Go + SQLite + Preact portal; ~30 MB RAM, <0.1 vCPU.
@@ -168,6 +170,7 @@ Prerequisites: Go 1.27, Bun 1.4.4.
 
 - Portal HMR `:8000` + Go reload via [air](https://github.com/air-verse/air).
 - Portal rules live once: admin gate + load guard `portal/src/lib/admin.ts`, URLs `portal/src/lib/route.ts`, link draft `portal/src/pages/app/links/link-draft.ts`. Layout: `lib/` (no JSX), `components/` (shared UI), `pages/` (one folder per screen).
+- Demo: `cd portal && bun run build:demo` → static `dist-demo/` with fake data (`src/demo/mock.ts`), deploy to any static host.
 - Tests: `cd server && go test ./...` · `cd portal && bun run test` (stop any running `detur` first: tests bind `:8080`)
 
 ## Credits
